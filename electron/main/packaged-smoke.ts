@@ -8,7 +8,7 @@ import { isAbsolute } from 'node:path'
 export const PACKAGED_RENDERER_URL = 'prime-work://app/index.html'
 
 /**
- * Diagnostic startup check: `GooeyPi --packaged-smoke=<absolute marker path>`
+ * Diagnostic startup check: `VClaw --packaged-smoke=<absolute marker path>`
  * writes one readiness marker and exits as soon as the trusted renderer has
  * completed an authorized IPC round trip. It grants no capability, opens no new
  * IPC surface, and reports readiness only after the ordinary renderer trust
@@ -16,7 +16,7 @@ export const PACKAGED_RENDERER_URL = 'prime-work://app/index.html'
  * shipped builds; see docs/security.md.
  */
 export const PACKAGED_SMOKE_FLAG = '--packaged-smoke='
-export const PACKAGED_SMOKE_READY_EVENT = 'gooeypi-packaged-smoke-ready'
+export const PACKAGED_SMOKE_READY_EVENT = 'vclaw-packaged-smoke-ready'
 export const MAX_PACKAGED_SMOKE_MARKER_BYTES = 4 * 1024
 
 export interface PackagedSmokeMarker {

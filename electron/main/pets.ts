@@ -70,10 +70,10 @@ export class PetService {
     const packages: PetPackage[] = []
     const builtInRoot = await stableDirectory(this.options.builtInRoot)
     if (builtInRoot) {
-      const gooeyDirectory = await stableDirectory(join(builtInRoot, 'gooey-pi'))
-      if (gooeyDirectory) {
-        const gooey = await readPackage(gooeyDirectory, 'gooey-pi', 'built-in')
-        if (gooey) packages.push(gooey)
+      const vclawDirectory = await stableDirectory(join(builtInRoot, 'vclaw'))
+      if (vclawDirectory) {
+        const vclaw = await readPackage(vclawDirectory, 'vclaw', 'built-in')
+        if (vclaw) packages.push(vclaw)
       }
     }
 
@@ -100,7 +100,7 @@ export class PetService {
       id: 'orb',
       petId: 'orb',
       displayName: 'Orb',
-      description: 'A fluid voice orb that shifts with GooeyPi activity.',
+      description: 'A fluid voice orb that shifts with VClaw activity.',
       source: 'built-in',
       kind: 'orb',
     }
@@ -108,7 +108,7 @@ export class PetService {
   }
 
   async sprite(selectionId: unknown): Promise<string | null> {
-    if (typeof selectionId !== 'string' || !/^(?:gooey-pi|codex\/[a-z0-9][a-z0-9._-]{0,63})$/i.test(selectionId)) throw new TypeError('Invalid pet id')
+    if (typeof selectionId !== 'string' || !/^(?:vclaw|codex\/[a-z0-9][a-z0-9._-]{0,63})$/i.test(selectionId)) throw new TypeError('Invalid pet id')
     const candidate = (await this.packages()).find((item) => item.definition.id === selectionId)
     if (!candidate) return null
     const value = await boundedFile(candidate.spritesheet, MAX_SPRITESHEET_BYTES)

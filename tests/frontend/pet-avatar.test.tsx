@@ -8,10 +8,10 @@ import type { PetDefinition, PrimeWorkApi } from '../../src/types/api'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const pet: PetDefinition = {
-  id: 'gooey-pi',
-  petId: 'gooey-pi',
-  displayName: 'GooeyPi',
-  description: 'Gooey.',
+  id: 'vclaw',
+  petId: 'vclaw',
+  displayName: 'VClaw',
+  description: 'VClaw.',
   source: 'built-in',
   kind: 'spritesheet',
 }

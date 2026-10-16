@@ -7,7 +7,7 @@ import { EmptyState, Modal } from '@/components/ui'
 
 const MCP_STDIO_HELP: Record<HarnessId, string> = {
   omp: 'OMP starts this stdio MCP server directly in each new session.',
-  prime: 'Prime Agent MCP setup is managed outside GooeyPi.',
+  prime: 'Prime Agent MCP setup is managed outside VClaw.',
   pi: 'Pi starts this stdio MCP server through the pi-mcp-adapter extension (pi install npm:pi-mcp-adapter) in each new session.',
 }
 
@@ -21,7 +21,7 @@ const PACKAGE_HELP: Record<HarnessId, string> = {
   omp: 'Install an OMP plugin bundle with OMP’s native plugin manager. Marketplace targets use name@marketplace.',
   pi: 'Install a Pi package containing extensions, skills, prompts, or themes with Pi’s package manager.',
 }
-const GITHUB_ISSUES_URL = 'https://github.com/am-will/gooey-pi/issues/new'
+const GITHUB_ISSUES_URL = 'https://github.com/chatek/vclaw-desktop/issues/new'
 
 function capabilityDetailId(skill: SkillRecord): string {
   return `capability-detail-${skill.id.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 128)}`
@@ -84,13 +84,13 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
   const [confirmDisable, setConfirmDisable] = useState<SkillRecord | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<SkillRecord | null>(null)
   const [capabilityAlert, setCapabilityAlert] = useState('')
-  const piMcpAdapterInstalled = skills.some((skill) => skill.id === 'gooeypi-pi-mcp' && skill.enabled)
+  const piMcpAdapterInstalled = skills.some((skill) => skill.id === 'vclaw-pi-mcp' && skill.enabled)
   const canConfigureMcp = harness === 'omp' || harness === 'pi' && piMcpAdapterInstalled
 
-  const visible = useMemo(() => skills.map((skill) => skill.id === 'gooeypi-ask-user'
+  const visible = useMemo(() => skills.map((skill) => skill.id === 'vclaw-ask-user'
     ? { ...skill, enabled: askUserEnabled }
     : skill.id === 'prime-work-browser' || skill.id === 'omp-work-browser' ? { ...skill, enabled: browserEnabled }
-    : skill.id === 'gooeypi-computer-use' ? { ...skill, enabled: computerUseEnabled } : skill).filter((skill) => {
+    : skill.id === 'vclaw-computer-use' ? { ...skill, enabled: computerUseEnabled } : skill).filter((skill) => {
     const capability = skill.id === 'prime-work-browser' || skill.id === 'omp-work-browser' || skill.kind !== 'skill' && skill.kind !== 'prompt'
     return (tab === 'plugins' ? capability : !capability)
       && (filter === 'all' || filter === 'installed' && skill.enabled || filter === skill.location)
@@ -205,10 +205,10 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
   }
   const disableCapability = async (skill: SkillRecord) => {
     setConfirmDisable(null)
-    if (skill.id === 'gooeypi-ask-user') await setAskUser(false)
+    if (skill.id === 'vclaw-ask-user') await setAskUser(false)
     else if (skill.id === 'prime-work-browser' || skill.id === 'omp-work-browser') await setBrowser(false)
-    else if (skill.id === 'gooeypi-computer-use') await setComputerUse(skill, false)
-    else if (skill.id === 'gooeypi-pi-mcp') await setMcpSupport(skill, false)
+    else if (skill.id === 'vclaw-computer-use') await setComputerUse(skill, false)
+    else if (skill.id === 'vclaw-pi-mcp') await setMcpSupport(skill, false)
     else if (skill.kind === 'mcp') await setMcp(skill, false)
     else if (skill.kind === 'package') await mutate(skill, 'disable')
   }
@@ -242,7 +242,7 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
   }
   const capabilityControl = (skill: SkillRecord) => {
     if (skill.kind === 'mcp' && skill.availability?.available === false) {
-      const external = skill.availability.detail.includes('managed outside GooeyPi')
+      const external = skill.availability.detail.includes('managed outside VClaw')
       const label = external ? `Externally managed ${skill.name}` : harness === 'pi' ? `Pi MCP Adapter required for ${skill.name}` : `Unavailable ${skill.name}`
       return <span className="plugin-toggle" role="img" aria-label={label} aria-describedby={capabilityDetailId(skill)}><ShieldCheck aria-hidden="true" size={14}/></span>
     }
@@ -250,18 +250,18 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
       return <span className="plugin-toggle" role="img" aria-label={`Pi MCP Adapter required for ${skill.name}`} aria-describedby={capabilityDetailId(skill)}><ShieldCheck aria-hidden="true" size={14}/></span>
     }
     const isBrowser = skill.id === 'prime-work-browser' || skill.id === 'omp-work-browser'
-    const actionable = skill.id === 'gooeypi-ask-user' || isBrowser || skill.id === 'gooeypi-computer-use' || skill.id === 'gooeypi-pi-mcp' || skill.kind === 'mcp' || skill.kind === 'package'
+    const actionable = skill.id === 'vclaw-ask-user' || isBrowser || skill.id === 'vclaw-computer-use' || skill.id === 'vclaw-pi-mcp' || skill.kind === 'mcp' || skill.kind === 'package'
     if (!actionable) return <span className={skill.enabled ? 'plugin-toggle is-enabled' : 'plugin-toggle'} aria-label={`${skill.enabled ? 'Enabled' : 'Unavailable'} ${skill.name}`}>{skill.enabled ? <Check size={14}/> : <Plus size={14}/>}</span>
-    const updating = skill.id === 'gooeypi-ask-user' ? askUserUpdating
+    const updating = skill.id === 'vclaw-ask-user' ? askUserUpdating
       : isBrowser ? browserUpdating
-        : skill.id === 'gooeypi-computer-use' ? computerUseUpdating
-          : skill.id === 'gooeypi-pi-mcp' ? mcpSupportUpdating
+        : skill.id === 'vclaw-computer-use' ? computerUseUpdating
+          : skill.id === 'vclaw-pi-mcp' ? mcpSupportUpdating
             : capabilityUpdating === skill.id
     const enable = () => {
-      if (skill.id === 'gooeypi-ask-user') return setAskUser(true)
+      if (skill.id === 'vclaw-ask-user') return setAskUser(true)
       if (isBrowser) return setBrowser(true)
-      if (skill.id === 'gooeypi-computer-use') return setComputerUse(skill, true)
-      if (skill.id === 'gooeypi-pi-mcp') return setMcpSupport(skill, true)
+      if (skill.id === 'vclaw-computer-use') return setComputerUse(skill, true)
+      if (skill.id === 'vclaw-pi-mcp') return setMcpSupport(skill, true)
       if (skill.kind === 'package') return mutate(skill, 'enable')
       return setMcp(skill, true)
     }
@@ -329,7 +329,7 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
             {addKind === null ? (
               <div className="capability-choice-list">
                 <button type="button" disabled={harness === 'prime' || harness === 'pi' && !piMcpAdapterInstalled} onClick={() => selectAddKind('mcp')}>
-                  <span><Globe2 size={17}/></span><span><strong>Add MCP</strong><small>{harness === 'prime' ? 'Prime MCP setup is managed outside GooeyPi' : harness === 'pi' && !piMcpAdapterInstalled ? 'Enable Pi MCP Adapter first' : 'Add a local stdio server; network servers stay externally managed'}</small></span><ChevronRight size={15}/>
+                  <span><Globe2 size={17}/></span><span><strong>Add MCP</strong><small>{harness === 'prime' ? 'Prime MCP setup is managed outside VClaw' : harness === 'pi' && !piMcpAdapterInstalled ? 'Enable Pi MCP Adapter first' : 'Add a local stdio server; network servers stay externally managed'}</small></span><ChevronRight size={15}/>
                 </button>
                 <button type="button" onClick={() => selectAddKind('bundle')}>
                   <span><Package size={17}/></span><span><strong>Add {harness === 'omp' ? 'Plugin' : 'Package'}</strong><small>{PACKAGE_HELP[harness]}</small></span><ChevronRight size={15}/>
@@ -337,7 +337,7 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
                 <button type="button" onClick={() => selectAddKind('extension')}>
                   <span><FileCode2 size={17}/></span><span><strong>Add Extension</strong><small>Install one local JavaScript or TypeScript extension module for {HARNESS_SHORT_NAMES[harness]}.</small></span><ChevronRight size={15}/>
                 </button>
-                <p className="capability-compatibility-note"><AlertTriangle size={13}/><span>Not every third-party package, plugin, or extension will work in GooeyPi. If something fails, <button type="button" onClick={() => onOpenExternal(GITHUB_ISSUES_URL)}>create a GitHub issue</button>.</span></p>
+                <p className="capability-compatibility-note"><AlertTriangle size={13}/><span>Not every third-party package, plugin, or extension will work in VClaw. If something fails, <button type="button" onClick={() => onOpenExternal(GITHUB_ISSUES_URL)}>create a GitHub issue</button>.</span></p>
               </div>
             ) : addKind === 'bundle' ? (
               <div className="add-tool-form">
@@ -353,13 +353,13 @@ export function PluginsPage({ harness, skills, warnings, loading, activeProjectP
                 <label className="field"><span>Extension file</span><input autoFocus value={source} onChange={(event) => setSource(event.target.value)} placeholder="/absolute/path/to/my-extension.ts"/></label>
                 <small className="field-help">Choose an absolute local <code>.ts</code>, <code>.js</code>, <code>.mjs</code>, or <code>.cjs</code> file. Extensions run with your user permissions.</small>
                 <label className="field"><span>Available in</span><select value={mcpScope} onChange={(event) => setMcpScope(event.target.value as McpScope)}><option value="user">All projects (personal)</option><option value="project" disabled={!activeProjectPath}>Current project</option></select></label>
-                <p className="connection-warning"><ShieldCheck size={13}/> Extension APIs differ between harnesses. GooeyPi installs the file correctly, but CLI-specific UI may not render in the desktop app.</p>
+                <p className="connection-warning"><ShieldCheck size={13}/> Extension APIs differ between harnesses. VClaw installs the file correctly, but CLI-specific UI may not render in the desktop app.</p>
               </div>
             ) : (
               <div className="add-tool-form">
                 <p className="modal-intro">{harness === 'omp'
-                  ? 'Add a local stdio server to OMP’s native MCP configuration. HTTP/SSE servers and OAuth are managed directly in OMP, outside GooeyPi.'
-                  : 'Add a local stdio server to pi-mcp-adapter’s configuration. HTTP/SSE servers and OAuth are managed outside GooeyPi.'}</p>
+                  ? 'Add a local stdio server to OMP’s native MCP configuration. HTTP/SSE servers and OAuth are managed directly in OMP, outside VClaw.'
+                  : 'Add a local stdio server to pi-mcp-adapter’s configuration. HTTP/SSE servers and OAuth are managed outside VClaw.'}</p>
                 <label className="field"><span>Server name</span><input autoFocus value={mcpName} onChange={(event) => setMcpName(event.target.value)} placeholder="my-local-tools"/></label>
                 <p className="field-help">{MCP_STDIO_HELP[harness]}</p>
                 <label className="field"><span>Executable</span><input value={mcpCommand} onChange={(event) => setMcpCommand(event.target.value)} placeholder="npx"/></label>

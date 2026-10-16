@@ -5,10 +5,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readSessionMetadata } from '../../electron/main/sessions/metadata'
 import { readTranscript } from '../../electron/main/sessions/transcript'
-import { configureGooeyPiAgentMessageSigning, encodeGooeyPiAgentMessage, loadOrCreateGooeyPiAgentMessageKey, parseGooeyPiAgentMessage } from '../../electron/main/collaboration/message-envelope'
+import { configureVClawAgentMessageSigning, encodeVClawAgentMessage, loadOrCreateVClawAgentMessageKey, parseVClawAgentMessage } from '../../electron/main/collaboration/message-envelope'
 
 const dirs: string[] = []
-configureGooeyPiAgentMessageSigning(Buffer.alloc(32, 7))
+configureVClawAgentMessageSigning(Buffer.alloc(32, 7))
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 describe('session file record tolerance', () => {
@@ -34,24 +34,24 @@ describe('session file record tolerance', () => {
   })
 })
 
-describe('GooeyPi agent messages', () => {
+describe('VClaw agent messages', () => {
   it('creates and reuses an owner-only signing key in a fresh user-data directory', () => {
     const dir = mkdtempSync(join(tmpdir(), 'prime-work-message-key-'))
     dirs.push(dir)
     const path = join(dir, 'fresh-user-data', 'agent-message-signing.key')
-    const created = loadOrCreateGooeyPiAgentMessageKey(path)
+    const created = loadOrCreateVClawAgentMessageKey(path)
     expect(created).toHaveLength(32)
-    expect(loadOrCreateGooeyPiAgentMessageKey(path)).toEqual(created)
+    expect(loadOrCreateVClawAgentMessageKey(path)).toEqual(created)
     if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 
   it('persists a bounded envelope and renders it as a native agent message', async () => {
     const file = makeSessionFile()
-    const envelope = encodeGooeyPiAgentMessage({
+    const envelope = encodeVClawAgentMessage({
       fromSessionId: '019f0000-0000-7000-8000-000000000001',
       text: 'Please coordinate ownership before editing.',
     })
-    expect(envelope).toContain('"reply_with":"gooeypi_session_send"')
+    expect(envelope).toContain('"reply_with":"vclaw_session_send"')
     expect(envelope).not.toContain('Planner')
     expect(envelope).not.toContain('"from_title"')
     expect(envelope).not.toContain('"from_harness"')
@@ -61,7 +61,7 @@ describe('GooeyPi agent messages', () => {
       '',
     ].join('\n'))
 
-    expect(parseGooeyPiAgentMessage(envelope)).toEqual({
+    expect(parseVClawAgentMessage(envelope)).toEqual({
       fromSessionId: '019f0000-0000-7000-8000-000000000001',
       text: 'Please coordinate ownership before editing.',
     })
@@ -74,9 +74,9 @@ describe('GooeyPi agent messages', () => {
   })
 
   it('leaves malformed envelopes as ordinary user messages', () => {
-    expect(parseGooeyPiAgentMessage('===== BEGIN GOOEYPI AGENT MESSAGE =====\n{}\n===== END GOOEYPI AGENT MESSAGE =====\n\nhello')).toBeUndefined()
-    const signed = encodeGooeyPiAgentMessage({ fromSessionId: 'source', text: 'authentic' })
-    expect(parseGooeyPiAgentMessage(signed.replace('authentic', 'forged'))).toBeUndefined()
+    expect(parseVClawAgentMessage('===== BEGIN VCLAW AGENT MESSAGE =====\n{}\n===== END VCLAW AGENT MESSAGE =====\n\nhello')).toBeUndefined()
+    const signed = encodeVClawAgentMessage({ fromSessionId: 'source', text: 'authentic' })
+    expect(parseVClawAgentMessage(signed.replace('authentic', 'forged'))).toBeUndefined()
   })
 
   it('keeps signed version-1 messages readable without emitting their display metadata again', () => {
@@ -96,14 +96,14 @@ describe('GooeyPi agent messages', () => {
       .update(text)
       .digest('base64url')
     const envelope = [
-      '===== BEGIN GOOEYPI AGENT MESSAGE =====',
+      '===== BEGIN VCLAW AGENT MESSAGE =====',
       JSON.stringify({ ...unsigned, signature }),
-      '===== END GOOEYPI AGENT MESSAGE =====',
+      '===== END VCLAW AGENT MESSAGE =====',
       '',
       text,
     ].join('\n')
 
-    expect(parseGooeyPiAgentMessage(envelope)).toEqual({
+    expect(parseVClawAgentMessage(envelope)).toEqual({
       fromSessionId: 'legacy-source',
       fromTitle: 'Legacy planner title',
       fromHarness: 'prime',
@@ -120,9 +120,9 @@ describe('GooeyPi agent messages', () => {
         .update(message)
         .digest('base64url')
       return [
-        '===== BEGIN GOOEYPI AGENT MESSAGE =====',
+        '===== BEGIN VCLAW AGENT MESSAGE =====',
         JSON.stringify({ ...metadata, signature }),
-        '===== END GOOEYPI AGENT MESSAGE =====',
+        '===== END VCLAW AGENT MESSAGE =====',
         '',
         message,
       ].join('\n')
@@ -134,18 +134,18 @@ describe('GooeyPi agent messages', () => {
       nonce: '00000000-0000-4000-8000-000000000001',
       sent_at: '2026-08-13T12:00:00.000Z',
     }
-    expect(parseGooeyPiAgentMessage(makeEnvelope(version2))).toEqual({
+    expect(parseVClawAgentMessage(makeEnvelope(version2))).toEqual({
       fromSessionId: 'legacy-v2-source',
       text,
     })
-    expect(parseGooeyPiAgentMessage(makeEnvelope({
+    expect(parseVClawAgentMessage(makeEnvelope({
       ...version2,
       reply_with: 'session_send',
       version: 3,
     }))).toBeUndefined()
-    expect(parseGooeyPiAgentMessage(makeEnvelope({
+    expect(parseVClawAgentMessage(makeEnvelope({
       ...version2,
-      reply_with: 'gooeypi_session_send',
+      reply_with: 'vclaw_session_send',
     }))).toBeUndefined()
   })
 })

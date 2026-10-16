@@ -32,7 +32,7 @@ import { AgentScheduleBridge } from './schedules/agent-bridge'
 import { AgentBrowserBridge } from './browser/agent-bridge'
 import { AgentBrowserService } from './browser/agent-service'
 import { AgentCollaborationBridge } from './collaboration/agent-bridge'
-import { configureGooeyPiAgentMessageSigning, loadOrCreateGooeyPiAgentMessageKey } from './collaboration/message-envelope'
+import { configureVClawAgentMessageSigning, loadOrCreateVClawAgentMessageKey } from './collaboration/message-envelope'
 import { extensionInjection, resolveExtensionPath, type ExtensionCapability } from './extension-manifest'
 import { SessionService } from './sessions'
 import { ompSessionServiceOptions } from './sessions/omp'
@@ -232,10 +232,10 @@ export function shutdownPrompt(work: ActiveShutdownWork): ShutdownPrompt | null 
       ? 'An agent run is still in progress and will be stopped.'
       : `${work.runningAgents} agent runs are still in progress and will be stopped.`)
   }
-  if (work.activeSchedules) details.push('Scheduled automations will not run while GooeyPi is closed.')
+  if (work.activeSchedules) details.push('Scheduled automations will not run while VClaw is closed.')
   if (details.length === 0) return null
   return {
-    message: work.runningAgents > 0 ? 'Close GooeyPi while an agent is running?' : 'Close GooeyPi?',
+    message: work.runningAgents > 0 ? 'Close VClaw while an agent is running?' : 'Close VClaw?',
     detail: details.join(' '),
   }
 }
@@ -243,11 +243,11 @@ export function shutdownPrompt(work: ActiveShutdownWork): ShutdownPrompt | null 
 export async function confirmAppClose(window: BrowserWindow | null, prompt: ShutdownPrompt): Promise<boolean> {
   const options = {
     type: 'warning' as const,
-    buttons: ['Cancel', 'Close GooeyPi'],
+    buttons: ['Cancel', 'Close VClaw'],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    title: 'GooeyPi',
+    title: 'VClaw',
     ...prompt,
   }
   const { response } = window && !window.isDestroyed()
@@ -273,7 +273,7 @@ function requestShutdown(window: BrowserWindow | null, prompt: ShutdownPrompt): 
     shutdownApproved = true
     app.quit()
   }).catch((error: unknown) => {
-    console.error(`GooeyPi close confirmation failed: ${boundedErrorMessage(error)}`)
+    console.error(`VClaw close confirmation failed: ${boundedErrorMessage(error)}`)
   }).finally(() => { confirmingShutdown = false })
 }
 
@@ -316,7 +316,7 @@ export function mainWindowChromeOptions(platform: NodeJS.Platform = process.plat
     visualEffectState: 'active',
   }
   if (platform === 'win32') return {
-    // The native caption controls share a dedicated menu row. GooeyPi's own
+    // The native caption controls share a dedicated menu row. VClaw's own
     // 52px toolbar remains a separate application surface below it.
     titleBarStyle: 'hidden',
     titleBarOverlay: windowsTitleBarOverlay(theme),
@@ -465,10 +465,10 @@ export interface StartupFailureDialog {
 
 export function startupFailureDialog(error: unknown): StartupFailureDialog | null {
   if (error instanceof StateMigrationError) {
-    return { title: 'GooeyPi state migration failed', detail: boundedErrorMessage(error, 2_048) }
+    return { title: 'VClaw state migration failed', detail: boundedErrorMessage(error, 2_048) }
   }
   if (error instanceof StateCompatibilityError) {
-    return { title: 'GooeyPi update required', detail: boundedErrorMessage(error, 2_048) }
+    return { title: 'VClaw update required', detail: boundedErrorMessage(error, 2_048) }
   }
   return null
 }
@@ -503,7 +503,7 @@ export function extensionRuntimeEnvironment(
     PRIME_WORK_SCHEDULE_EXTENSION_PATH: extensionPaths.schedule,
     PRIME_WORK_BROWSER_EXTENSION_PATH: browserEnabled ? extensionPaths.browser : undefined,
     PRIME_WORK_ASK_USER_EXTENSION_PATH: askUserEnabled ? extensionPaths.askUser : undefined,
-    GOOEYPI_MANAGES_ASK_USER: '1',
+    VCLAW_MANAGES_ASK_USER: '1',
   }
 }
 
@@ -515,13 +515,13 @@ export async function settleShutdown(
   const watchdogMs = options.watchdogMs ?? 10_000
   const settled = Promise.allSettled(steps).then((results) => {
     for (const result of results) {
-      if (result.status === 'rejected') log(`GooeyPi shutdown step failed: ${boundedErrorMessage(result.reason)}`)
+      if (result.status === 'rejected') log(`VClaw shutdown step failed: ${boundedErrorMessage(result.reason)}`)
     }
   })
   let timer: NodeJS.Timeout | undefined
   const watchdog = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      log(`GooeyPi shutdown did not finish within ${watchdogMs} ms; quitting anyway`)
+      log(`VClaw shutdown did not finish within ${watchdogMs} ms; quitting anyway`)
       resolve()
     }, watchdogMs)
     timer.unref?.()
@@ -543,7 +543,7 @@ function requestWindow(reason: 'activation' | 'second instance' | 'menu bar' | '
     }
     afterOpen?.(window)
   }).catch((error: unknown) => {
-    if (!shutdownStarted) console.error(`GooeyPi failed to open a window after ${reason}: ${boundedErrorMessage(error)}`)
+    if (!shutdownStarted) console.error(`VClaw failed to open a window after ${reason}: ${boundedErrorMessage(error)}`)
   })
 }
 
@@ -563,7 +563,7 @@ export function routeAllWindowsClosed(
 
 async function bootstrap(): Promise<void> {
   const userDataPath = app.getPath('userData')
-  configureGooeyPiAgentMessageSigning(loadOrCreateGooeyPiAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
+  configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)
   store = stateStore
   backgroundMode = new MacBackgroundController({
@@ -771,8 +771,8 @@ async function bootstrap(): Promise<void> {
     ? join(process.resourcesPath, 'skills', 'prime-work-browser')
     : join(app.getAppPath(), 'assets', 'skills', 'prime-work-browser')
   const computerUseSkillPath = app.isPackaged
-    ? join(process.resourcesPath, 'skills', 'gooeypi-computer-use', 'SKILL.md')
-    : join(app.getAppPath(), 'assets', 'skills', 'gooeypi-computer-use', 'SKILL.md')
+    ? join(process.resourcesPath, 'skills', 'vclaw-computer-use', 'SKILL.md')
+    : join(app.getAppPath(), 'assets', 'skills', 'vclaw-computer-use', 'SKILL.md')
   const extensionPathContext = {
     isPackaged: app.isPackaged,
     appPath: app.getAppPath(),
@@ -789,7 +789,7 @@ async function bootstrap(): Promise<void> {
   const computerUseSkill = async () => {
     const status = await cuaDriver.status()
     return {
-      id: 'gooeypi-computer-use', name: 'Computer Use | TryCUA',
+      id: 'vclaw-computer-use', name: 'Computer Use | TryCUA',
       description: 'Drive native apps through a separately installed TryCUA driver. Install the driver before enabling.',
       kind: 'extension' as const, location: 'system' as const, path: computerUseSkillPath,
       enabled: stateStore.getSettings().computerUseEnabled,
@@ -802,8 +802,8 @@ async function bootstrap(): Promise<void> {
       description: 'Create and manage durable project and thread schedules from an agent.',
       kind: 'skill', location: 'system', path: scheduleSkillPath, enabled: true,
     }, {
-      id: 'gooeypi-ask-user', name: 'Ask user',
-      description: 'Ask focused multiple-choice questions in the GooeyPi app across Prime, OMP, and Pi.',
+      id: 'vclaw-ask-user', name: 'Ask user',
+      description: 'Ask focused multiple-choice questions in the VClaw app across Prime, OMP, and Pi.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, {
       id: 'prime-work-browser', name: 'Browser',
@@ -815,15 +815,15 @@ async function bootstrap(): Promise<void> {
     harness: 'omp',
     builtInSkills: async () => [{
       id: 'omp-work-schedules', name: 'Scheduled tasks',
-      description: 'OMP extension for durable project and thread schedules managed by GooeyPi.',
+      description: 'OMP extension for durable project and thread schedules managed by VClaw.',
       kind: 'extension', location: 'system', path: ompScheduleExtensionPath, enabled: true,
     }, {
       id: 'omp-work-browser', name: 'Browser',
       description: 'OMP extension for driving this thread\'s in-app browser.',
       kind: 'extension', location: 'system', path: ompBrowserExtensionPath, enabled: stateStore.getSettings().browserEnabled,
     }, {
-      id: 'gooeypi-ask-user', name: 'Ask user',
-      description: 'OMP extension for asking focused multiple-choice questions in the GooeyPi app.',
+      id: 'vclaw-ask-user', name: 'Ask user',
+      description: 'OMP extension for asking focused multiple-choice questions in the VClaw app.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, await computerUseSkill()],
   })
@@ -833,15 +833,15 @@ async function bootstrap(): Promise<void> {
     harness: 'pi',
     builtInSkills: async () => [{
       id: 'omp-work-schedules', name: 'Scheduled tasks',
-      description: 'Pi extension for durable project and thread schedules managed by GooeyPi.',
+      description: 'Pi extension for durable project and thread schedules managed by VClaw.',
       kind: 'extension', location: 'system', path: ompScheduleExtensionPath, enabled: true,
     }, {
       id: 'omp-work-browser', name: 'Browser',
       description: 'Pi extension for driving this thread\'s in-app browser.',
       kind: 'extension', location: 'system', path: ompBrowserExtensionPath, enabled: stateStore.getSettings().browserEnabled,
     }, {
-      id: 'gooeypi-ask-user', name: 'Ask user',
-      description: 'Pi extension for asking focused multiple-choice questions in the GooeyPi app.',
+      id: 'vclaw-ask-user', name: 'Ask user',
+      description: 'Pi extension for asking focused multiple-choice questions in the VClaw app.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, await computerUseSkill()],
   })
@@ -960,11 +960,11 @@ async function bootstrap(): Promise<void> {
     const claims: Array<[string, { revoke(token: string | undefined): boolean }, string | undefined]> = [
       ['schedule', runtimeScheduleBridge, environment.PRIME_WORK_SCHEDULE_TOKEN],
       ['browser', browserBridge, environment.PRIME_WORK_BROWSER_TOKEN],
-      ['collaboration', collaborationBridge, environment.GOOEYPI_COLLABORATION_TOKEN],
+      ['collaboration', collaborationBridge, environment.VCLAW_COLLABORATION_TOKEN],
     ]
     for (const [name, bridge, token] of claims) {
       try { bridge.revoke(token) } catch (error) {
-        console.error(`GooeyPi failed to revoke ${name} runtime capability: ${boundedErrorMessage(error)}`)
+        console.error(`VClaw failed to revoke ${name} runtime capability: ${boundedErrorMessage(error)}`)
       }
     }
   }
@@ -973,13 +973,13 @@ async function bootstrap(): Promise<void> {
     ...(stateStore.getSettings().browserEnabled ? browserBridge.environmentFor(scope) : {}),
     ...collaborationBridge.environmentFor({ ...scope, harness: 'prime' }),
     PRIME_WORK_ASK_USER_EXTENSION_PATH: stateStore.getSettings().askUserEnabled && scope.interactive ? ompAskUserExtensionPath : undefined,
-    GOOEYPI_MANAGES_ASK_USER: '1',
-    GOOEYPI_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
-    GOOEYPI_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
+    VCLAW_MANAGES_ASK_USER: '1',
+    VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
+    VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))
   agents.setRuntimeStartListener((environment, info) => {
     browserBridge.bindSession(environment.PRIME_WORK_BROWSER_TOKEN, info.sessionFile)
-    collaborationBridge.bindSession(environment.GOOEYPI_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
+    collaborationBridge.bindSession(environment.VCLAW_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
   })
   agents.setRuntimeEndListener((environment) => revokeRuntimeCapabilities(environment, scheduleBridge))
   // OMP runtimes get the same capability-scoped brokers through OMP-flavored
@@ -993,12 +993,12 @@ async function bootstrap(): Promise<void> {
   ompManager.setRuntimeEnvironmentProvider((scope) => ({
     ...extensionRuntimeEnvironment(ompScheduleBridge.environmentFor(scope), () => browserBridge.environmentFor(scope), capabilityExtensionPaths, stateStore.getSettings().askUserEnabled && scope.interactive, stateStore.getSettings().browserEnabled),
     ...collaborationBridge.environmentFor({ ...scope, harness: 'omp' }),
-    GOOEYPI_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
-    GOOEYPI_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
+    VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
+    VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))
   ompManager.setRuntimeStartListener((environment, info) => {
     browserBridge.bindSession(environment.PRIME_WORK_BROWSER_TOKEN, info.sessionFile)
-    collaborationBridge.bindSession(environment.GOOEYPI_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
+    collaborationBridge.bindSession(environment.VCLAW_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
   })
   ompManager.setRuntimeEndListener((environment) => revokeRuntimeCapabilities(environment, ompScheduleBridge))
   // Pi runtimes receive the identical capability surface: pi's extension API
@@ -1006,13 +1006,13 @@ async function bootstrap(): Promise<void> {
   piManager.setRuntimeEnvironmentProvider((scope) => ({
     ...extensionRuntimeEnvironment(piScheduleBridge.environmentFor(scope), () => browserBridge.environmentFor(scope), capabilityExtensionPaths, stateStore.getSettings().askUserEnabled && scope.interactive, stateStore.getSettings().browserEnabled),
     ...collaborationBridge.environmentFor({ ...scope, harness: 'pi' }),
-    GOOEYPI_PI_FAST_MODE_EXTENSION_PATH: piFastModeExtensionPath,
-    GOOEYPI_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
-    GOOEYPI_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
+    VCLAW_PI_FAST_MODE_EXTENSION_PATH: piFastModeExtensionPath,
+    VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
+    VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))
   piManager.setRuntimeStartListener((environment, info) => {
     browserBridge.bindSession(environment.PRIME_WORK_BROWSER_TOKEN, info.sessionFile)
-    collaborationBridge.bindSession(environment.GOOEYPI_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
+    collaborationBridge.bindSession(environment.VCLAW_COLLABORATION_TOKEN, info.sessionFile, info.runtimeId)
   })
   piManager.setRuntimeEndListener((environment) => revokeRuntimeCapabilities(environment, piScheduleBridge))
   if (shutdownStarted) return
@@ -1068,7 +1068,7 @@ async function bootstrap(): Promise<void> {
     }
   })
   installApplicationMenu({
-    appName: 'GooeyPi',
+    appName: 'VClaw',
     updatesEnabled: updates.isEnabled(),
     closeWindow: () => {
       const window = mainWindow
@@ -1078,7 +1078,7 @@ async function bootstrap(): Promise<void> {
     checkForUpdates: createManualUpdateCheck(() => updates.check(), async (notification) => {
       await dialog.showMessageBox({
         type: notification.type,
-        title: 'GooeyPi',
+        title: 'VClaw',
         message: notification.message,
         detail: notification.detail,
       })
@@ -1159,7 +1159,7 @@ else void app.whenReady().then(async () => {
 }).catch((error: unknown) => {
   const failureDialog = startupFailureDialog(error)
   if (failureDialog) dialog.showErrorBox(failureDialog.title, failureDialog.detail)
-  if (!shutdownStarted) console.error(`GooeyPi failed to start: ${boundedErrorMessage(error)}`)
+  if (!shutdownStarted) console.error(`VClaw failed to start: ${boundedErrorMessage(error)}`)
   app.quit()
 })
 
@@ -1205,6 +1205,6 @@ app.on('before-quit', (event) => {
     stopChildProcesses(),
   ]).then(async () => {
     // Await the drain so the final persist lands before the process exits.
-    try { await store?.beginShutdown() } catch (error) { console.error(`GooeyPi store shutdown failed: ${boundedErrorMessage(error)}`) }
+    try { await store?.beginShutdown() } catch (error) { console.error(`VClaw store shutdown failed: ${boundedErrorMessage(error)}`) }
   }).finally(() => app.quit())
 })

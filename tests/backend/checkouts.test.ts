@@ -22,12 +22,12 @@ function runGit(cwd: string, ...args: string[]): string {
 }
 
 async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'gooeypi-checkouts-'))
+  const dir = mkdtempSync(join(tmpdir(), 'vclaw-checkouts-'))
   dirs.push(dir)
   const root = join(dir, 'project')
   mkdirSync(root)
   runGit(root, 'init', '-q')
-  runGit(root, 'config', 'user.name', 'GooeyPi Test')
+  runGit(root, 'config', 'user.name', 'VClaw Test')
   runGit(root, 'config', 'user.email', 'test@example.com')
   writeFileSync(join(root, 'file.txt'), 'base\n')
   runGit(root, 'add', 'file.txt')

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// GooeyPi verification driver.
+// VClaw verification driver.
 //
-// Launches the BUILT GooeyPi Electron app in an isolated, disposable HOME +
+// Launches the BUILT VClaw Electron app in an isolated, disposable HOME +
 // Electron user-data-dir, drives one user-facing scenario the way a person
 // would (sidebar clicks, keyboard shortcuts), and captures evidence
 // (screenshot + ARIA snapshot). Each invocation is a self-contained session:
@@ -37,18 +37,18 @@ function parseArgs(argv) {
   return out
 }
 
-function log(msg) { process.stdout.write(`[verify-gooeypi] ${msg}\n`) }
+function log(msg) { process.stdout.write(`[verify-vclaw] ${msg}\n`) }
 
 function makeOutDir(explicit, name) {
   const base = explicit
     ? resolve(explicit)
-    : join(tmpdir(), 'gooeypi-verify', `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    : join(tmpdir(), 'vclaw-verify', `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`)
   mkdirSync(base, { recursive: true })
   return base
 }
 
 async function launch() {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), 'gooeypi-verify-fixture-'))
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'vclaw-verify-fixture-'))
   const home = join(fixtureRoot, 'home')
   const userData = join(fixtureRoot, 'user-data')
   mkdirSync(home, { recursive: true })
@@ -72,7 +72,7 @@ async function launch() {
   return { app, page, fixtureRoot, errors }
 }
 
-// A fresh HOME has no Pi/OMP/Prime harness, so GooeyPi shows a modal that makes
+// A fresh HOME has no Pi/OMP/Prime harness, so VClaw shows a modal that makes
 // the shell `inert`. Dismiss it so the sidebar is interactive. This is expected
 // verification-only state, not a defect.
 async function dismissNoHarnessPrompt(page) {
@@ -200,7 +200,7 @@ async function main() {
     for (const p of proofs) log(`  - ${p}`)
     log(`OK: ${scenarioName}. Evidence in ${outDir}`)
   } catch (error) {
-    process.stderr.write(`[verify-gooeypi] FAILED: ${scenarioName}: ${error?.message ?? error}\n`)
+    process.stderr.write(`[verify-vclaw] FAILED: ${scenarioName}: ${error?.message ?? error}\n`)
     if (session) { try { await capture(session.page, outDir, `${scenarioName}-failure`) } catch { /* ignore */ } }
     await teardown(session)
     process.exit(1)

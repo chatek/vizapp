@@ -1,9 +1,9 @@
 {
-  "name": "gooeypi-prime-supabase",
+  "name": "vclaw-prime-supabase",
   "version": "0.1.0",
   "private": true,
   "description": "Prime Agent Python integration for Supabase's official hosted MCP server.",
-  "gooeypi": {
+  "vclaw": {
     "mcpServers": ["supabase"]
   },
   "license": "MIT",

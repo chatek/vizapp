@@ -7,8 +7,8 @@ export interface CapabilityMention {
   skill: SkillRecord
 }
 
-export const CAPABILITY_ROUTING_BEGIN = '===== BEGIN GOOEYPI CAPABILITY ROUTING ====='
-export const CAPABILITY_ROUTING_END = '===== END GOOEYPI CAPABILITY ROUTING ====='
+export const CAPABILITY_ROUTING_BEGIN = '===== BEGIN VCLAW CAPABILITY ROUTING ====='
+export const CAPABILITY_ROUTING_END = '===== END VCLAW CAPABILITY ROUTING ====='
 
 const boundaryBefore = (value: string | undefined): boolean => value === undefined || /[\s([{"'`]/.test(value)
 const boundaryAfter = (value: string | undefined): boolean => value === undefined || /[\s.,!?;:()[\]{}"'`]/.test(value)
@@ -48,12 +48,12 @@ export function findCapabilityMentions(value: string, skills: readonly SkillReco
 function routingInstruction(mention: CapabilityMention): string {
   const token = mention.text
   if (mention.skill.id === 'prime-work-browser' || mention.skill.id === 'omp-work-browser') {
-    return `${token}: use GooeyPi's in-app Browser capability and its own browser tools. Do not substitute Chrome, an external browser, or another connected browser tool.`
+    return `${token}: use VClaw's in-app Browser capability and its own browser tools. Do not substitute Chrome, an external browser, or another connected browser tool.`
   }
   if (mention.skill.id === 'prime-work-schedules' || mention.skill.id === 'omp-work-schedules') {
-    return `${token}: use GooeyPi's Scheduled tasks capability and its own schedule tools.`
+    return `${token}: use VClaw's Scheduled tasks capability and its own schedule tools.`
   }
-  return `${token}: use the enabled GooeyPi ${mention.skill.kind} with the exact catalog id ${JSON.stringify(mention.skill.id)}. Do not substitute a similarly named capability.`
+  return `${token}: use the enabled VClaw ${mention.skill.kind} with the exact catalog id ${JSON.stringify(mention.skill.id)}. Do not substitute a similarly named capability.`
 }
 
 /** Adds explicit routing semantics while keeping the user's visible prompt unchanged. */

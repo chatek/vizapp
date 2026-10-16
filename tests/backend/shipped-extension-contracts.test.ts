@@ -95,13 +95,13 @@ const expectedRegistrations: Record<string, Registration[]> = {
   ],
   'omp-work-ask-user.ts': [{ kind: 'tool', name: 'ask_user' }],
   'omp-work-collaboration.ts': [
-    ...['gooeypi_session_list', 'gooeypi_session_models', 'gooeypi_session_create', 'gooeypi_session_read', 'gooeypi_session_send', 'gooeypi_session_wait'].map((name) => ({ kind: 'tool' as const, name })),
+    ...['vclaw_session_list', 'vclaw_session_models', 'vclaw_session_create', 'vclaw_session_read', 'vclaw_session_send', 'vclaw_session_wait'].map((name) => ({ kind: 'tool' as const, name })),
   ],
   'omp-work-schedules.ts': [
     ...['scheduled_tasks_list', 'scheduled_task_create_once', 'scheduled_task_create_recurring', 'scheduled_task_update', 'scheduled_task_manage'].map((name) => ({ kind: 'tool' as const, name })),
   ],
   'pi-work-fast-mode.ts': [
-    { kind: 'command', name: 'gooeypi-fast-mode' },
+    { kind: 'command', name: 'vclaw-fast-mode' },
     { kind: 'event', name: 'before_provider_request' },
   ],
 }
@@ -109,7 +109,7 @@ const expectedRegistrations: Record<string, Registration[]> = {
 const brokerVariables: Partial<Record<ExtensionInjection['capability'], readonly [string, string]>> = {
   browser: ['PRIME_WORK_BROWSER_URL', 'PRIME_WORK_BROWSER_TOKEN'],
   schedule: ['PRIME_WORK_SCHEDULE_URL', 'PRIME_WORK_SCHEDULE_TOKEN'],
-  collaboration: ['GOOEYPI_COLLABORATION_URL', 'GOOEYPI_COLLABORATION_TOKEN'],
+  collaboration: ['VCLAW_COLLABORATION_URL', 'VCLAW_COLLABORATION_TOKEN'],
 }
 
 const LEGACY_UNPREFIXED_TOOLS = [
@@ -170,7 +170,7 @@ describe('shipped extension contracts', () => {
     for (const registrations of Object.values(expectedRegistrations)) {
       for (const registration of registrations) {
         if (registration.kind !== 'tool') continue
-        expect(registration.name.startsWith('gooeypi_') || LEGACY_UNPREFIXED_TOOLS.includes(registration.name)).toBe(true)
+        expect(registration.name.startsWith('vclaw_') || LEGACY_UNPREFIXED_TOOLS.includes(registration.name)).toBe(true)
       }
     }
   })

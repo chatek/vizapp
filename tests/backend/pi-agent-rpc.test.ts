@@ -124,9 +124,9 @@ describe('pi RPC adapter argv', () => {
       PRIME_WORK_SCHEDULE_EXTENSION_PATH: '/extensions/schedules.ts',
       PRIME_WORK_BROWSER_EXTENSION_PATH: '/extensions/browser.ts',
       PRIME_WORK_ASK_USER_EXTENSION_PATH: '/extensions/ask-user.ts',
-      GOOEYPI_COLLABORATION_EXTENSION_PATH: '/extensions/collaboration.ts',
-      GOOEYPI_PI_FAST_MODE_EXTENSION_PATH: '/extensions/pi-fast-mode.ts',
-      GOOEYPI_COMPUTER_USE_SKILL_PATH: '/skills/computer-use.md',
+      VCLAW_COLLABORATION_EXTENSION_PATH: '/extensions/collaboration.ts',
+      VCLAW_PI_FAST_MODE_EXTENSION_PATH: '/extensions/pi-fast-mode.ts',
+      VCLAW_COMPUTER_USE_SKILL_PATH: '/skills/computer-use.md',
     } as NodeJS.ProcessEnv
     const args = PI_RPC_ADAPTER.buildStartArgs({ ...baseInput, environment })
     expect(args.slice(-12)).toEqual([
@@ -149,7 +149,7 @@ describe('pi RPC handshake', () => {
   it('releases the exact runtime environment after Pi termination', async () => {
     const fake = fakePiAgent()
     const manager = piManager(fake.executable)
-    const environment = { GOOEYPI_COLLABORATION_TOKEN: 'pi-runtime-token' }
+    const environment = { VCLAW_COLLABORATION_TOKEN: 'pi-runtime-token' }
     const ended = vi.fn()
     manager.setRuntimeEnvironmentProvider(() => environment)
     manager.setRuntimeEndListener(ended)
@@ -210,8 +210,8 @@ describe('pi RPC handshake', () => {
       PRIME_WORK_SCHEDULE_EXTENSION_PATH: '/extensions/schedules.ts',
       PRIME_WORK_BROWSER_EXTENSION_PATH: '/extensions/browser.ts',
       PRIME_WORK_ASK_USER_EXTENSION_PATH: '/extensions/ask-user.ts',
-      GOOEYPI_COLLABORATION_EXTENSION_PATH: '/extensions/collaboration.ts',
-      GOOEYPI_PI_FAST_MODE_EXTENSION_PATH: '/extensions/pi-fast-mode.ts',
+      VCLAW_COLLABORATION_EXTENSION_PATH: '/extensions/collaboration.ts',
+      VCLAW_PI_FAST_MODE_EXTENSION_PATH: '/extensions/pi-fast-mode.ts',
     }))
     const events: Array<Record<string, unknown>> = []
     manager.setEventSink(({ event }) => events.push(event))
@@ -275,8 +275,8 @@ describe('pi RPC command translation', () => {
     await manager.command(runtime.runtimeId, { type: 'set_service_tier', serviceTier: 'default' })
     expect(manager.list()[0]?.serviceTier).toBe('default')
     expect(events.filter((event) => event.type === 'fake_prompt').map((event) => event.message)).toEqual([
-      '/gooeypi-fast-mode priority',
-      '/gooeypi-fast-mode default',
+      '/vclaw-fast-mode priority',
+      '/vclaw-fast-mode default',
     ])
     expect(events.some((event) => event.type === 'fake_unknown_command')).toBe(false)
   })

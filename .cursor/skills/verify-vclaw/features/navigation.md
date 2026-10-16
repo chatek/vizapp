@@ -16,15 +16,15 @@ its level-1 heading, so navigation is verifiable without any harness installed.
 - Click a sidebar item: `Projects`, `Activity`, `Scheduled`, or `Capabilities`.
 - `New session` and `Search` at the top return to / focus the workspace.
 
-## Driving it with gooeypi-control
+## Driving it with vclaw-control
 
 Preconditions:
 
-- Doctor is green: `xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs doctor` exits 0 and prints window title `GooeyPi`.
+- Doctor is green: `xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs doctor` exits 0 and prints window title `VClaw`.
 - The build exists (`out/main/index.js`).
 
 - **Visit every page.** Click each sidebar button in turn and confirm its
-  heading. Run `xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs drive navigation --out /tmp/gooeypi-verify/navigation`.
+  heading. Run `xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs drive navigation --out /tmp/vclaw-verify/navigation`.
   Expected `PROVEN:` lines: `Projects -> level-1 heading Projects`,
   `Activity -> level-1 heading Activity`, `Scheduled -> level-1 heading Scheduled`,
   `Capabilities -> level-1 heading /^Extend /`.

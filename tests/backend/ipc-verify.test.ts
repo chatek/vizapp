@@ -106,7 +106,7 @@ describe('registerIpc verify gate', () => {
     const event = fakeEvent()
     registration.authorize(event.sender as never)
     await expect(handlers.get('pets:list')!(event)).resolves.toEqual([{ id: 'orb' }])
-    await expect(handlers.get('pets:sprite')!(event, 'gooey-pi')).resolves.toBe('data:image/webp;base64,pet')
+    await expect(handlers.get('pets:sprite')!(event, 'vclaw')).resolves.toBe('data:image/webp;base64,pet')
     registration.dispose()
   })
 

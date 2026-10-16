@@ -4,13 +4,13 @@ import { dirname } from 'node:path'
 import type { HarnessId } from '../../../src/types/api'
 import { isRecord } from '../validation'
 
-const BEGIN = '===== BEGIN GOOEYPI AGENT MESSAGE ====='
-const END = '===== END GOOEYPI AGENT MESSAGE ====='
+const BEGIN = '===== BEGIN VCLAW AGENT MESSAGE ====='
+const END = '===== END VCLAW AGENT MESSAGE ====='
 const HARNESSES = new Set<HarnessId>(['prime', 'omp', 'pi'])
 const KEY_BYTES = 32
 let signingKey: Buffer | undefined
 
-export interface GooeyPiAgentMessage {
+export interface VClawAgentMessage {
   fromSessionId: string
   /** Legacy display metadata is parsed for saved v1 messages, never emitted in new model-facing envelopes. */
   fromTitle?: string
@@ -39,7 +39,7 @@ interface SignedMetadataV2 {
 interface SignedMetadataV3 {
   version: 3
   from_session_id: string
-  reply_with: 'gooeypi_session_send'
+  reply_with: 'vclaw_session_send'
   nonce: string
   sent_at: string
 }
@@ -47,18 +47,18 @@ interface SignedMetadataV3 {
 type SignedMetadata = SignedMetadataV1 | SignedMetadataV2 | SignedMetadataV3
 
 function signature(metadata: SignedMetadata, text: string): Buffer {
-  if (!signingKey) throw new Error('GooeyPi agent-message signing is not initialized')
+  if (!signingKey) throw new Error('VClaw agent-message signing is not initialized')
   return createHmac('sha256', signingKey).update(JSON.stringify(metadata)).update('\0').update(text).digest()
 }
 
 /** Loads the app-local signing key, creating it with owner-only permissions on first use. */
-export function loadOrCreateGooeyPiAgentMessageKey(path: string): Buffer {
+export function loadOrCreateVClawAgentMessageKey(path: string): Buffer {
   const readExisting = (): Buffer => {
     const stat = lstatSync(path)
-    if (!stat.isFile() || stat.size !== KEY_BYTES) throw new Error('The GooeyPi agent-message signing key is invalid')
+    if (!stat.isFile() || stat.size !== KEY_BYTES) throw new Error('The VClaw agent-message signing key is invalid')
     if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) chmodSync(path, 0o600)
     const existing = readFileSync(path)
-    if (existing.length !== KEY_BYTES) throw new Error('The GooeyPi agent-message signing key is invalid')
+    if (existing.length !== KEY_BYTES) throw new Error('The VClaw agent-message signing key is invalid')
     return existing
   }
   try {
@@ -76,16 +76,16 @@ export function loadOrCreateGooeyPiAgentMessageKey(path: string): Buffer {
   return created
 }
 
-export function configureGooeyPiAgentMessageSigning(key: Uint8Array): void {
-  if (key.byteLength !== KEY_BYTES) throw new Error('The GooeyPi agent-message signing key must be 32 bytes')
+export function configureVClawAgentMessageSigning(key: Uint8Array): void {
+  if (key.byteLength !== KEY_BYTES) throw new Error('The VClaw agent-message signing key must be 32 bytes')
   signingKey = Buffer.from(key)
 }
 
-export function encodeGooeyPiAgentMessage(message: Pick<GooeyPiAgentMessage, 'fromSessionId' | 'text'>): string {
+export function encodeVClawAgentMessage(message: Pick<VClawAgentMessage, 'fromSessionId' | 'text'>): string {
   const unsigned: SignedMetadataV3 = {
     version: 3,
     from_session_id: message.fromSessionId,
-    reply_with: 'gooeypi_session_send',
+    reply_with: 'vclaw_session_send',
     nonce: randomUUID(),
     sent_at: new Date().toISOString(),
   }
@@ -94,7 +94,7 @@ export function encodeGooeyPiAgentMessage(message: Pick<GooeyPiAgentMessage, 'fr
 }
 
 /** Recognizes only the exact app-owned envelope shape at the start of a user record. */
-export function parseGooeyPiAgentMessage(value: string): GooeyPiAgentMessage | undefined {
+export function parseVClawAgentMessage(value: string): VClawAgentMessage | undefined {
   if (!value.startsWith(`${BEGIN}\n`)) return undefined
   const metadataEnd = value.indexOf(`\n${END}\n`, BEGIN.length + 1)
   if (metadataEnd < 0) return undefined
@@ -108,7 +108,7 @@ export function parseGooeyPiAgentMessage(value: string): GooeyPiAgentMessage | u
   const encodedSignature = metadata.signature
   if (typeof fromSessionId !== 'string' || fromSessionId.length < 1 || fromSessionId.length > 128) return undefined
   if (metadata.version === 2 && replyWith !== 'session_send') return undefined
-  if (metadata.version === 3 && replyWith !== 'gooeypi_session_send') return undefined
+  if (metadata.version === 3 && replyWith !== 'vclaw_session_send') return undefined
   if (metadata.version === 1 && replyWith !== undefined && replyWith !== 'session_send') return undefined
   if (typeof nonce !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(nonce)) return undefined
   if (typeof sentAt !== 'string' || sentAt.length > 64 || !Number.isFinite(Date.parse(sentAt))) return undefined
@@ -131,7 +131,7 @@ export function parseGooeyPiAgentMessage(value: string): GooeyPiAgentMessage | u
   } else if (metadata.version === 2) {
     unsigned = { version: 2, from_session_id: fromSessionId, reply_with: 'session_send', nonce, sent_at: sentAt }
   } else {
-    unsigned = { version: 3, from_session_id: fromSessionId, reply_with: 'gooeypi_session_send', nonce, sent_at: sentAt }
+    unsigned = { version: 3, from_session_id: fromSessionId, reply_with: 'vclaw_session_send', nonce, sent_at: sentAt }
   }
   const actual = Buffer.from(encodedSignature, 'base64url')
   const expected = signature(unsigned, text)

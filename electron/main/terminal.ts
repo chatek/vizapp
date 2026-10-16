@@ -82,7 +82,7 @@ function shellArguments(shell: string, command?: string): string[] {
   if (name === 'cmd.exe') return command === undefined ? ['/K'] : ['/D', '/S', '/C', command]
   if (name === 'powershell.exe' || name === 'pwsh.exe') {
     if (command === undefined) return ['-NoLogo']
-    const trackedCommand = `${command}\n$gooeyPiSuccess = $?\n$gooeyPiExitCode = $LASTEXITCODE\nif (-not $gooeyPiSuccess) {\n  if ($null -ne $gooeyPiExitCode -and $gooeyPiExitCode -ne 0) { exit $gooeyPiExitCode }\n  exit 1\n}\nexit 0`
+    const trackedCommand = `${command}\n$vclawSuccess = $?\n$vclawExitCode = $LASTEXITCODE\nif (-not $vclawSuccess) {\n  if ($null -ne $vclawExitCode -and $vclawExitCode -ne 0) { exit $vclawExitCode }\n  exit 1\n}\nexit 0`
     return ['-NoLogo', '-Command', trackedCommand]
   }
   return command === undefined ? [] : [command]
@@ -143,7 +143,7 @@ export class TerminalService {
       ? undefined
       : canonicalSessionPath(await this.authorizeSessionPath(requireString(options.sessionPath, 'sessionPath', { min: 1, max: 4096 })))
     if (owner.isDestroyed()) throw new Error('Terminal owner was closed')
-    if (this.terminals.size >= 8) throw new Error('GooeyPi supports at most eight concurrent terminals')
+    if (this.terminals.size >= 8) throw new Error('VClaw supports at most eight concurrent terminals')
     const shell = this.validateShell(options.shell ?? this.configuredShell())
     const command = options.command === undefined
       ? undefined
@@ -262,7 +262,7 @@ export class TerminalService {
     if (now - this.totalOutputWindowStartedAt >= 1_000) { this.totalOutputWindowStartedAt = now; this.totalOutputWindowBytes = 0 }
     this.totalOutputWindowBytes += bytes
     if (bytes > MAX_TERMINAL_IPC_CHUNK_BYTES || owned.outputWindowBytes > MAX_TERMINAL_OUTPUT_BYTES_PER_SECOND || this.totalOutputWindowBytes > MAX_TOTAL_TERMINAL_OUTPUT_BYTES_PER_SECOND) {
-      owned.pendingOutput += '\r\n[GooeyPi stopped this terminal because output exceeded 16 MiB/s.]\r\n'
+      owned.pendingOutput += '\r\n[VClaw stopped this terminal because output exceeded 16 MiB/s.]\r\n'
       owned.pendingOutputBytes = Buffer.byteLength(owned.pendingOutput)
       this.flushOutput(id, owned)
       void this.terminate(id, owned)

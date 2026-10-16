@@ -22,7 +22,7 @@ afterEach(() => {
 })
 
 function temporaryStatePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'gooeypi-privacy-settings-'))
+  const directory = mkdtempSync(join(tmpdir(), 'vclaw-privacy-settings-'))
   temporaryDirectories.push(directory)
   return join(directory, 'state.json')
 }

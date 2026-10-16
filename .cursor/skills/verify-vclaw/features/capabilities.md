@@ -16,14 +16,14 @@ directory list.
 - Click `Capabilities` in the sidebar.
 - Within the page, switch the `Capabilities` / `Skills` tab buttons.
 
-## Driving it with gooeypi-control
+## Driving it with vclaw-control
 
 Preconditions:
 
 - Doctor is green.
 
 - **Open the directory.** Run
-  `xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs drive capabilities --out /tmp/gooeypi-verify/capabilities`.
+  `xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs drive capabilities --out /tmp/vclaw-verify/capabilities`.
   Expected `PROVEN:` line: `Capabilities page shows "Extend <harness>" h1 and a
   Capabilities directory heading`.
 - **Proof.** The run writes `capabilities.png` (plus `.aria.txt`) showing the
@@ -38,5 +38,5 @@ Preconditions:
   level-1 `^Extend ` heading and the level-2 `Capabilities` directory heading.
 - The exact harness word in `Extend <harness>` depends on the active harness
   (Pi/OMP/Prime), which the switcher in the top-left controls; do not hard-code it.
-- Network MCP capabilities render but are read-only in GooeyPi; a row appearing
+- Network MCP capabilities render but are read-only in VClaw; a row appearing
   is not proof it was installed by this run.

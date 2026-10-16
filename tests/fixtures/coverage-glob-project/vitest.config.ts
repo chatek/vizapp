@@ -3,8 +3,8 @@ import { defineConfig } from 'vitest/config'
 import { createCoverageInventory, type CoverageFamily } from '../../../scripts/release/coverage-inventory'
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
-const reportsDirectory = process.env.GOOEYPI_COVERAGE_FIXTURE_REPORTS
-if (!reportsDirectory) throw new Error('GOOEYPI_COVERAGE_FIXTURE_REPORTS is required')
+const reportsDirectory = process.env.VCLAW_COVERAGE_FIXTURE_REPORTS
+if (!reportsDirectory) throw new Error('VCLAW_COVERAGE_FIXTURE_REPORTS is required')
 
 const families: readonly CoverageFamily[] = [
   {

@@ -1,7 +1,7 @@
-# GooeyPi verification map
+# VClaw verification map
 
 This directory is the maintained source for verifying the user-facing behavior
-of GooeyPi (a desktop Electron app). Read this index before driving the app,
+of VClaw (a desktop Electron app). Read this index before driving the app,
 then use the matching feature file as the recipe. Keep it honest as the app
 changes — a proof that drives one convenient entry point is incomplete when the
 map lists others.
@@ -22,7 +22,7 @@ map lists others.
 - Start every recipe from a fresh launch unless its preconditions say otherwise.
 - Prefer roles and accessible names over CSS selectors or DOM position.
 - Treat every command as literal. Keep quoted names and flags unchanged.
-- Run scenarios through `node .cursor/skills/verify-gooeypi/control.mjs`.
+- Run scenarios through `node .cursor/skills/verify-vclaw/control.mjs`.
 - The driver removes the fixture it created and keeps every evidence artifact.
 
 ## Proof and skip reporting
@@ -44,7 +44,7 @@ user-visible behavior, then uses exactly four H2 sections in this order:
 
 1. `Sub-features` — short IDs with one line each.
 2. `How to get to it (user POV)` — every user entry point.
-3. `Driving it with gooeypi-control` — starts with `Preconditions:` and pairs
+3. `Driving it with vclaw-control` — starts with `Preconditions:` and pairs
    each user action with an exact command and observable result.
 4. `Gotchas` — traps that can waste or invalidate a verification run.
 

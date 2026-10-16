@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cloud Agent install phase for GooeyPi.
+# Cloud Agent install phase for VClaw.
 #
 # Idempotent bootstrap that prepares a checked-out working tree so a Cloud
 # Agent can lint, type-check, test, build, and run the Electron desktop app.
@@ -41,4 +41,4 @@ npm run toolchain:bootstrap
 # vendored prebuilt binaries, so npm 12's default script blocking is fine.
 npm ci
 
-echo "GooeyPi Cloud Agent install complete: node $(node -v), npm $(npm -v)."
+echo "VClaw Cloud Agent install complete: node $(node -v), npm $(npm -v)."

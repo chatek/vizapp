@@ -99,7 +99,7 @@ export function VoiceOrb({ voice, harness, onClose, onTaskStarted, pet, focusPet
       if (!active || channel.readyState !== 'open' || responseActive || pendingToolCalls > 0 || !continuationPending) return
       continuationPending = false
       responseActive = true
-      pendingResponseCreateEventId = `gooeypi-response-${Date.now().toString(36)}-${++clientEventSequence}`
+      pendingResponseCreateEventId = `vclaw-response-${Date.now().toString(36)}-${++clientEventSequence}`
       channel.send(JSON.stringify({ type: 'response.create', event_id: pendingResponseCreateEventId }))
     }
 
@@ -133,7 +133,7 @@ export function VoiceOrb({ voice, harness, onClose, onTaskStarted, pet, focusPet
             if (active) setTaskOpened(true)
           }).catch((failure) => {
             if (!active) return
-            setError(`The task started, but GooeyPi could not open it: ${failure instanceof Error ? failure.message : 'Unknown error'}`)
+            setError(`The task started, but VClaw could not open it: ${failure instanceof Error ? failure.message : 'Unknown error'}`)
           })
         }
       } catch (failure) {

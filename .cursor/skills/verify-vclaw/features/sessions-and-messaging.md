@@ -20,7 +20,7 @@ the repo's hermetic Playwright fixture (which installs fake harness binaries),
 - While the `Stop Prime` button is visible (turn running), press `Enter` to queue
   or `Ctrl+Enter` to steer.
 
-## Driving it with gooeypi-control
+## Driving it with vclaw-control
 
 Preconditions:
 
@@ -40,7 +40,7 @@ Preconditions:
 
 ## Gotchas
 
-- With no harness, GooeyPi shows `No Pi family harness detected` and the composer
+- With no harness, VClaw shows `No Pi family harness detected` and the composer
   is disabled — messaging cannot be proven; report it skipped with this reason,
   do not substitute the navigation scenario as evidence.
 - A queued/steered message is only proven by its side effect (the marker file the

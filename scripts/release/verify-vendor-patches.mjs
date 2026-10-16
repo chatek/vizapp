@@ -59,7 +59,7 @@ for (const spec of PACKAGES) {
   const patchPath = join(VENDOR, spec.patch)
   if (sha256(basePath) !== spec.baseSha256) throw new Error(`Base archive checksum mismatch: ${spec.base}`)
 
-  const work = mkdtempSync(join(tmpdir(), 'gooeypi-vendor-patch-'))
+  const work = mkdtempSync(join(tmpdir(), 'vclaw-vendor-patch-'))
   try {
     const rebuilt = join(work, 'rebuilt')
     const reviewed = join(work, 'reviewed')

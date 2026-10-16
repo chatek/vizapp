@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentCollaborationBridge } from '../../electron/main/collaboration/agent-bridge'
-import { configureGooeyPiAgentMessageSigning, parseGooeyPiAgentMessage } from '../../electron/main/collaboration/message-envelope'
+import { configureVClawAgentMessageSigning, parseVClawAgentMessage } from '../../electron/main/collaboration/message-envelope'
 import type { AgentRpcManager } from '../../electron/main/agent-rpc'
 import type { HarnessId, RuntimeInfo, SessionRecord, TranscriptMessage } from '../../src/types/api'
 
 const bridges: AgentCollaborationBridge[] = []
-configureGooeyPiAgentMessageSigning(Buffer.alloc(32, 7))
+configureVClawAgentMessageSigning(Buffer.alloc(32, 7))
 
 afterEach(async () => {
   await Promise.all(bridges.splice(0).map((bridge) => bridge.stop()))
@@ -159,8 +159,8 @@ async function fixture(
   await bridge.start()
   bridges.push(bridge)
   const environment = bridge.environmentFor({ cwd: '/project', sessionPath: source.filePath, harness: 'prime' })
-  const call = async (method: string, params: Record<string, unknown> = {}, token = environment.GOOEYPI_COLLABORATION_TOKEN) => {
-    const response = await fetch(environment.GOOEYPI_COLLABORATION_URL!, {
+  const call = async (method: string, params: Record<string, unknown> = {}, token = environment.VCLAW_COLLABORATION_TOKEN) => {
+    const response = await fetch(environment.VCLAW_COLLABORATION_URL!, {
       method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ method, params }),
     })
     return { status: response.status, body: await response.json() as { ok: boolean; result?: Record<string, unknown> | Array<Record<string, unknown>>; error?: string } }
@@ -171,7 +171,7 @@ async function fixture(
 describe('AgentCollaborationBridge', () => {
   it('revokes a runtime claim and clears its cached and pending session bindings', async () => {
     const { bridge, call, environment } = await fixture()
-    const token = environment.GOOEYPI_COLLABORATION_TOKEN!
+    const token = environment.VCLAW_COLLABORATION_TOKEN!
     const active = bridge.environmentFor({ cwd: '/project', sessionPath: source.filePath, harness: 'prime' })
     await expect(call('list')).resolves.toMatchObject({ status: 200 })
     bridge.bindSession(token, undefined, 'runtime-pending')
@@ -190,12 +190,12 @@ describe('AgentCollaborationBridge', () => {
     bridge.bindSession(token, undefined, 'runtime-late')
     expect(state.pendingRuntimeTokens.has('runtime-late')).toBe(false)
     await expect(call('list')).resolves.toMatchObject({ status: 401 })
-    await expect(call('list', {}, active.GOOEYPI_COLLABORATION_TOKEN)).resolves.toMatchObject({ status: 200 })
+    await expect(call('list', {}, active.VCLAW_COLLABORATION_TOKEN)).resolves.toMatchObject({ status: 200 })
   })
 
   it('lists and reads only same-project peers through bounded snapshots', async () => {
     const { call, environment } = await fixture()
-    expect(environment.GOOEYPI_COLLABORATION_EXTENSION_PATH).toBe('/app/extensions/omp-work-collaboration.ts')
+    expect(environment.VCLAW_COLLABORATION_EXTENSION_PATH).toBe('/app/extensions/omp-work-collaboration.ts')
     const listed = await call('list')
     expect(listed.status).toBe(200)
     expect(listed.body.result).toEqual([expect.objectContaining({ id: target.id, title: 'API owner', live: true })])
@@ -283,7 +283,7 @@ describe('AgentCollaborationBridge', () => {
     expect(primeManager.command).toHaveBeenCalledWith('runtime-target', expect.objectContaining({ type: 'prompt' }))
     const delivered = (primeManager.command.mock.calls[0] as unknown as [string, { message: string }])[1]
     expect(delivered.message).toContain(`"from_session_id":"${source.id}"`)
-    expect(delivered.message).toContain('"reply_with":"gooeypi_session_send"')
+    expect(delivered.message).toContain('"reply_with":"vclaw_session_send"')
     expect(delivered.message).not.toContain('"from_title"')
     expect(delivered.message).not.toContain('"from_harness"')
     expect(delivered.message).not.toContain(source.title)
@@ -295,7 +295,7 @@ describe('AgentCollaborationBridge', () => {
       'from_session_id', 'nonce', 'reply_with', 'sent_at', 'signature', 'version',
     ])
     expect(metadata.version).toBe(3)
-    expect(parseGooeyPiAgentMessage(delivered.message)).toEqual({
+    expect(parseVClawAgentMessage(delivered.message)).toEqual({
       fromSessionId: source.id,
       text: 'Please claim src/api.ts.',
     })
@@ -308,7 +308,7 @@ describe('AgentCollaborationBridge', () => {
   it('lists GUI-visible models and creates a readable peer with the selected model and reasoning', async () => {
     const { bridge, call, primeManager } = await fixture()
     const createdEnvironment = bridge.environmentFor({ cwd: '/project', harness: 'prime' })
-    bridge.bindSession(createdEnvironment.GOOEYPI_COLLABORATION_TOKEN, undefined, 'runtime-created')
+    bridge.bindSession(createdEnvironment.VCLAW_COLLABORATION_TOKEN, undefined, 'runtime-created')
     const models = await call('models', { query: 'GPT five six sol' })
     expect(models.status).toBe(200)
     expect(models.body.result).toMatchObject({
@@ -339,7 +339,7 @@ describe('AgentCollaborationBridge', () => {
     })
     expect(primeManager.command).toHaveBeenCalledWith('runtime-created', { type: 'set_session_name', name: 'Model reviewer' })
     expect(primeManager.command).toHaveBeenCalledWith('runtime-created', { type: 'get_state' })
-    const createdList = await call('list', {}, createdEnvironment.GOOEYPI_COLLABORATION_TOKEN)
+    const createdList = await call('list', {}, createdEnvironment.VCLAW_COLLABORATION_TOKEN)
     expect(createdList.status).toBe(200)
     expect(createdList.body.result).toEqual(expect.arrayContaining([expect.objectContaining({ id: target.id })]))
     expect(createdList.body.result).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: created.id })]))
@@ -351,7 +351,7 @@ describe('AgentCollaborationBridge', () => {
     const response = await call('create', { prompt: '/mcp login notion' })
 
     expect(response.status).toBe(400)
-    expect(response.body.error).toContain('Network MCP authentication is managed outside GooeyPi')
+    expect(response.body.error).toContain('Network MCP authentication is managed outside VClaw')
     expect(primeManager.start).not.toHaveBeenCalled()
   })
 
@@ -361,7 +361,7 @@ describe('AgentCollaborationBridge', () => {
     const response = await call('send', { target_session_id: target.id, message: '/mcp login notion' })
 
     expect(response.status).toBe(400)
-    expect(response.body.error).toContain('Network MCP authentication is managed outside GooeyPi')
+    expect(response.body.error).toContain('Network MCP authentication is managed outside VClaw')
     expect(primeManager.start).not.toHaveBeenCalled()
     expect(primeManager.command).not.toHaveBeenCalled()
   })
@@ -474,19 +474,19 @@ describe('AgentCollaborationBridge', () => {
     expect((await call('list', {}, 'wrong')).status).toBe(401)
 
     const unbound = bridge.environmentFor({ cwd: '/project', harness: 'prime' as HarnessId })
-    const response = await fetch(unbound.GOOEYPI_COLLABORATION_URL!, {
-      method: 'POST', headers: { authorization: `Bearer ${unbound.GOOEYPI_COLLABORATION_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'list', params: {} }),
+    const response = await fetch(unbound.VCLAW_COLLABORATION_URL!, {
+      method: 'POST', headers: { authorization: `Bearer ${unbound.VCLAW_COLLABORATION_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'list', params: {} }),
     })
     expect(response.status).toBe(409)
     expect((await response.json() as { error: string }).error).toContain('not available yet')
-    expect(environment.GOOEYPI_COLLABORATION_TOKEN).not.toBe(unbound.GOOEYPI_COLLABORATION_TOKEN)
+    expect(environment.VCLAW_COLLABORATION_TOKEN).not.toBe(unbound.VCLAW_COLLABORATION_TOKEN)
   })
 
   it('rejects a subagent source even when its runtime token is otherwise valid', async () => {
     const { bridge, environment } = await fixture()
     const childEnvironment = bridge.environmentFor({ cwd: '/project', sessionPath: child.filePath, harness: 'prime' })
-    const response = await fetch(environment.GOOEYPI_COLLABORATION_URL!, {
-      method: 'POST', headers: { authorization: `Bearer ${childEnvironment.GOOEYPI_COLLABORATION_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'list', params: {} }),
+    const response = await fetch(environment.VCLAW_COLLABORATION_URL!, {
+      method: 'POST', headers: { authorization: `Bearer ${childEnvironment.VCLAW_COLLABORATION_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ method: 'list', params: {} }),
     })
     expect(response.status).toBe(409)
     expect((await response.json() as { error: string }).error).toContain('top-level sessions')

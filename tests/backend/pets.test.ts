@@ -8,7 +8,7 @@ const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 function makeRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'gooeypi-pets-'))
+  const root = mkdtempSync(join(tmpdir(), 'vclaw-pets-'))
   roots.push(root)
   return root
 }
@@ -26,18 +26,18 @@ describe('PetService', () => {
     const root = makeRoot()
     const builtInRoot = join(root, 'built-in')
     const codexRoot = join(root, 'codex')
-    writePet(builtInRoot, 'gooey-pi', 'gooey-pi', 'GooeyPi')
-    writePet(codexRoot, 'gooey-pi', 'gooey-pi', 'Duplicate Gooey')
+    writePet(builtInRoot, 'vclaw', 'vclaw', 'VClaw')
+    writePet(codexRoot, 'vclaw', 'vclaw', 'Duplicate VClaw')
     writePet(codexRoot, 'rocky', 'rocky', 'Rocky')
     const service = new PetService({ builtInRoot, codexRoot })
 
     const pets = await service.list()
     expect(pets.map((pet) => [pet.id, pet.displayName, pet.source])).toEqual([
       ['orb', 'Orb', 'built-in'],
-      ['gooey-pi', 'GooeyPi', 'built-in'],
+      ['vclaw', 'VClaw', 'built-in'],
       ['codex/rocky', 'Rocky', 'codex'],
     ])
-    await expect(service.sprite('gooey-pi')).resolves.toMatch(/^data:image\/webp;base64,/)
+    await expect(service.sprite('vclaw')).resolves.toMatch(/^data:image\/webp;base64,/)
     await expect(service.sprite('codex/rocky')).resolves.toMatch(/^data:image\/webp;base64,/)
     await expect(service.sprite('orb')).rejects.toThrow('Invalid pet id')
     await expect(service.sprite('../escape')).rejects.toThrow('Invalid pet id')
@@ -47,7 +47,7 @@ describe('PetService', () => {
     const root = makeRoot()
     const builtInRoot = join(root, 'built-in')
     const codexRoot = join(root, 'codex')
-    writePet(builtInRoot, 'gooey-pi', 'gooey-pi', 'GooeyPi')
+    writePet(builtInRoot, 'vclaw', 'vclaw', 'VClaw')
     writePet(codexRoot, 'bad-manifest', 'bad id', 'Bad')
     const target = writePet(codexRoot, 'target', 'target', 'Target')
     symlinkSync(target, join(codexRoot, 'linked'))
@@ -55,6 +55,6 @@ describe('PetService', () => {
     writeFileSync(join(oversized, 'pet.json'), 'x'.repeat(16 * 1024 + 1))
 
     const service = new PetService({ builtInRoot, codexRoot })
-    expect((await service.list()).map((pet) => pet.id)).toEqual(['orb', 'gooey-pi', 'codex/target'])
+    expect((await service.list()).map((pet) => pet.id)).toEqual(['orb', 'vclaw', 'codex/target'])
   })
 })

@@ -1,17 +1,17 @@
 ---
-name: gooeypi-computer-use
+name: vclaw-computer-use
 description: Drive native applications on macOS, Windows, or Linux through the separately installed TryCUA driver CLI.
 license: MIT
 ---
 
 # Computer Use | TryCUA
 
-Use the executable in `GOOEYPI_CUA_DRIVER_PATH` for native GUI work. GooeyPi does not bundle TryCUA and this capability does not require an MCP server.
+Use the executable in `VCLAW_CUA_DRIVER_PATH` for native GUI work. VClaw does not bundle TryCUA and this capability does not require an MCP server.
 
 Invoke tools with an argv-safe shell call shaped as:
 
 ```text
-"$GOOEYPI_CUA_DRIVER_PATH" <snake_case_tool> '<JSON object>'
+"$VCLAW_CUA_DRIVER_PATH" <snake_case_tool> '<JSON object>'
 ```
 
 Start with `doctor`, `list-tools`, or `describe <tool>` when the live surface is unclear. Prefer a non-GUI API, CLI, or filesystem operation when the requested result does not actually live in an application's UI.

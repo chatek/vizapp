@@ -40,24 +40,19 @@ export function parseReleasePlatforms(value = RELEASE_PLATFORMS.join(',')) {
  */
 export function releaseAssetNames(version, platforms = RELEASE_PLATFORMS) {
   const assets = {
-    mac: [
-      [`GooeyPi-${version}-m-chip.dmg`, `GooeyPi-${version}-arm64.dmg`],
-      [`GooeyPi-${version}-intel-chip.dmg`, `GooeyPi-${version}-x64.dmg`],
-      [`GooeyPi-${version}-arm64.zip`],
-      [`GooeyPi-${version}-x64.zip`],
-    ],
+    mac: [[`VClaw-${version}-m-chip.dmg`, `VClaw-${version}-arm64.dmg`], [`VClaw-${version}-intel-chip.dmg`, `VClaw-${version}-x64.dmg`], [`VClaw-${version}-arm64.zip`], [`VClaw-${version}-x64.zip`]],
     linux: [
-      [`GooeyPi-${version}-linux-arm64.AppImage`],
-      [`GooeyPi-${version}-linux-arm64.deb`],
-      [`GooeyPi-${version}-linux-aarch64.pacman`],
-      [`GooeyPi-${version}-linux-aarch64.rpm`],
-      [`GooeyPi-${version}-linux-x86_64.AppImage`],
-      [`GooeyPi-${version}-linux-amd64.deb`],
-      [`GooeyPi-${version}-linux-x64.pacman`],
-      [`GooeyPi-${version}-linux-x86_64.rpm`],
+      [`VClaw-${version}-linux-arm64.AppImage`],
+      [`VClaw-${version}-linux-arm64.deb`],
+      [`VClaw-${version}-linux-aarch64.pacman`],
+      [`VClaw-${version}-linux-aarch64.rpm`],
+      [`VClaw-${version}-linux-x86_64.AppImage`],
+      [`VClaw-${version}-linux-amd64.deb`],
+      [`VClaw-${version}-linux-x64.pacman`],
+      [`VClaw-${version}-linux-x86_64.rpm`],
     ],
     // electron-builder emits the MSIX-compatible package as .appx; publish the same bytes with the modern .msix extension.
-    win: [[`GooeyPi-${version}-win-x64.exe`], [`GooeyPi-${version}-win-x64.zip`], [`GooeyPi-${version}-win-x64.msix`, `GooeyPi-${version}-win-x64.appx`]],
+    win: [[`VClaw-${version}-win-x64.exe`], [`VClaw-${version}-win-x64.zip`], [`VClaw-${version}-win-x64.msix`, `VClaw-${version}-win-x64.appx`]],
   }
   const entries = platforms
     .flatMap((platform) => [...assets[platform], ...UPDATE_METADATA_BY_PLATFORM[platform].map((name) => [name])])

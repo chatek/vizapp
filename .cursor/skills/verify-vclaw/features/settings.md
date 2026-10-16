@@ -17,14 +17,14 @@ opens it, switches sections, and closes it back to the workspace.
 - Section switches are the buttons named `General`, `Appearance`, `Harness`,
   `Providers`, `Voice`, `Pets`, etc.
 
-## Driving it with gooeypi-control
+## Driving it with vclaw-control
 
 Preconditions:
 
 - Doctor is green.
 
 - **Open and tour sections.** Open Settings, then visit Appearance and Pets. Run
-  `xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs drive settings --out /tmp/gooeypi-verify/settings`.
+  `xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs drive settings --out /tmp/vclaw-verify/settings`.
   Expected `PROVEN:` lines: `Settings opened -> "General" heading visible`,
   `Settings section "Appearance" -> heading visible`,
   `Settings section "Pets" -> heading visible`,

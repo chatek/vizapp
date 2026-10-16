@@ -136,12 +136,12 @@ describe('extensions on a base pi host (no injected pi.typebox)', () => {
 
   it('collaboration extension registers the same session tools on base pi', async () => {
     vi.resetModules()
-    vi.stubEnv('GOOEYPI_COLLABORATION_URL', 'http://127.0.0.1:1/')
-    vi.stubEnv('GOOEYPI_COLLABORATION_TOKEN', 'token')
+    vi.stubEnv('VCLAW_COLLABORATION_URL', 'http://127.0.0.1:1/')
+    vi.stubEnv('VCLAW_COLLABORATION_TOKEN', 'token')
     const factory = (await import('../../assets/extensions/omp-work-collaboration')).default
     const { tools, pi } = piHost()
     await factory(pi as unknown as CollaborationExtensionApi)
-    expect(tools.map((tool) => tool.name)).toEqual(['gooeypi_session_list', 'gooeypi_session_models', 'gooeypi_session_create', 'gooeypi_session_read', 'gooeypi_session_send', 'gooeypi_session_wait'])
+    expect(tools.map((tool) => tool.name)).toEqual(['vclaw_session_list', 'vclaw_session_models', 'vclaw_session_create', 'vclaw_session_read', 'vclaw_session_send', 'vclaw_session_wait'])
     expect(schemaOf(tools[1]).required).toBeUndefined()
     expect(schemaOf(tools[2]).required).toEqual(['prompt'])
     expect(schemaOf(tools[2]).properties).toHaveProperty('model')

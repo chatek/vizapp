@@ -98,9 +98,11 @@ async function packageMetadata(sourceValue: string, settingsPath: string): Promi
     const description = typeof value.description === 'string' && value.description.trim()
       ? value.description.trim().slice(0, 500)
       : `${name} capability package`
-    const gooeypi = isRecord(value.gooeypi) ? value.gooeypi : undefined
-    const associatedMcpServers = Array.isArray(gooeypi?.mcpServers)
-      ? gooeypi.mcpServers.filter((server): server is string => typeof server === 'string' && /^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(server)).slice(0, 32)
+    // Read the new key, but keep accepting the pre-rebrand `gooeypi` key: third-party packages in the wild
+    // declare it, and dropping it would silently stop their MCP servers being associated.
+    const vclaw = isRecord(value.vclaw) ? value.vclaw : isRecord(value.gooeypi) ? value.gooeypi : undefined
+    const associatedMcpServers = Array.isArray(vclaw?.mcpServers)
+      ? vclaw.mcpServers.filter((server): server is string => typeof server === 'string' && /^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(server)).slice(0, 32)
       : undefined
     return { name, description, ...(associatedMcpServers?.length ? { associatedMcpServers } : {}) }
   } catch {
@@ -334,7 +336,7 @@ function addMcpSettingsMetadata(
       const transport = definition.type === 'sse' ? 'SSE' : 'HTTP'
       output.push({
         id: idFor('mcp', location, name), name: displayName,
-        description: `${transport} MCP server at ${origin}. Managed outside GooeyPi.`,
+        description: `${transport} MCP server at ${origin}. Managed outside VClaw.`,
         kind: 'mcp', location, enabled, source: origin, ...definitionIdentity,
         availability: { available: false, detail: NETWORK_MCP_UNAVAILABLE_DETAIL },
       })
@@ -347,7 +349,7 @@ function addMcpSettingsMetadata(
           : undefined
       output.push({
         id: idFor('mcp', location, name), name: displayName,
-        description: `Local stdio MCP server (${command})${harness === 'prime' ? '. Managed outside GooeyPi.' : ''}`,
+        description: `Local stdio MCP server (${command})${harness === 'prime' ? '. Managed outside VClaw.' : ''}`,
         kind: 'mcp', location, enabled, source: command, ...definitionIdentity,
         ...(availability ? { availability } : {}),
       })

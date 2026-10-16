@@ -9,7 +9,7 @@ const dirs: string[] = []
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
 function loadState(value: unknown): DesktopState {
-  const dir = mkdtempSync(join(tmpdir(), 'gooeypi-store-parse-'))
+  const dir = mkdtempSync(join(tmpdir(), 'vclaw-store-parse-'))
   dirs.push(dir)
   const path = join(dir, 'state.json')
   writeFileSync(path, JSON.stringify(value))
@@ -51,16 +51,16 @@ describe('persisted project parsing', () => {
       projects: [{
         id: 'project-1',
         harness: 'prime',
-        name: 'GooeyPi',
-        path: '/repos/gooey-pi',
-        primaryFolder: '/repos/gooey-pi',
+        name: 'VClaw',
+        path: '/repos/vclaw',
+        primaryFolder: '/repos/vclaw',
         pinned: 'yes',
         createdAt: 'not a date',
         lastOpenedAt: '2025-12-02T09:00:00.000Z',
       }],
     })
     expect(projects).toHaveLength(1)
-    expect(projects[0]).toMatchObject({ harness: 'prime', folders: ['/repos/gooey-pi'], pinned: false, lastOpenedAt: '2025-12-02T09:00:00.000Z' })
+    expect(projects[0]).toMatchObject({ harness: 'prime', folders: ['/repos/vclaw'], pinned: false, lastOpenedAt: '2025-12-02T09:00:00.000Z' })
     expect(Number.isFinite(Date.parse(projects[0].createdAt))).toBe(true)
     expect(projects[0].folderIdentities).toBeUndefined()
   })
@@ -79,21 +79,21 @@ describe('persisted project parsing', () => {
       projects: [{
         id: 'project-1',
         harness: 'prime',
-        name: 'GooeyPi',
-        path: '/repos/gooey-pi',
-        folders: ['/repos/gooey-pi', 7],
-        primaryFolder: '/repos/gooey-pi',
+        name: 'VClaw',
+        path: '/repos/vclaw',
+        folders: ['/repos/vclaw', 7],
+        primaryFolder: '/repos/vclaw',
         folderIdentities: {
-          '/repos/gooey-pi': { dev: '1', ino: '2', birthtimeNs: '1700000000000000000' },
+          '/repos/vclaw': { dev: '1', ino: '2', birthtimeNs: '1700000000000000000' },
           '/repos/other': { dev: '1', ino: '3', birthtimeNs: 'yesterday' },
           '/repos/third': { dev: 1, ino: 3 },
           '/repos/fourth': 'identity',
         },
       }],
     })
-    expect(projects[0].folders).toEqual(['/repos/gooey-pi'])
+    expect(projects[0].folders).toEqual(['/repos/vclaw'])
     expect(projects[0].folderIdentities).toEqual({
-      '/repos/gooey-pi': { dev: '1', ino: '2', birthtimeNs: '1700000000000000000' },
+      '/repos/vclaw': { dev: '1', ino: '2', birthtimeNs: '1700000000000000000' },
       '/repos/other': { dev: '1', ino: '3', birthtimeNs: undefined },
     })
   })
@@ -118,10 +118,10 @@ describe('persisted project parsing', () => {
   it.each([3, 4])('drops version %s projects whose harness is absent or unknown', (version) => {
     const project = {
       id: 'project-1',
-      name: 'GooeyPi',
-      path: '/repos/gooey-pi',
-      folders: ['/repos/gooey-pi'],
-      primaryFolder: '/repos/gooey-pi',
+      name: 'VClaw',
+      path: '/repos/vclaw',
+      folders: ['/repos/vclaw'],
+      primaryFolder: '/repos/vclaw',
     }
     const { projects } = loadState({
       version,
@@ -134,10 +134,10 @@ describe('persisted project parsing', () => {
     const project = {
       id: 'project-1',
       harness: 'prime',
-      name: 'GooeyPi',
-      path: '/repos/gooey-pi',
-      folders: ['/repos/gooey-pi'],
-      primaryFolder: '/repos/gooey-pi',
+      name: 'VClaw',
+      path: '/repos/vclaw',
+      folders: ['/repos/vclaw'],
+      primaryFolder: '/repos/vclaw',
       scripts: { setup: 'npm install', run: 'npm run dev', setupLastRun: 'npm install', setupLastExitCode: 0 },
     }
     expect(loadState({ version: 4, projects: [project] }).projects[0].scripts).toEqual(project.scripts)

@@ -184,7 +184,7 @@ describe('Composer session mentions', () => {
     const [prompt] = onSend.mock.calls[0]
     expect(prompt.startsWith('Coordinate with @API owner continue\n\n')).toBe(true)
     expect(prompt).toContain('pi session UUID 019f0000-0000-7000-8000-000000000002')
-    expect(prompt).toContain('Use gooeypi_session_read, gooeypi_session_send, and gooeypi_session_wait')
+    expect(prompt).toContain('Use vclaw_session_read, vclaw_session_send, and vclaw_session_wait')
   })
 })
 

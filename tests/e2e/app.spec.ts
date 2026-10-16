@@ -757,7 +757,7 @@ test.describe('Prime Work desktop smoke', () => {
       return { found: Boolean(parent), parent: parent?.label, platform: process.platform }
     })
     expect(updateMenu.found).toBe(true)
-    expect(updateMenu.parent).toBe(updateMenu.platform === 'darwin' ? 'GooeyPi' : 'Help')
+    expect(updateMenu.parent).toBe(updateMenu.platform === 'darwin' ? 'VClaw' : 'Help')
     await expect(page.evaluate(() => window.prime.updates.getState())).resolves.toMatchObject({ phase: 'unsupported' })
     const credentialStatus = await page.evaluate(() => window.prime.voice.credentialStatus())
     expect(typeof credentialStatus.storage.available).toBe('boolean')
@@ -874,7 +874,7 @@ test.describe('Prime Work desktop smoke', () => {
   })
 
   test('uses the persisted selected pet for realtime voice after a full restart', async () => {
-    const desktopPet = page.getByRole('button', { name: /Orb, draggable GooeyPi pet/ })
+    const desktopPet = page.getByRole('button', { name: /Orb, draggable VClaw pet/ })
     await expect(desktopPet).toBeVisible()
     await desktopPet.hover()
     await expect(desktopPet).not.toHaveAttribute('title')
@@ -888,7 +888,7 @@ test.describe('Prime Work desktop smoke', () => {
     expect(idlePetGap).toBeLessThanOrEqual(1)
     await page.locator('.title-toolbar').getByRole('button', { name: 'Open realtime voice' }).click()
     await expect(page.getByRole('complementary', { name: 'Realtime voice session' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Orb, draggable GooeyPi pet/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Orb, draggable VClaw pet/ })).toBeVisible()
     await expect(page.locator('.voice-orb')).toHaveCount(0)
     await page.getByRole('complementary', { name: 'Realtime voice session' }).getByRole('button', { name: 'Close realtime voice' }).click()
 
@@ -896,15 +896,15 @@ test.describe('Prime Work desktop smoke', () => {
     await page.getByRole('button', { name: 'Pets', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Pets', exact: true })).toBeVisible()
     await expect(page.getByRole('radio', { name: /^Orb Built/ })).toBeChecked()
-    await page.getByRole('radio', { name: /^GooeyPi Built/ }).click()
-    await expect(page.getByRole('radio', { name: /^GooeyPi Built/ })).toBeChecked()
+    await page.getByRole('radio', { name: /^VClaw Built/ }).click()
+    await expect(page.getByRole('radio', { name: /^VClaw Built/ })).toBeChecked()
     await expect(page.getByRole('heading', { name: 'Codex Pets' })).toBeVisible()
     const showPet = page.getByRole('checkbox', { name: 'Show desktop pet' })
     await showPet.focus()
     await showPet.press('Space')
     await expect(showPet).not.toBeChecked()
     await expect(page.locator('.desktop-pet')).toHaveCount(0)
-    await expect.poll(() => JSON.parse(readFileSync(join(fixtureRoot, 'user-data', CURRENT_DESKTOP_STATE_FILENAME), 'utf8')).settings).toMatchObject({ petEnabled: false, petId: 'gooey-pi' })
+    await expect.poll(() => JSON.parse(readFileSync(join(fixtureRoot, 'user-data', CURRENT_DESKTOP_STATE_FILENAME), 'utf8')).settings).toMatchObject({ petEnabled: false, petId: 'vclaw' })
 
     await closeHermeticApp(app)
     app = undefined
@@ -925,7 +925,7 @@ test.describe('Prime Work desktop smoke', () => {
     await page.locator('.session-row-wrap').filter({ hasText: 'Hermetic desktop fixture' }).locator('.session-row').click()
     await page.locator('.title-toolbar').getByRole('button', { name: 'Open realtime voice' }).click()
     const realtimePet = page.getByRole('complementary', { name: 'Realtime voice session' })
-    await expect(realtimePet.getByRole('button', { name: /GooeyPi, draggable GooeyPi pet/ })).toBeVisible()
+    await expect(realtimePet.getByRole('button', { name: /VClaw, draggable VClaw pet/ })).toBeVisible()
     await expect(realtimePet.locator('.pet-sprite img')).toBeVisible()
     await expect(page.locator('.voice-orb')).toHaveCount(0)
   })
@@ -1506,7 +1506,7 @@ test.describe('Prime Work desktop smoke', () => {
     const sent = JSON.parse(readFileSync(marker, 'utf8')) as { message: string }
     expect(sent.message).toContain('Coordinate with @Ownership peer fixture about ownership')
     expect(sent.message).toContain('prime session UUID 019fdf24-cccc-7000-8000-000000000003')
-    expect(sent.message).toContain('===== BEGIN GOOEYPI SESSION REFERENCES =====')
+    expect(sent.message).toContain('===== BEGIN VCLAW SESSION REFERENCES =====')
     appendFileSync(fixtureSessionFile, `${JSON.stringify({
       type: 'message', id: 'fixture-session-reference', parentId: 'fixture-goal-summary', timestamp: new Date().toISOString(),
       message: { role: 'user', content: sent.message, timestamp: new Date().toISOString() },
@@ -1516,7 +1516,7 @@ test.describe('Prime Work desktop smoke', () => {
     const userMessage = page.locator('.message--user').filter({ hasText: 'Coordinate with @Ownership peer fixture about ownership' })
     await expect(userMessage).toBeVisible()
     await expect(userMessage).not.toContainText('019fdf24-cccc-7000-8000-000000000003')
-    await expect(userMessage).not.toContainText('GOOEYPI SESSION REFERENCES')
+    await expect(userMessage).not.toContainText('VCLAW SESSION REFERENCES')
     const linkedMention = userMessage.getByRole('button', { name: 'Open session Ownership peer fixture' })
     await expect(linkedMention).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(linkedMention).toHaveCSS('border-top-width', '0px')
@@ -1623,10 +1623,10 @@ test.describe('Prime Work desktop smoke', () => {
         await expect(addDialog.getByText('Add MCP', { exact: true })).toBeVisible()
         await expect(addDialog.getByText('Add Package', { exact: true })).toBeVisible()
         await expect(addDialog.getByText('Add Extension', { exact: true })).toBeVisible()
-        await expect(addDialog.getByText(/Not every third-party package, plugin, or extension will work in GooeyPi/)).toBeVisible()
+        await expect(addDialog.getByText(/Not every third-party package, plugin, or extension will work in VClaw/)).toBeVisible()
         const addMcp = addDialog.getByRole('button', { name: /Add MCP/ })
         await expect(addMcp).toBeDisabled()
-        await expect(addMcp).toContainText('Prime MCP setup is managed outside GooeyPi')
+        await expect(addMcp).toContainText('Prime MCP setup is managed outside VClaw')
         await expect(addDialog.getByText('Server URL', { exact: true })).toHaveCount(0)
         await expect(addDialog.getByText('Authentication', { exact: true })).toHaveCount(0)
         await addDialog.getByRole('button', { name: 'Close' }).click()
@@ -2386,8 +2386,8 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string; click?: () => void }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open GooeyPi|separator|Settings...|Quit') {
-          scope.__trayOpen = items.find((item) => item.label === 'Open GooeyPi')?.click
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VClaw|separator|Settings...|Quit') {
+          scope.__trayOpen = items.find((item) => item.label === 'Open VClaw')?.click
         }
         return originalBuildFromTemplate(template)
       }) as typeof Menu.buildFromTemplate
@@ -2426,7 +2426,7 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open GooeyPi|separator|Settings...|Quit') {
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VClaw|separator|Settings...|Quit') {
           process.getBuiltinModule('node:fs').appendFileSync(markerPath, 'tray\n')
         }
         return originalBuildFromTemplate(template)
@@ -2452,9 +2452,9 @@ test.describe('Prime Work desktop smoke', () => {
     await stubCloseDialog(app!)
 
     const runningPrompt = {
-      message: 'Close GooeyPi while an agent is running?',
+      message: 'Close VClaw while an agent is running?',
       detail: 'An agent run is still in progress and will be stopped.',
-      buttons: ['Cancel', 'Close GooeyPi'],
+      buttons: ['Cancel', 'Close VClaw'],
     }
     await app!.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.close() })
     await expect.poll(() => closePrompts(app!)).toEqual([runningPrompt])
@@ -2483,7 +2483,7 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string; click?: () => void }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open GooeyPi|separator|Settings...|Quit') {
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VClaw|separator|Settings...|Quit') {
           scope.__trayQuit = items.find((item) => item.label === 'Quit')?.click
         }
         return originalBuildFromTemplate(template)
@@ -2516,9 +2516,9 @@ test.describe('Prime Work desktop smoke', () => {
     expect(processIsAlive(runtimePid)).toBe(true)
 
     const runningPrompt = {
-      message: 'Close GooeyPi while an agent is running?',
+      message: 'Close VClaw while an agent is running?',
       detail: 'An agent run is still in progress and will be stopped.',
-      buttons: ['Cancel', 'Close GooeyPi'],
+      buttons: ['Cancel', 'Close VClaw'],
     }
     await app!.evaluate(() => {
       const quit = (globalThis as { __trayQuit?: () => void }).__trayQuit

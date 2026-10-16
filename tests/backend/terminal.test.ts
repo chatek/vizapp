@@ -18,7 +18,7 @@ const waitFor = async (predicate: () => boolean, timeout = 4_000) => {
 
 describe('TerminalService', () => {
   it('holds repository use until the terminal exits', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'gooeypi-terminal-use-')); dirs.push(cwd)
+    const cwd = mkdtempSync(join(tmpdir(), 'vclaw-terminal-use-')); dirs.push(cwd)
     const owner = { id: 39, isDestroyed: () => false, send: vi.fn() } as unknown as WebContents
     const release = vi.fn()
     const begin = vi.fn(async () => ({ release }))
@@ -49,7 +49,7 @@ describe('TerminalService', () => {
     await service.kill(owner, first.terminalId)
   })
   it('runs configured commands without npm prefix overrides while preserving PREFIX', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'gooeypi-project-run-')); dirs.push(cwd)
+    const cwd = mkdtempSync(join(tmpdir(), 'vclaw-project-run-')); dirs.push(cwd)
     const events: Array<{ channel: string; payload: { terminalId?: string; data?: string; exitCode?: number } }> = []
     const owner = {
       id: 47,

@@ -1,11 +1,11 @@
 ---
-name: verify-gooeypi
-description: Launch and drive the GooeyPi desktop (Electron) app to prove user-facing behavior — sidebar navigation, Settings, and Capabilities — capturing screenshots and ARIA snapshots. Reach for this when verifying a GooeyPi UI change or confirming the app still works end to end.
+name: verify-vclaw
+description: Launch and drive the VClaw desktop (Electron) app to prove user-facing behavior — sidebar navigation, Settings, and Capabilities — capturing screenshots and ARIA snapshots. Reach for this when verifying a VClaw UI change or confirming the app still works end to end.
 ---
 
-# Verify GooeyPi
+# Verify VClaw
 
-GooeyPi is a **desktop Electron app** — that window is the only surface a user
+VClaw is a **desktop Electron app** — that window is the only surface a user
 touches (there is no user-facing web page, CLI, or API). This skill launches the
 built app in an isolated, disposable profile, drives one user-facing feature the
 way a person would, and captures evidence. The driver mirrors the repo's own
@@ -31,7 +31,7 @@ its index before driving, then use the matching feature file as the recipe.
   start. Readiness is `.app-shell[data-ready="true"]`. A fresh `HOME` has no
   harness installed, so the driver first dismisses the `No Pi family harness
   detected` modal (that modal makes the shell `inert`).
-- **Command.** `xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs drive <scenario> --out <dir>`
+- **Command.** `xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs drive <scenario> --out <dir>`
 
 ## Doctor
 
@@ -39,11 +39,11 @@ Answer "is this instance worth driving?" before anything else, or whenever the
 app looks wrong:
 
 ```
-xvfb-run -a node .cursor/skills/verify-gooeypi/control.mjs doctor --out /tmp/gooeypi-verify/doctor
+xvfb-run -a node .cursor/skills/verify-vclaw/control.mjs doctor --out /tmp/vclaw-verify/doctor
 ```
 
 It launches the app, asserts `.app-shell[data-ready="true"]`, prints the window
-title (expect `GooeyPi`), and screenshots. A non-zero exit means the build is
+title (expect `VClaw`), and screenshots. A non-zero exit means the build is
 broken or the app never became ready — fix that before driving features.
 
 ## Drive
@@ -54,7 +54,7 @@ broken or the app never became ready — fix that before driving features.
   each page asserts its level-1 heading; Settings opens from the
   `.sidebar__footer` `Settings` button and lands on the `General` heading, with
   sections as buttons named `Appearance`, `Pets`, `Harness`, etc.
-- **Scenarios:** `node .cursor/skills/verify-gooeypi/control.mjs list` →
+- **Scenarios:** `node .cursor/skills/verify-vclaw/control.mjs list` →
   `navigation`, `settings`, `capabilities`. Each is one self-contained
   launch → drive → capture → teardown. The [feature map](./features/README.md)
   documents these plus features (session messaging) that need the repo's
@@ -63,7 +63,7 @@ broken or the app never became ready — fix that before driving features.
 ## Evidence
 
 - Each scenario writes PNG screenshots and `.aria.txt` ARIA snapshots to
-  `--out DIR` (default `/tmp/gooeypi-verify/<scenario>-<timestamp>`) and prints a
+  `--out DIR` (default `/tmp/vclaw-verify/<scenario>-<timestamp>`) and prints a
   `PROVEN:` list of the assertions it checked.
 - **Proof standard:** drive the real user path and capture both the action and
   the resulting page state (heading + ARIA), not just a final screen. For a

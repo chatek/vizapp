@@ -8,7 +8,7 @@ import { CapabilityBridge, type CapabilityClaim } from '../lib/capability-bridge
 import type { ModelCatalogProvider } from '../model-catalog'
 import { availableModels, rankedModelMatches, resolveModel, resolveReasoning } from '../model-selection'
 import { requireBoolean, requireId, requireInteger, requireString } from '../validation'
-import { encodeGooeyPiAgentMessage } from './message-envelope'
+import { encodeVClawAgentMessage } from './message-envelope'
 
 const MAX_LISTED_SESSIONS = 100
 const MAX_MESSAGES = 40
@@ -142,7 +142,7 @@ function cursorFor(session: SessionRecord, messages: CollaborationMessage[], liv
 /**
  * App-owned session collaboration for all harnesses. Session files remain
  * read-only: reads use each harness's bounded SessionService, while writes are
- * delivered through a live runtime owned by this GooeyPi process (waking an
+ * delivered through a live runtime owned by this VClaw process (waking an
  * authorized saved target through the normal manager when needed).
  */
 export class AgentCollaborationBridge extends CapabilityBridge {
@@ -164,9 +164,9 @@ export class AgentCollaborationBridge extends CapabilityBridge {
 
   protected environmentEntries(url: string, token: string): NodeJS.ProcessEnv {
     return {
-      GOOEYPI_COLLABORATION_URL: url,
-      GOOEYPI_COLLABORATION_TOKEN: token,
-      GOOEYPI_COLLABORATION_EXTENSION_PATH: this.options.extensionPath,
+      VCLAW_COLLABORATION_URL: url,
+      VCLAW_COLLABORATION_TOKEN: token,
+      VCLAW_COLLABORATION_EXTENSION_PATH: this.options.extensionPath,
     }
   }
 
@@ -326,7 +326,7 @@ export class AgentCollaborationBridge extends CapabilityBridge {
     if (!created) {
       this.pendingRuntimeTokens.delete(runtime.runtimeId)
       await manager.stop(runtime.runtimeId).catch(() => false)
-      throw new Error('The harness created a runtime but its session is not yet readable from GooeyPi')
+      throw new Error('The harness created a runtime but its session is not yet readable from VClaw')
     }
     return {
       created: true,
@@ -384,7 +384,7 @@ export class AgentCollaborationBridge extends CapabilityBridge {
     const existing = target.manager.getForSession(target.session.filePath)
     const runtime = existing ?? await this.wake(target)
     const before = await this.snapshot(target)
-    const attribution = encodeGooeyPiAgentMessage({
+    const attribution = encodeVClawAgentMessage({
       fromSessionId: source.session.id,
       text: message,
     })

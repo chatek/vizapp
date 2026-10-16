@@ -9,7 +9,7 @@ import type { PetDefinition, PrimeWorkApi } from '../../src/types/api'
 
 const definitions: PetDefinition[] = [
   { id: 'orb', petId: 'orb', displayName: 'Orb', description: 'Orb.', source: 'built-in', kind: 'orb' },
-  { id: 'gooey-pi', petId: 'gooey-pi', displayName: 'GooeyPi', description: 'Gooey.', source: 'built-in', kind: 'spritesheet' },
+  { id: 'vclaw', petId: 'vclaw', displayName: 'VClaw', description: 'VClaw.', source: 'built-in', kind: 'spritesheet' },
 ]
 
 describe('DesktopPet', () => {
@@ -26,9 +26,9 @@ describe('DesktopPet', () => {
   afterEach(() => { act(() => root.unmount()); container.remove(); vi.clearAllMocks() })
 
   it('maps agent and voice activity to distinct companion animations', async () => {
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
     expect(container.querySelector('.desktop-pet--working')).not.toBeNull()
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy reduceMotion={false} voiceActive />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy reduceMotion={false} voiceActive />); await Promise.resolve() })
     expect(container.querySelector('.desktop-pet--speaking')).not.toBeNull()
   })
 
@@ -55,7 +55,7 @@ describe('DesktopPet', () => {
       if (this.classList.contains('pet-dismiss-drawer__hitbox')) return { x: 161, y: 390, top: 390, right: 239, bottom: 468, left: 161, width: 78, height: 78, toJSON: () => ({}) }
       return { x: 0, y: 0, top: 0, right: 96, bottom: 130, left: 0, width: 96, height: 130, toJSON: () => ({}) }
     })
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive={false} onDismiss={onDismiss} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive={false} onDismiss={onDismiss} />); await Promise.resolve() })
     const pet = container.querySelector<HTMLElement>('.desktop-pet__drag-target')!
     const dismissDrawer = document.body.querySelector('.pet-dismiss-drawer')!
     expect(dismissDrawer.classList.contains('is-visible')).toBe(false)
@@ -92,12 +92,12 @@ describe('DesktopPet', () => {
     const onOpenVoice = vi.fn()
     const onToggleVoiceMute = vi.fn()
     const onCloseVoice = vi.fn()
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive={false} onOpenVoice={onOpenVoice} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive={false} onOpenVoice={onOpenVoice} />); await Promise.resolve() })
     const open = container.querySelector<HTMLButtonElement>('[aria-label="Open realtime voice"]')!
     act(() => open.click())
     expect(onOpenVoice).toHaveBeenCalledTimes(1)
 
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive voiceMuted voiceStatus="Muted" onToggleVoiceMute={onToggleVoiceMute} onCloseVoice={onCloseVoice} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive voiceMuted voiceStatus="Muted" onToggleVoiceMute={onToggleVoiceMute} onCloseVoice={onCloseVoice} />); await Promise.resolve() })
     expect(container.textContent).toContain('Muted')
     const unmute = container.querySelector<HTMLButtonElement>('[aria-label="Unmute realtime voice"]')!
     const close = container.querySelector<HTMLButtonElement>('[aria-label="Close realtime voice"]')!
@@ -107,7 +107,7 @@ describe('DesktopPet', () => {
   })
 
   it('keeps the idle waveform tight to the pet without rendering a hover name chip', async () => {
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive={false} onOpenVoice={vi.fn()} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive={false} onOpenVoice={vi.fn()} />); await Promise.resolve() })
     expect(container.querySelector('.desktop-pet__name')).toBeNull()
     expect(container.querySelector('.desktop-pet__drag-target')?.hasAttribute('title')).toBe(false)
     expect(container.querySelector('.desktop-pet')?.classList.contains('is-voice-active')).toBe(false)
@@ -117,13 +117,13 @@ describe('DesktopPet', () => {
   it('keeps an expanded voice pet inside a small viewport and exposes the voice landmark', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
-    localStorage.setItem('gooeypi:pet-position', JSON.stringify({ x: 999, y: 999 }))
+    localStorage.setItem('vclaw:pet-position', JSON.stringify({ x: 999, y: 999 }))
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const height = this.classList.contains('desktop-pet') ? 340 : 0
       return { x: 0, y: 0, top: 0, right: 120, bottom: height, left: 0, width: 120, height, toJSON: () => ({}) }
     })
     await act(async () => {
-      root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Voice unavailable" voiceError="Realtime failed" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()}><div className="voice-orb__receipt">Receipt</div></DesktopPet>)
+      root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Voice unavailable" voiceError="Realtime failed" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()}><div className="voice-orb__receipt">Receipt</div></DesktopPet>)
       await Promise.resolve()
     })
     const surface = container.querySelector<HTMLElement>('.desktop-pet')!
@@ -138,8 +138,8 @@ describe('DesktopPet', () => {
   it('reserves enough edge space for unscaled voice status at the minimum pet size', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
-    localStorage.setItem('gooeypi:pet-position', JSON.stringify({ x: 999, y: 100 }))
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" petSize={50} agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Voice unavailable" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()} />); await Promise.resolve() })
+    localStorage.setItem('vclaw:pet-position', JSON.stringify({ x: 999, y: 100 }))
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" petSize={50} agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Voice unavailable" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()} />); await Promise.resolve() })
     const surface = container.querySelector<HTMLElement>('.desktop-pet')!
     expect(surface.style.getPropertyValue('--pet-surface-width')).toBe('112px')
     expect(Number.parseFloat(surface.style.left) + 112).toBeLessThanOrEqual(316)
@@ -148,13 +148,13 @@ describe('DesktopPet', () => {
   it('moves a bottom-positioned pet only as far as its measured voice controls require', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
-    localStorage.setItem('gooeypi:pet-position', JSON.stringify({ x: 450, y: 338 }))
+    localStorage.setItem('vclaw:pet-position', JSON.stringify({ x: 450, y: 338 }))
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const height = this.classList.contains('desktop-pet') ? 190 : 0
       return { x: 0, y: 0, top: 0, right: 120, bottom: height, left: 0, width: 120, height, toJSON: () => ({}) }
     })
     await act(async () => {
-      root.render(<DesktopPet pets={pets} petId="gooey-pi" agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Listening" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()} />)
+      root.render(<DesktopPet pets={pets} petId="vclaw" agentBusy={false} reduceMotion={false} voiceActive voiceStatus="Listening" onToggleVoiceMute={vi.fn()} onCloseVoice={vi.fn()} />)
       await Promise.resolve()
     })
     const surface = container.querySelector<HTMLElement>('.desktop-pet')!
@@ -165,18 +165,18 @@ describe('DesktopPet', () => {
   it('resizes the live pet around its bottom anchor without position glitches', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 })
-    localStorage.setItem('gooeypi:pet-position', JSON.stringify({ x: 450, y: 338 }))
+    localStorage.setItem('vclaw:pet-position', JSON.stringify({ x: 450, y: 338 }))
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const height = this.classList.contains('desktop-pet') ? Number.parseFloat(this.style.getPropertyValue('--pet-surface-min-height')) + 8 : 0
       return { x: 0, y: 0, top: 0, right: 120, bottom: height, left: 0, width: 120, height, toJSON: () => ({}) }
     })
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" petSize={100} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" petSize={100} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
     const surface = container.querySelector<HTMLElement>('.desktop-pet')!
     expect(Number.parseFloat(surface.style.top)).toBe(338)
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" petSize={50} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" petSize={50} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
     expect(container.querySelector<HTMLElement>('.pet-sprite')?.style.width).toBe('48px')
     expect(Number.parseFloat(surface.style.top)).toBe(386)
-    await act(async () => { root.render(<DesktopPet pets={pets} petId="gooey-pi" petSize={100} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
+    await act(async () => { root.render(<DesktopPet pets={pets} petId="vclaw" petSize={100} agentBusy={false} reduceMotion={false} voiceActive={false} />); await Promise.resolve() })
     expect(container.querySelector<HTMLElement>('.pet-sprite')?.style.width).toBe('96px')
     expect(Number.parseFloat(surface.style.top)).toBe(338)
     bounds.mockRestore()

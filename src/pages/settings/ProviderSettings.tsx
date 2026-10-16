@@ -6,7 +6,7 @@ import { HARNESS_AGENT_NAMES } from '@/lib/harness'
 import { Modal } from '@/components/ui'
 
 interface ProviderSettingsProps {
-  /** Active harness. OMP and Pi credentials stay CLI-owned; visibility toggles only affect GooeyPi. */
+  /** Active harness. OMP and Pi credentials stay CLI-owned; visibility toggles only affect VClaw. */
   harness?: HarnessId
   catalog: PrimeModelCatalog | null
   onRefresh(): Promise<void>
@@ -21,7 +21,7 @@ interface ProviderSettingsProps {
 }
 
 function authDescription(provider: PrimeProviderDescriptor): string {
-  if (!provider.configured) return provider.authMethod === 'external' ? 'Uses credentials configured outside GooeyPi' : 'Not connected'
+  if (!provider.configured) return provider.authMethod === 'external' ? 'Uses credentials configured outside VClaw' : 'Not connected'
   const source = provider.authSource === 'environment' ? provider.authLabel ? `Environment · ${provider.authLabel}` : 'Environment'
     : provider.authSource === 'prime_cli' ? 'Prime CLI account'
       : provider.authSource === 'models_json_key' || provider.authSource === 'models_json_command' ? 'models.json'
@@ -35,7 +35,7 @@ function activeFirst<T extends { enabled?: boolean }>(items: readonly T[]): T[] 
 }
 
 export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
-  // OMP and Pi own their credentials in their CLIs; GooeyPi only toggles visibility.
+  // OMP and Pi own their credentials in their CLIs; VClaw only toggles visibility.
   const externalAuth = harness !== 'prime'
   const agentName = HARNESS_AGENT_NAMES[harness]
   const [view, setView] = useState<'providers' | 'models'>('providers')
@@ -120,7 +120,7 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
   return (
     <section className="settings-group provider-settings">
       <div className="settings-group__heading"><h2>{agentName} catalogue</h2><div className="provider-heading-actions">{catalog && disabledCount < providerCount ? <button type="button" className="button button--danger" disabled={Boolean(busyProvider)} onClick={() => void disableAll()}>{externalAuth ? 'Hide all' : 'Disable all'}</button> : null}{disabledCount ? <button type="button" className="button" disabled={Boolean(busyProvider)} onClick={() => void enableAll()}>{externalAuth ? 'Show all' : 'Enable all'}</button> : null}<button type="button" className="button button--icon" aria-label="Refresh providers" disabled={Boolean(busyProvider)} onClick={() => void run('refresh', onRefresh)}><RefreshCw size={13} /></button></div></div>
-      <div className="provider-catalog-summary"><strong>{catalog ? `${providerCount.toLocaleString()} providers · ${modelCount.toLocaleString()} models` : 'Loading provider catalogue…'}</strong>{catalog ? <small>{externalAuth ? `${availableModelCount.toLocaleString()} models are shown in GooeyPi; ${agentName} checks credentials when you launch one` : `${availableModelCount.toLocaleString()} models are available with your current ${agentName} credentials`}</small> : null}</div>
+      <div className="provider-catalog-summary"><strong>{catalog ? `${providerCount.toLocaleString()} providers · ${modelCount.toLocaleString()} models` : 'Loading provider catalogue…'}</strong>{catalog ? <small>{externalAuth ? `${availableModelCount.toLocaleString()} models are shown in VClaw; ${agentName} checks credentials when you launch one` : `${availableModelCount.toLocaleString()} models are available with your current ${agentName} credentials`}</small> : null}</div>
       {catalog?.warning ? <p className="provider-catalog-warning" role="status">{catalog.warning}</p> : null}
       <div className="provider-catalog-tabs" role="tablist" aria-label="Provider catalogue view">
         <button type="button" role="tab" aria-selected={view === 'providers'} className={view === 'providers' ? 'is-active' : ''} onClick={() => { setView('providers'); setQuery('') }}>Providers <span>{providerCount.toLocaleString()}</span></button>
@@ -161,15 +161,15 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
       </div>}
       {catalog && view === 'providers' && !providers.length ? <p className="settings-empty">No providers match your search.</p> : null}
       {catalog && view === 'models' && !modelGroups.length ? <p className="settings-empty">No models match your search.</p> : null}
-      {apiKeyProvider ? <Modal title={`Connect ${apiKeyProvider.name}`} onClose={() => { if (!busyProvider) closeApiKey() }} footer={<><button type="button" className="button" disabled={Boolean(busyProvider)} onClick={closeApiKey}>Cancel</button><button type="button" className="button button--primary" disabled={Boolean(busyProvider) || !apiKey.trim()} onClick={() => void saveApiKey()}>Save API key</button></>}><p className="modal-intro">The key is sent directly to Prime Agent’s protected auth store. GooeyPi clears it from renderer state when this dialog closes.</p>{apiKeyError ? <p className="settings-error" role="alert">{apiKeyError}</p> : null}<label className="field"><span>API key</span><input autoFocus type="password" value={apiKey} autoComplete="off" spellCheck={false} onChange={(event) => setApiKey(event.target.value)} /></label></Modal> : null}
+      {apiKeyProvider ? <Modal title={`Connect ${apiKeyProvider.name}`} onClose={() => { if (!busyProvider) closeApiKey() }} footer={<><button type="button" className="button" disabled={Boolean(busyProvider)} onClick={closeApiKey}>Cancel</button><button type="button" className="button button--primary" disabled={Boolean(busyProvider) || !apiKey.trim()} onClick={() => void saveApiKey()}>Save API key</button></>}><p className="modal-intro">The key is sent directly to Prime Agent’s protected auth store. VClaw clears it from renderer state when this dialog closes.</p>{apiKeyError ? <p className="settings-error" role="alert">{apiKeyError}</p> : null}<label className="field"><span>API key</span><input autoFocus type="password" value={apiKey} autoComplete="off" spellCheck={false} onChange={(event) => setApiKey(event.target.value)} /></label></Modal> : null}
     </section>
   )
 }
 
 const PROVIDERS_PAGE_INTROS: Record<HarnessId, string> = {
-  omp: 'Choose which OMP providers and models appear in GooeyPi. These visibility settings do not change OMP itself; credentials remain managed by OMP. You may need to log in to or out of providers in the OMP CLI before they appear on this screen.',
-  pi: 'Choose which Pi providers and models appear in GooeyPi. These visibility settings do not change Pi itself; Pi provider authentication is managed by the pi CLI. You may need to log in to or out of providers in the Pi CLI before they appear on this screen.',
-  prime: 'Connect accounts, choose which providers and their models appear in GooeyPi, and browse every model Prime Agent supports. You may need to log in to or out of providers in the Prime Agent CLI before they appear on this screen.',
+  omp: 'Choose which OMP providers and models appear in VClaw. These visibility settings do not change OMP itself; credentials remain managed by OMP. You may need to log in to or out of providers in the OMP CLI before they appear on this screen.',
+  pi: 'Choose which Pi providers and models appear in VClaw. These visibility settings do not change Pi itself; Pi provider authentication is managed by the pi CLI. You may need to log in to or out of providers in the Pi CLI before they appear on this screen.',
+  prime: 'Connect accounts, choose which providers and their models appear in VClaw, and browse every model Prime Agent supports. You may need to log in to or out of providers in the Prime Agent CLI before they appear on this screen.',
 }
 
 /** The Providers settings page: heading plus the provider/model catalog section. */

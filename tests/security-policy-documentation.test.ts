@@ -14,12 +14,12 @@ describe('repository security policy', () => {
   test('uses GitHub-recognized placement and identifies supported versions', () => {
     expect(existsSync(policyPath)).toBe(true)
     expect(policy).toContain('# Security Policy')
-    expect(policy).toMatch(/latest (?:GooeyPi )?release/i)
+    expect(policy).toMatch(/latest (?:VClaw )?release/i)
     expect(policy).toContain('| Earlier releases | No |')
   })
 
   test('directs sensitive reports to GitHub private advisories', () => {
-    expect(policy).toContain('https://github.com/am-will/gooey-pi/security/advisories/new')
+    expect(policy).toContain('https://github.com/chatek/vclaw-desktop/security/advisories/new')
     expect(policy).toMatch(/Do not disclose suspected vulnerabilities in a public issue/i)
     expect(policy).toMatch(/If the private reporting form is unavailable/i)
     expect(policy).toMatch(/Do not include any vulnerability details in that issue/i)

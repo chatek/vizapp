@@ -35,17 +35,17 @@ function effectiveToolId(id: string | undefined, name: string): string {
 }
 
 const EMPTY_TURN_FALLBACK = 'Completed without a text response.'
-const LOCAL_STEER_PICKUP = Symbol('gooeypi-steer-pickup')
-const LOCAL_STEER_ACCEPTED = Symbol('gooeypi-steer-accepted')
+const LOCAL_STEER_PICKUP = Symbol('vclaw-steer-pickup')
+const LOCAL_STEER_ACCEPTED = Symbol('vclaw-steer-accepted')
 
 /** Renderer-only event: fixes an admitted steer in history at response time. */
 export function createSteerAcceptedEvent(prompt: QueuedPrompt): Record<string, unknown> {
-  return { type: 'gooeypi_steer_accepted', prompt, [LOCAL_STEER_ACCEPTED]: true }
+  return { type: 'vclaw_steer_accepted', prompt, [LOCAL_STEER_ACCEPTED]: true }
 }
 
 /** Renderer-only event: the symbol prevents an agent frame from spoofing a local pickup. */
 export function createSteerPickupEvent(prompts: QueuedPrompt[]): Record<string, unknown> {
-  return { type: 'gooeypi_steer_pickup', prompts, [LOCAL_STEER_PICKUP]: true }
+  return { type: 'vclaw_steer_pickup', prompts, [LOCAL_STEER_PICKUP]: true }
 }
 
 export function replayPrimeEvents(
@@ -210,7 +210,7 @@ export function replayPrimeEvents(
     if (stats) stats.eventScans += 1
     const type = string(raw.type) ?? string(raw.event)
     if (!type) continue
-    if (type === 'gooeypi_steer_accepted' && (raw as Record<PropertyKey, unknown>)[LOCAL_STEER_ACCEPTED] === true) {
+    if (type === 'vclaw_steer_accepted' && (raw as Record<PropertyKey, unknown>)[LOCAL_STEER_ACCEPTED] === true) {
       const accepted = steerMessage(raw.prompt, 'accepted')
       if (!accepted || next.some((message) => message.id === accepted.id)) continue
       // Freeze the output already visible when the RPC response confirms
@@ -221,7 +221,7 @@ export function replayPrimeEvents(
       next.push(accepted)
       continue
     }
-    if (type === 'gooeypi_steer_pickup' && (raw as Record<PropertyKey, unknown>)[LOCAL_STEER_PICKUP] === true) {
+    if (type === 'vclaw_steer_pickup' && (raw as Record<PropertyKey, unknown>)[LOCAL_STEER_PICKUP] === true) {
       const prompts = Array.isArray(raw.prompts) ? raw.prompts : []
       const pickedUp = prompts.flatMap((value) => {
         const message = steerMessage(value, 'read')

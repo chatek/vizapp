@@ -210,10 +210,10 @@ export function PiMark({ size = 24 }: { size?: number }) {
   )
 }
 
-export function GooeyPiMark({ size = 24 }: { size?: number }) {
+export function VClawMark({ size = 24 }: { size?: number }) {
   return (
-    <span className="gooeypi-mark" style={{ width: size, height: size }} role="img" aria-label="GooeyPi">
-      <img src="/gooeypi-mascot.png" alt="" aria-hidden="true" />
+    <span className="vclaw-mark" style={{ width: size, height: size }} role="img" aria-label="VClaw">
+      <img src="/vclaw-mascot.png" alt="" aria-hidden="true" />
     </span>
   )
 }
