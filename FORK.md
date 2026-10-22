@@ -135,6 +135,9 @@ manifest key `vclaw` with legacy `gooeypi` fallback (`electron/main/plugins/cata
 `tests/member-seams.test.ts` in the normal suite). An upstream merge that breaks an anchor turns THIS
 repo red at merge time, instead of breaking a member's build at their next pin bump.
 
+The full member-build runbook — what/why/how, with the pinned-snapshot flow, the identity-override
+warning, and the estate build rules — is **`docs/MEMBER_BUILD.md`**.
+
 **Change rules:** an anchor may be renamed only by bumping the contract version (see
 `scripts/release/member-seams.mjs` → `MEMBER_SEAMS_V1`) and recording the rename in this file in the
 same commit. Members ride `main` as the dependency stream; release trains and updater channels are
