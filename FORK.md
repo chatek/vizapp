@@ -110,6 +110,37 @@ certificate for the signed leg.
   `VClaw` (no space) — noted rather than patched, to keep the diff small.
 * The app icon is upstream's Prime Intellect butterfly artwork; a VClaw icon is still a design task.
 
+## Member integration seam contract (v1)
+
+Member apps (first: **VizMaster**) build a branded vertical from a **pinned `main` commit**: they snapshot
+this tree, copy in their payload, and perform anchored insertions into the files below (the consumer this
+contract was extracted from: `VizMaster/scripts/integrate-vcclaw.mjs`, measured 2026-10-22). There are no
+member branches and no member-owned files in this repo — the contract is what keeps pinned builds
+integrable across upstream merges.
+
+| seam (v1) | file | anchor |
+|---|---|---|
+| `index-store-import` | `electron/main/index.ts` | `import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'` |
+| `index-state-store-call` | `electron/main/index.ts` | `  const stateStore = await openDesktopStateStore(userDataPath)` |
+| `index-harness-import` | `electron/main/index.ts` | either `import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'` or `import { HarnessDiscoveryService } from './harness-discovery'` |
+| `index-harness-reconcile-call` | `electron/main/index.ts` | `reconcileActiveHarness(stateStore,` |
+| `projects-store-import` | `electron/main/projects.ts` | `import type { FolderIdentity, JsonStateStore, PersistedProject } from './store'` |
+| `projects-list-return` | `electron/main/projects.ts` | `return sortProjects(records, 'recent')` |
+| `package-extra-resources` | `package.json` | `build.extraResources` exists and is an array |
+
+Documented, not patched: `HARNESS_IDS` (`src/types/api.ts:13`, behavioral seam) and the third-party
+manifest key `vclaw` with legacy `gooeypi` fallback (`electron/main/plugins/catalog.ts`).
+
+**The verifier is the gate:** `node scripts/release/member-seams.mjs` (zero-dependency; also wrapped by
+`tests/member-seams.test.ts` in the normal suite). An upstream merge that breaks an anchor turns THIS
+repo red at merge time, instead of breaking a member's build at their next pin bump.
+
+**Change rules:** an anchor may be renamed only by bumping the contract version (see
+`scripts/release/member-seams.mjs` → `MEMBER_SEAMS_V1`) and recording the rename in this file in the
+same commit. Members ride `main` as the dependency stream; release trains and updater channels are
+per-member. Escape hatch, unneeded today: a member need that outgrows anchored integration is cut as a
+branch-per-RELEASE from main (short-lived, merge-forward) — never branch-per-forever.
+
 ## Open items
 
 1. **Apple Developer ID** + notarization secrets — blocks signed/notarized macOS distribution.
