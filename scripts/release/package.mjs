@@ -14,6 +14,15 @@ const skipVerify = args.has('--skip-verify')
 const platformIndex = process.argv.indexOf('--platform')
 const platform = platformIndex === -1 ? undefined : process.argv[platformIndex + 1]
 const archIndex = process.argv.indexOf('--arch')
+// A member build bakes a member overlay and must not carry the generic artifact
+// name. The member's own payload is integrated BEFORE this script runs (release.yml
+// `package-member` job: checkout member @ pin -> bundle -> integrate --vclaw <dir>).
+const memberIndex = process.argv.indexOf('--member')
+const member = memberIndex === -1 ? undefined : process.argv[memberIndex + 1]
+if (member !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(member)) {
+  console.error('Choose a member id matching [a-z0-9][a-z0-9-]* (for example: --member vizmaster)')
+  process.exit(2)
+}
 const platformHosts = { mac: 'darwin', linux: 'linux', win: 'win32' }
 const nativeArchitectures = { arm64: 'arm64', x64: 'x64' }
 if (isPublic === isQa) {
@@ -50,6 +59,9 @@ try {
   if (!dryRun) rmSync(resolve('release', platform, arch), { recursive: true, force: true })
 
   const builderArgs = [`--${platform}`, `--${arch}`, '--publish', 'never', `--config.directories.output=release/${platform}/${arch}`]
+  // Member artifacts are named VClaw-<version>-<member>-<arch>.<ext> so a member
+  // build can never be mistaken for the generic product build (and vice versa).
+  if (member) builderArgs.push(`--config.artifactName=VClaw-\${version}-${member}-\${arch}.\${ext}`)
   if (isPublic && platform === 'win') builderArgs.push('--config.forceCodeSigning=true')
   const builderEnv = isQa ? { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } : process.env
   if (isQa && platform === 'mac') builderArgs.push('--config.mac.identity=null', '--config.mac.notarize=false')
