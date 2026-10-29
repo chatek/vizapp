@@ -307,12 +307,19 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const b = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const pinned = process.argv[2];
+            const vclawSha = process.argv[3] || "";
             const need = ["vizmasterVersion", "vizmasterCommit", "vclawVersion", "vclawCommit", "builtAt"];
             const missing = need.filter((k) => !String(b[k] || "").trim());
             if (missing.length) { console.error("::error::BUILD.json missing " + missing.join(", ")); process.exit(1); }
-            if (b.vizmasterCommit !== process.argv[2]) { console.error("::error::payload was built from " + b.vizmasterCommit + ", expected the pinned " + process.argv[2]); process.exit(1); }
-            console.log("payload pin matches " + process.argv[2]);
-          ' "$BUILD" "$MEMBER_REF"
+            // BUILD.json records SHORT shas (measured in the 2026-10-30 rehearsal:
+            // vizmasterCommit=7263596 for pin 72635969f9...). Compare as a prefix of
+            // the full sha; an exact-equality assert fails on format alone.
+            if (!pinned.startsWith(b.vizmasterCommit)) { console.error("::error::payload built from " + b.vizmasterCommit + ", expected a prefix of " + pinned); process.exit(1); }
+            if (vclawSha && !vclawSha.startsWith(b.vclawCommit)) { console.error("::error::payload built against VClaw " + b.vclawCommit + ", expected a prefix of " + vclawSha); process.exit(1); }
+            if (b.dirty === true || b.vclawDirty === true) { console.error("::error::payload was built from a dirty tree"); process.exit(1); }
+            console.log("payload pins ok: vizmaster " + b.vizmasterCommit + " (pin " + pinned + "), vclaw " + b.vclawCommit);
+          ' "$BUILD" "$MEMBER_REF" "$GITHUB_SHA"
       - name: Checksums
         run: |
           cd release/mac/${{ matrix.arch }}
