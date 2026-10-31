@@ -26,6 +26,7 @@ const extensionPaths: CapabilityExtensionPaths = {
   schedule: '/app/extensions/omp-work-schedules.ts',
   browser: '/app/extensions/omp-work-browser.ts',
   askUser: '/app/extensions/omp-work-ask-user.ts',
+  vclaw: '/app/extensions/vclaw-agent.js',
 }
 
 /** What the schedule and browser bridges hand every runtime of the harness. */
@@ -48,6 +49,7 @@ describe('capability extension environment parity (OMP and pi)', () => {
     expect(environment.PRIME_WORK_SCHEDULE_EXTENSION_PATH).toBe('/app/extensions/omp-work-schedules.ts')
     expect(environment.PRIME_WORK_BROWSER_EXTENSION_PATH).toBe('/app/extensions/omp-work-browser.ts')
     expect(environment.PRIME_WORK_ASK_USER_EXTENSION_PATH).toBe('/app/extensions/omp-work-ask-user.ts')
+    expect(environment.VCLAW_AGENT_EXTENSION_PATH).toBe('/app/extensions/vclaw-agent.js')
     expect(environment.VCLAW_MANAGES_ASK_USER).toBe('1')
     // The Prime-only --skill inputs never reach an extension-based harness.
     expect(environment.PRIME_WORK_SCHEDULE_SKILL_PATH).toBeUndefined()
@@ -62,7 +64,7 @@ describe('capability extension environment parity (OMP and pi)', () => {
   it.each([
     ['omp', OMP_RPC_ADAPTER],
     ['pi', PI_RPC_ADAPTER],
-  ] as const)('turns the shared environment into all three --extension injections for %s runtimes', (_harness, adapter) => {
+  ] as const)('turns the shared environment into all four --extension injections for %s runtimes', (_harness, adapter) => {
     const environment = extensionRuntimeEnvironment(scheduleBridgeEnvironment, () => browserBridgeEnvironment, extensionPaths)
     const args = adapter.buildStartArgs({ cwd: '/work', environment })
 
@@ -74,6 +76,7 @@ describe('capability extension environment parity (OMP and pi)', () => {
       '/app/extensions/omp-work-schedules.ts',
       '/app/extensions/omp-work-browser.ts',
       '/app/extensions/omp-work-ask-user.ts',
+      '/app/extensions/vclaw-agent.js',
     ])
     // Neither extension-based harness receives Prime's --skill injections.
     expect(args).not.toContain('--skill')

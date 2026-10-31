@@ -478,6 +478,7 @@ export interface CapabilityExtensionPaths {
   schedule: string
   browser: string
   askUser: string
+  vclaw: string
 }
 
 /**
@@ -504,6 +505,9 @@ export function extensionRuntimeEnvironment(
     PRIME_WORK_BROWSER_EXTENSION_PATH: browserEnabled ? extensionPaths.browser : undefined,
     PRIME_WORK_ASK_USER_EXTENSION_PATH: askUserEnabled ? extensionPaths.askUser : undefined,
     VCLAW_MANAGES_ASK_USER: '1',
+    // /vclaw verbs degrade themselves with no identity, so unlike the brokered
+    // capabilities above this one is not settings-gated.
+    VCLAW_AGENT_EXTENSION_PATH: extensionPaths.vclaw,
   }
 }
 
@@ -786,6 +790,7 @@ async function bootstrap(): Promise<void> {
   const ompAskUserExtensionPath = extensionPathFor('omp', 'askUser')
   const collaborationExtensionPath = extensionPathFor('omp', 'collaboration')
   const piFastModeExtensionPath = extensionPathFor('pi', 'piFastMode')
+  const vclawAgentExtensionPath = extensionPathFor('omp', 'vclaw')
   const computerUseSkill = async () => {
     const status = await cuaDriver.status()
     return {
@@ -989,6 +994,7 @@ async function bootstrap(): Promise<void> {
     schedule: ompScheduleExtensionPath,
     browser: ompBrowserExtensionPath,
     askUser: ompAskUserExtensionPath,
+    vclaw: vclawAgentExtensionPath,
   }
   ompManager.setRuntimeEnvironmentProvider((scope) => ({
     ...extensionRuntimeEnvironment(ompScheduleBridge.environmentFor(scope), () => browserBridge.environmentFor(scope), capabilityExtensionPaths, stateStore.getSettings().askUserEnabled && scope.interactive, stateStore.getSettings().browserEnabled),

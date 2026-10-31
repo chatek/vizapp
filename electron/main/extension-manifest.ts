@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { HarnessId } from '../../src/types/api'
 
-export type ExtensionCapability = 'schedule' | 'browser' | 'askUser' | 'collaboration' | 'piFastMode'
+export type ExtensionCapability = 'schedule' | 'browser' | 'askUser' | 'collaboration' | 'piFastMode' | 'vclaw'
 
 export interface ExtensionInjection {
   readonly capability: ExtensionCapability
@@ -14,12 +14,19 @@ const injectionsByHarness = {
     { capability: 'browser', filename: 'prime-work-browser.ts', environmentVariable: 'PRIME_WORK_BROWSER_EXTENSION_PATH' },
     { capability: 'askUser', filename: 'omp-work-ask-user.ts', environmentVariable: 'PRIME_WORK_ASK_USER_EXTENSION_PATH' },
     { capability: 'collaboration', filename: 'omp-work-collaboration.ts', environmentVariable: 'VCLAW_COLLABORATION_EXTENSION_PATH' },
+    // agent-sdk's /vclaw surface (status · doctor · signup · who · peers) — ONE
+    // capability covering all verbs; the legacy /vchat-* names are aliases inside
+    // the bundle and get no rows of their own. Vendored from the npm pack tarball
+    // (vendor/vclawhub-agent-1.5.0.md); the verbs degrade themselves when no
+    // identity exists, so the injection is unconditional.
+    { capability: 'vclaw', filename: 'vclaw-agent.js', environmentVariable: 'VCLAW_AGENT_EXTENSION_PATH' },
   ],
   omp: [
     { capability: 'schedule', filename: 'omp-work-schedules.ts', environmentVariable: 'PRIME_WORK_SCHEDULE_EXTENSION_PATH' },
     { capability: 'browser', filename: 'omp-work-browser.ts', environmentVariable: 'PRIME_WORK_BROWSER_EXTENSION_PATH' },
     { capability: 'askUser', filename: 'omp-work-ask-user.ts', environmentVariable: 'PRIME_WORK_ASK_USER_EXTENSION_PATH' },
     { capability: 'collaboration', filename: 'omp-work-collaboration.ts', environmentVariable: 'VCLAW_COLLABORATION_EXTENSION_PATH' },
+    { capability: 'vclaw', filename: 'vclaw-agent.js', environmentVariable: 'VCLAW_AGENT_EXTENSION_PATH' },
   ],
   pi: [
     { capability: 'piFastMode', filename: 'pi-work-fast-mode.ts', environmentVariable: 'VCLAW_PI_FAST_MODE_EXTENSION_PATH' },
@@ -27,6 +34,7 @@ const injectionsByHarness = {
     { capability: 'browser', filename: 'omp-work-browser.ts', environmentVariable: 'PRIME_WORK_BROWSER_EXTENSION_PATH' },
     { capability: 'askUser', filename: 'omp-work-ask-user.ts', environmentVariable: 'PRIME_WORK_ASK_USER_EXTENSION_PATH' },
     { capability: 'collaboration', filename: 'omp-work-collaboration.ts', environmentVariable: 'VCLAW_COLLABORATION_EXTENSION_PATH' },
+    { capability: 'vclaw', filename: 'vclaw-agent.js', environmentVariable: 'VCLAW_AGENT_EXTENSION_PATH' },
   ],
 } as const satisfies Readonly<Record<HarnessId, readonly ExtensionInjection[]>>
 
