@@ -50,17 +50,27 @@ opener for the signup link today. If the desktop ever routes extension output
 through a link component, set the flag then — it is a one-line precedence on the
 SDK side and is not set speculatively.
 
-## Feature Set 2 consumer notes (measured on 50a5e9ec…, 2026-10-31)
+## Feature Set 2 consumer notes (measured on 50a5e9ec… and a511aa4b…, 2026-10-31)
 
-- Uniform envelope CONFIRMED on status and send: top-level `code` === process exit, no `data.code`.
-  **Open bug filed with the SDK lane**: `inbox --json` with no identity exits **1** (`ok:false, state:"unavailable"`)
-  — outside the frozen set {0,2,3,4}; no-identity should be 4. Until fixed, consumers must not branch on
-  exit codes alone for inbox.
-- Spool contract as shipped: `~/.vclaw/inbox/<tenant>.jsonl`, 0600, `kind`-first records with per-file monotonic
-  `seq`, `conversationId` pass-through, `--prune` the only rewrite. The desktop watches the DIRECTORY and re-tails
-  from the last `seq`. Pending decision with the SDK lane: suffix the filename with the own-identity prefix
-  (`<tenant>__<self8>.jsonl`) before the first consumer ships, to keep a second identity on one host from
-  interleaving into the same file.
+- Uniform envelope CONFIRMED: top-level `code` === process exit, no `data.code`. The inbox exit-1 bug is
+  FIXED and verified on a511aa4b… (installed state, empty HOME): inbox/status/who all exit 4 with json.code 4 —
+  consumers may branch on exit codes again. Cause was an unclassified plain Error from openFabric(); now
+  classified by cause (no-credentials/no-mailbox → 4, unreachable fabric → 3; a bare 1 = internal fault only).
+- Spool contract as shipped: `~/.vclaw/inbox/<tenant>__<self8>.jsonl` (+ `.read.json` read-state), 0600,
+  `kind`-first records with per-file monotonic `seq`, `conversationId` pass-through, `--prune` the only rewrite.
+  The suffix landed before any consumer existed (measured on their fleet: `vclaw__UBNBJ35N.jsonl`). The desktop
+  watches the DIRECTORY and re-tails from the last `seq`, deriving `self8` from the own nkey.
+- ⚠ **SURFACE SPLIT (open, filed 2026-10-31)**: on a511aa4b… the EXTENSION bundle registers only
+  status · doctor · signup · who · peers — `/vclaw send` and `/vclaw inbox` answer `unknown verb` in the TUI
+  (measured with their own capture file: `~/.vclaw/vclaw-out.txt`, which works and is 0600). FS2's verbs exist
+  only in `dist/vclaw/verbs/{send,inbox}.js`, i.e. the CLI. Until the extension's dispatch is extended and the
+  bundle rebuilt, desktop-hosted TUIs CANNOT use Feature Set 2 — only the CLI can. This is exactly the
+  two-surface drift the same-bytes contract exists to catch.
 - ⚠ **AT-MOST-ONCE today**: no standing subscription — a DM sent while nobody is subscribed is NOT replayed.
   The spool is durable for what was received; it is not a mailbox. Do not treat it as complete until the
   SDK lane lands the session_start subscription.
+
+Artefact history: `50a5e9ec…` (FS2, 1,348,203 B) → `a511aa4b01287c62b9e5fbfdbc9860d54e0bec65b1074e02f216b7167c43218f`
+(1,349,041 B, 368 files). Inner digests UNCHANGED between them (pi `994a3913…`, ext-synadia `dee4e723…`, cli
+`d0aec72e…`) — the delta-2 fixes live in `dist/vclaw/{fabric,inbox-store}.js`, which only the CLI loads; the
+shipped bundle asset is byte-identical, so no desktop functional change from this bump.
