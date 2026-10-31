@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { assertPinned, readAgentPin, verifyVendorAgentPins } from '../scripts/release/vendor-agent-pins.mjs'
+import { assertPinned, parsePinnedRows, readAgentPin, verifyVendorAgentPins } from '../scripts/release/vendor-agent-pins.mjs'
 
 // vclaw-desktop consumes agent-sdk PRE-PACKAGED — the join pipe is not part of its
 // install path — so the vendored archive and the injected bundle are the whole
@@ -57,6 +57,33 @@ describe('vendored agent artifact pins', () => {
     mkdirSync(join(directory, 'scripts/release'), { recursive: true })
     writeFileSync(join(directory, 'scripts/release/dependency-pins.json'), JSON.stringify({ artifacts: {} }))
     expect(() => readAgentPin(directory)).toThrow(/missing artifacts\.vclawhub-agent/)
+  })
+
+  it('parses every pinned row so byte counts are checked, not just digests', () => {
+    const rows = parsePinnedRows(readFileSync(join(root, `vendor/vclawhub-agent-${pin.version}.md`), 'utf8'))
+    expect(rows.map((row) => row.member)).toEqual([
+      'package/dist/pi-extension/index.bundled.js',
+      'package/dist/ext-synadia/index.bundled.js',
+      'package/dist/cli.js',
+    ])
+    expect(rows.every((row) => Number.isInteger(row.bytes) && row.bytes > 0)).toBe(true)
+    expect(rows.every((row) => /^[0-9a-f]{16,64}$/.test(row.sha256))).toBe(true)
+  })
+
+  it('fails when a pinned row’s byte count disagrees with the archive', () => {
+    // The measured 2026-10-31 defect: right digest, stale count, invisible to a gate that
+    // only checked the shipped bundle's row.
+    const tree = scratchDirectory()
+    mkdirSync(join(tree, 'scripts', 'release'), { recursive: true })
+    mkdirSync(join(tree, 'vendor'), { recursive: true })
+    mkdirSync(join(tree, 'assets', 'extensions'), { recursive: true })
+    copyFileSync(join(root, pin.path), join(tree, pin.path))
+    copyFileSync(join(root, pin.shipped.path), join(tree, pin.shipped.path))
+    const note = readFileSync(join(root, `vendor/vclawhub-agent-${pin.version}.md`), 'utf8')
+      .replace(/(\| `dist\/cli\.js` \| )([\d,]+)( \|)/, (_, head, size, tail) => `${head}${Number(size.replaceAll(',', '')) + 1}${tail}`)
+    writeFileSync(join(tree, `vendor/vclawhub-agent-${pin.version}.md`), note)
+    writeFileSync(join(tree, 'scripts', 'release', 'dependency-pins.json'), JSON.stringify({ artifacts: { 'vclawhub-agent': pin } }))
+    expect(() => verifyVendorAgentPins(tree)).toThrow(/size disagrees with the archive for package\/dist\/cli\.js/)
   })
 
   it('runs as a script and reports the digests it actually checked', () => {

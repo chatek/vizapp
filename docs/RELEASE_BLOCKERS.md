@@ -114,6 +114,13 @@ exits 1 with the reason on any mismatch. A spawned-process test asserts it still
 values, so the entry point cannot regress to a silent no-op. Verified: correct tree → exit 0 with
 "byte-identical (407c872257fa…)"; wrong archive pin → exit 1 naming the file and the actual digest.
 
+**The gate's second gap (found the same session).** It compared the note's *shipped-bundle* row and
+nothing else, so two other rows shipped **correct digests with stale byte counts** — ext-synadia
+`363,605` (actual `364,074`) and `cli.js` `29,412` (actual `30,280`). `verifyVendorAgentPins` now
+parses every `Pinned contents` row and holds it to the archive by digest **and** size; a stale count
+fails with `Vendor note size disagrees with the archive for package/dist/cli.js: note 29412 B,
+archive 30280 B`. Two tests pin it (row parsing, and a byte-count mismatch on a copied tree).
+
 ---
 
 ## B3 — `npm run check` red: generated bundle linted, plus a format break that predates this work

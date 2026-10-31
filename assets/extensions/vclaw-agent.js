@@ -24188,31 +24188,229 @@ function mailboxSubject(tenant, self2) {
   return `tenant.${tenant}.a2a.${self2}.>`;
 }
 
+// src/vclaw/sync.ts
+var DEFAULT_LIMIT = 100;
+var MAX_LIMIT = 500;
+var DEFAULT_MAX_PAGES = 50;
+function serverSeqOf(r) {
+  const v = r?.serverSeq;
+  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
+}
+function cursorFrom(records) {
+  const have = /* @__PURE__ */ new Set();
+  for (const r of records) {
+    const s = serverSeqOf(r);
+    if (s !== null) have.add(s);
+  }
+  let cursor = 0;
+  while (have.has(cursor + 1)) cursor += 1;
+  return cursor;
+}
+async function fetchPage(target, since, limit, fetchImpl) {
+  const base = target.vgateUrl.replace(/\/+$/, "");
+  const url = `${base}/v1/agent/inbox?since=${since}&limit=${limit}`;
+  let res;
+  try {
+    res = await fetchImpl(url, {
+      method: "GET",
+      headers: { authorization: `Bearer ${target.token}`, accept: "application/json" },
+      signal: AbortSignal.timeout(15e3)
+    });
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    throw classifyFabricError(new Error(`cannot reach ${base} for inbox sync: ${why}`));
+  }
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+    if (res.status === 401 || res.status === 403) {
+      throw classifyFabricError(
+        new VclawError(4, `inbox sync refused (${res.status})${detail ? ` \u2014 ${detail}` : ""}`)
+      );
+    }
+    throw classifyFabricError(new Error(`inbox endpoint ${res.status}${detail ? `: ${detail}` : ""}`));
+  }
+  const body = await res.json().catch(() => null);
+  if (!body || !Array.isArray(body.messages)) {
+    throw new VclawError(3, "inbox endpoint returned no messages[] \u2014 not the frozen response shape");
+  }
+  if (typeof body.agent === "string" && target.self && body.agent !== target.self) {
+    throw new VclawError(3, `inbox endpoint answered for ${body.agent}, not ${target.self} \u2014 refusing foreign mail`);
+  }
+  return {
+    agent: body.agent,
+    messages: body.messages,
+    latest: typeof body.latest === "number" ? body.latest : void 0,
+    more: body.more === true,
+    expiredThrough: typeof body.expiredThrough === "number" ? body.expiredThrough : void 0
+  };
+}
+function toSpoolRecord(r, serverSeq, now) {
+  if (typeof r.digest !== "string" || r.digest.length === 0) {
+    throw new VclawError(3, `inbox record serverSeq=${serverSeq} has no digest \u2014 the dedupe contract cannot hold`);
+  }
+  return {
+    kind: "message",
+    v: 1,
+    seq: 0,
+    // assigned by appendFor (the local `seq` space is not the cursor)
+    id: typeof r.id === "string" ? r.id : "",
+    ts: typeof r.ts === "string" ? r.ts : now,
+    from: typeof r.from === "string" ? r.from : "",
+    ...typeof r.fromName === "string" && r.fromName ? { fromName: r.fromName } : {},
+    ...typeof r.conversationId === "string" && r.conversationId ? { conversationId: r.conversationId } : {},
+    subject: typeof r.subject === "string" ? r.subject : "",
+    body: typeof r.body === "string" ? r.body : "",
+    digest: r.digest,
+    recvTs: typeof r.recvTs === "string" ? r.recvTs : now,
+    serverSeq
+  };
+}
+async function syncInbox(target, opts = {}) {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const limit = Math.min(Math.max(Math.trunc(opts.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const maxPages = Math.max(Math.trunc(opts.maxPages ?? DEFAULT_MAX_PAGES) || DEFAULT_MAX_PAGES, 1);
+  let cursor = cursorFrom(readAll(target.tenant, target.self));
+  const since = cursor;
+  let latest = cursor;
+  let appended = 0;
+  let duplicates = 0;
+  let pages = 0;
+  let gap = null;
+  let expiredThrough = 0;
+  let absorbedExpiry = false;
+  let stop = "complete";
+  while (pages < maxPages) {
+    const page = await fetchPage(target, cursor, limit, fetchImpl);
+    pages += 1;
+    if (typeof page.latest === "number" && page.latest > latest) latest = page.latest;
+    if (typeof page.expiredThrough === "number" && page.expiredThrough > expiredThrough) {
+      expiredThrough = page.expiredThrough;
+    }
+    let progressed = false;
+    for (const raw of page.messages) {
+      const seq2 = serverSeqOf(raw);
+      if (seq2 === null) {
+        throw new VclawError(3, "inbox endpoint returned a record without serverSeq \u2014 ordering is not verifiable");
+      }
+      if (seq2 <= cursor) {
+        duplicates += 1;
+        continue;
+      }
+      if (seq2 !== cursor + 1) {
+        if (expiredThrough >= cursor + 1) {
+          cursor = expiredThrough;
+          absorbedExpiry = true;
+          if (seq2 !== cursor + 1) {
+            gap = cursor + 1;
+            break;
+          }
+        } else {
+          gap = cursor + 1;
+          break;
+        }
+      }
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      if (appendFor(target.tenant, target.self, toSpoolRecord(raw, seq2, now))) appended += 1;
+      else duplicates += 1;
+      cursor = seq2;
+      progressed = true;
+    }
+    if (gap !== null) {
+      stop = "gap";
+      break;
+    }
+    if (page.more !== true) {
+      stop = absorbedExpiry ? "expired" : "complete";
+      break;
+    }
+    if (!progressed) {
+      stop = "no-progress";
+      break;
+    }
+    if (pages >= maxPages) {
+      stop = "max-pages";
+      break;
+    }
+  }
+  return { since, cursor, latest, appended, duplicates, pages, gap, expiredThrough, stop };
+}
+async function resolveSyncTarget() {
+  const creds = await loadCredentials();
+  if (!creds?.public_key || !creds?.seed) {
+    throw new VclawError(4, "no identity on this host \u2014 run `vclaw-agent vclaw signup` first");
+  }
+  const cfg = readConfigSync();
+  const vgateUrl = cfg?.vgateUrl ?? process.env.VCLAW_API_URL ?? "https://api.vclawhub.com";
+  let token;
+  try {
+    token = await fetchNatsUserJWT(vgateUrl, creds.public_key, creds.seed);
+  } catch (e) {
+    throw classifyFabricError(e);
+  }
+  const scope = scopeFromJwt(token);
+  if (!scope.self) {
+    throw new VclawError(4, "this identity's JWT grants no a2a mailbox \u2014 the claim may not be active yet");
+  }
+  return { vgateUrl, token, tenant: scope.tenant, self: scope.self };
+}
+
 // src/vclaw/verbs/inbox.ts
+function syncLine(s) {
+  const parts = [
+    `synced +${s.appended} new, ${s.duplicates} duplicate(s)`,
+    `serverSeq ${s.since} \u2192 ${s.cursor} of latest ${s.latest}`,
+    `${s.pages} page(s)`
+  ];
+  if (s.stop === "expired") {
+    parts.push(`EXPIRED: messages up to serverSeq ${s.expiredThrough} are gone for good (gateway cap or 7-day TTL)`);
+  } else if (s.gap !== null) {
+    parts.push(`STOPPED at a gap: serverSeq ${s.gap} missing (never skipped)`);
+  } else if (s.stop === "max-pages") parts.push("page budget spent \u2014 run again to continue");
+  else if (s.stop === "no-progress") parts.push("server advertised more but sent nothing new");
+  return parts.join(" \xB7 ");
+}
 async function inboxVerb(ctx) {
   const waitMs = Math.min(Math.max(Number(ctx.flags.wait ?? 3e3) || 3e3, 200), 6e4);
   const showAll = ctx.flags.all === true;
-  const f = await openFabric();
-  const decoder2 = new TextDecoder();
+  const doSync = ctx.flags.sync === true;
   let received = 0;
   let duplicates = 0;
-  const sub = f.nc.subscribe(ownMailbox(f.tenant, f.self));
-  const drain = (async () => {
-    for await (const m of sub) {
-      if (appendFor(f.tenant, f.self, recordFromFrame(m.subject, m.data))) received += 1;
-      else duplicates += 1;
-    }
-  })();
-  await f.nc.flush();
-  await new Promise((r) => setTimeout(r, waitMs));
-  sub.unsubscribe();
-  await f.close();
-  void drain;
-  const all = rows(f.tenant, f.self);
+  let synced = null;
+  let tenant;
+  let self2;
+  let syncText = null;
+  if (doSync) {
+    const target = await resolveSyncTarget();
+    tenant = target.tenant;
+    self2 = target.self;
+    synced = await syncInbox(target);
+    duplicates = synced.duplicates;
+    syncText = syncLine(synced);
+  } else {
+    const f = await openFabric();
+    tenant = f.tenant;
+    self2 = f.self;
+    const sub = f.nc.subscribe(ownMailbox(f.tenant, f.self));
+    const drain = (async () => {
+      for await (const m of sub) {
+        if (appendFor(f.tenant, f.self, recordFromFrame(m.subject, m.data))) received += 1;
+        else duplicates += 1;
+      }
+    })();
+    await f.nc.flush();
+    await new Promise((r) => setTimeout(r, waitMs));
+    sub.unsubscribe();
+    await f.close();
+    void drain;
+  }
+  const all = rows(tenant, self2);
   const unread = all.filter((r) => !r.read);
   const shown = showAll ? all : unread;
-  const text = shown.length === 0 ? `vclaw inbox \u2014 nothing ${showAll ? "recorded" : "unread"} (window ${waitMs} ms, received ${received}, duplicates ${duplicates})` : [
-    `vclaw inbox \u2014 ${shown.length} ${showAll ? "message(s)" : "unread"} (window ${waitMs} ms)`,
+  const header = doSync ? `vclaw inbox \u2014 ${shown.length} ${showAll ? "message(s)" : "unread"} (sync, no live drain)` : `vclaw inbox \u2014 ${shown.length} ${showAll ? "message(s)" : "unread"} (window ${waitMs} ms)`;
+  const text = shown.length === 0 && doSync ? `${header}
+${syncText ?? ""}` : shown.length === 0 ? `vclaw inbox \u2014 nothing ${showAll ? "recorded" : "unread"} (window ${waitMs} ms, received ${received}, duplicates ${duplicates})` : [
+    header,
+    ...syncText ? [syncText] : [],
     table(
       ["from", "subject", "received", "body"],
       shown.slice(-20).map((r) => [
@@ -24225,17 +24423,18 @@ async function inboxVerb(ctx) {
     "",
     "from is SELF-ASSERTED (canon V3.1 Q9) \u2014 the transport proves the subject, not the sender."
   ].join("\n");
-  if (!showAll && unread.length > 0) markRead(f.tenant, f.self, unread.map(dedupeKey));
-  if (ctx.flags.prune === true) prune(f.tenant, f.self);
+  if (!showAll && unread.length > 0) markRead(tenant, self2, unread.map(dedupeKey));
+  if (ctx.flags.prune === true) prune(tenant, self2);
   return {
-    state: shown.length > 0 ? "ok" : "degraded",
+    state: synced?.gap != null ? "degraded" : shown.length > 0 ? "ok" : "degraded",
     data: {
       messages: shown.map((r) => ({ ...r })),
       unread: unread.length,
       total: all.length,
       received,
       duplicates,
-      windowMs: waitMs
+      windowMs: doSync ? 0 : waitMs,
+      ...synced ? { sync: { ...synced } } : {}
     },
     text,
     exit: 0
@@ -24250,7 +24449,7 @@ var VclawError = class extends Error {
     this.name = "VclawError";
   }
 };
-var BOOL_FLAGS = { json: true, deep: true, help: true, all: true };
+var BOOL_FLAGS = { json: true, deep: true, help: true, all: true, sync: true };
 var VERBS = {
   status: {
     name: "status",
@@ -24275,9 +24474,9 @@ var VERBS = {
   },
   inbox: {
     name: "inbox",
-    summary: "read what arrived on this agent's mailbox (durable local spool)",
-    usage: "inbox [--wait <ms>] [--all] [--prune] [--json]",
-    flags: ["--wait", "--all", "--prune", "--json"],
+    summary: "read what arrived on this agent's mailbox (durable local spool; --sync catches up over HTTP)",
+    usage: "inbox [--wait <ms>] [--all] [--prune] [--sync] [--json]",
+    flags: ["--wait", "--all", "--prune", "--sync", "--json"],
     run: inboxVerb
   },
   signup: {

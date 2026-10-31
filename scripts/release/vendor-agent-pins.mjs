@@ -20,6 +20,26 @@ export function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
+/**
+ * Parses the vendor note's "Pinned contents" rows — `| `dist/…` | <bytes> | `sha256…` |` — so the
+ * gate can hold the RECORD to the archive instead of trusting it. Measured 2026-10-31: two rows
+ * carried correct digests with byte counts from an older build (ext-synadia 363,605 vs 364,074;
+ * cli.js 29,412 vs 30,280), and nothing could see it because only the shipped bundle was checked.
+ */
+export function parsePinnedRows(note) {
+  const rows = []
+  for (const line of note.split('\n')) {
+    const match = /^\|\s*`([^`]+)`[^|]*\|\s*([\d,]+)\s*\|\s*`([0-9a-f]{16,64})/i.exec(line)
+    if (!match) continue
+    rows.push({
+      member: `package/${match[1]}`,
+      bytes: Number(match[2].replaceAll(',', '')),
+      sha256: match[3].toLowerCase(),
+    })
+  }
+  return rows
+}
+
 export function readAgentPin(root) {
   const pins = JSON.parse(readFileSync(join(root, PIN_FILE), 'utf8'))
   const pin = pins?.artifacts?.[PIN_KEY]
@@ -54,6 +74,23 @@ export function verifyVendorAgentPins(root, { pin = readAgentPin(root) } = {}) {
     const member = join(work, pin.shipped.from)
     if (!existsSync(member) || sha256File(member) !== pin.shipped.sha256) {
       throw new Error(`Shipped bundle is not the vendored archive member: ${pin.shipped.path}`)
+    }
+
+    // The record must describe the archive, not just be described by the pins. A row that
+    // disagrees fails here whether its digest or only its byte count drifted.
+    const rows = parsePinnedRows(readFileSync(join(root, `vendor/vclawhub-agent-${pin.version}.md`), 'utf8'))
+    if (rows.length === 0) throw new Error(`Vendor note pins no archive members: vendor/vclawhub-agent-${pin.version}.md`)
+    for (const row of rows) {
+      const rowPath = join(work, row.member)
+      if (!existsSync(rowPath)) throw new Error(`Vendor note pins a member the archive lacks: ${row.member}`)
+      const actualSha256 = sha256File(rowPath)
+      if (!actualSha256.startsWith(row.sha256)) {
+        throw new Error(`Vendor note digest disagrees with the archive for ${row.member}: note ${row.sha256}, archive ${actualSha256}`)
+      }
+      const actualBytes = statSync(rowPath).size
+      if (actualBytes !== row.bytes) {
+        throw new Error(`Vendor note size disagrees with the archive for ${row.member}: note ${row.bytes} B, archive ${actualBytes} B`)
+      }
     }
   } finally {
     rmSync(work, { recursive: true, force: true })
