@@ -88,6 +88,23 @@ SDK side and is not set speculatively.
   session closed — may have gaps) | **UNAVAILABLE** (no identity / no fabric). Never "complete".
   Opt-out: `VCLAW_AGENT_AUTOSTART=0`. The mailbox starts only when an identity exists — no identity, no
   subscribe, no error noise.
+- ⚠ **ROOT CAUSE, CORRECTED (do not harden the wrong story)**: the pre-drainer message loss was NOT a wrong-plane
+  subscription. Measured with `VCLAW_DEBUG=1` in a live TUI: `SUBJECT_ROOT` is ADOPTED FROM THE JWT at runtime, so
+  `subA2A` was on `tenant.vclaw.a2a.<self>.>` — the same subject `send` publishes to. The frame WAS received; the
+  handler then required a reply path (`env.a2a.replySubject || msg.reply`), `send` sets neither, so it took the
+  no-reply branch, logged to stderr, and DROPPED — and the CLI inbox's 3-second listen window made it invisible to
+  the human too. RECEIVED → LOGGED → DROPPED. A wrong-plane theory would send the next reader hunting a bug that
+  does not exist. Full audit: `docs/lanes/VCLAW_MESSAGING_AUDIT_2026-10-31.md` (agent-sdk, parent `7c7c03c1`).
+- 🔒 **AUDIT FINDINGS that shape the inbox pane** (same audit): (F2, MEDIUM, accepted) A2A pub is tenant-wide
+  (`tenant.vclaw.a2a.>`), so any agent can DM any peer at any rate and set `from.nkey` to anything — **`from` is a
+  claim, not an identity**; the pane must keep labelling it as one. (F5, design rule) The no-reply discard is a
+  SECURITY feature — an unauthenticated frame never reaches the model; spool everything, inject only what a human
+  or a reply path asked for, and treat any future "inject no-reply DMs into the agent" change as a trust-boundary
+  change, not a bug fix. (F3/F4, LOW) replay is id-dedupe only (re-signed frames indistinguishable); send has no
+  byte cap (server default 1 MB, fail-at-publish).
+- 🔎 **CLASS TO WATCH**: both this defect and the earlier `$SRV.INFO.agents.default.>` violation came from a
+  CONSTANT defaulting to `'default'` leaking into a subject before the JWT tenant is adopted. Grep constants in
+  subject construction, not verbs.
 
 Artefact history: `50a5e9ec…` (FS2, 1,348,203 B) → `a511aa4b01287c62b9e5fbfdbc9860d54e0bec65b1074e02f216b7167c43218f`
 (1,349,041 B, 368 files). Inner digests UNCHANGED between them (pi `994a3913…`, ext-synadia `dee4e723…`, cli
