@@ -104,7 +104,15 @@ stale size; renamed member; pins file without the row; note-vs-pin agreement).
 `vendor/vclawhub-agent-1.5.0.tgz: archive member is byte-identical to assets/extensions/vclaw-agent.js (1294f04e3d4c…)`.
 `tests/release-scripts.test.ts` pin tests: both pass.
 
-**STATUS.** Fixed 2026-10-31 in `7fb35e2`. Bump procedure is in the build plan below.
+**STATUS.** Fixed 2026-10-31 in `7fb35e2`/`ddfc92a`. Bump procedure is in the build plan below.
+
+**The gate's own defect (found while reporting it).** `node scripts/release/vendor-agent-pins.mjs`
+printed nothing and exited **0** — including against a deliberately wrong pin — because the module
+had no main guard, so "exit 0 (GREEN)" was vacuous. Fixed in `3b4e96d`: it now resolves the repo
+root from its own location, prints the archive, the shipped bundle and the digest it checked, and
+exits 1 with the reason on any mismatch. A spawned-process test asserts it still reports those
+values, so the entry point cannot regress to a silent no-op. Verified: correct tree → exit 0 with
+"byte-identical (407c872257fa…)"; wrong archive pin → exit 1 naming the file and the actual digest.
 
 ---
 
