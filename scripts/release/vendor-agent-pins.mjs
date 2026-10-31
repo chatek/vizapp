@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 // The agent SDK reaches the app PRE-PACKAGED: nothing installs it at runtime, so the
 // vendored archive and the shipped extension bundle are one pair. Both digests are pinned
@@ -59,4 +60,19 @@ export function verifyVendorAgentPins(root, { pin = readAgentPin(root) } = {}) {
   }
 
   return { version: pin.version, archive: pin.path, shipped: pin.shipped.path, sha256: pin.shipped.sha256 }
+}
+
+// Entry point. A module with no main guard exits 0 having checked nothing, which reads
+// as a green gate to anyone who runs it directly — measured 2026-10-31, when
+// `node scripts/release/vendor-agent-pins.mjs` printed nothing and succeeded against a
+// stale archive. Tests cover this path so it cannot silently regress to a no-op.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const root = resolve(import.meta.dirname, '../..')
+  try {
+    const verified = verifyVendorAgentPins(root)
+    console.log(`${verified.archive} -> ${verified.shipped}: pinned digests match and the archive member is byte-identical (${verified.sha256.slice(0, 12)}…)`)
+  } catch (error) {
+    console.error(`agent artifact pin verification failed: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
 }

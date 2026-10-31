@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -56,6 +57,16 @@ describe('vendored agent artifact pins', () => {
     mkdirSync(join(directory, 'scripts/release'), { recursive: true })
     writeFileSync(join(directory, 'scripts/release/dependency-pins.json'), JSON.stringify({ artifacts: {} }))
     expect(() => readAgentPin(directory)).toThrow(/missing artifacts\.vclawhub-agent/)
+  })
+
+  it('runs as a script and reports the digests it actually checked', () => {
+    // Guards the measured hole: without a main guard the module exits 0 having checked
+    // nothing, which everyone reading the exit code takes as a green gate.
+    const result = spawnSync(process.execPath, ['scripts/release/vendor-agent-pins.mjs'], { cwd: root, encoding: 'utf8' })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('byte-identical')
+    expect(result.stdout).toContain(pin.path)
+    expect(result.stdout).toContain(pin.shipped.sha256.slice(0, 12))
   })
 
   it('keeps the vendor note and the machine pin describing the same build', () => {
