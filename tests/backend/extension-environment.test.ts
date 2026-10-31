@@ -51,6 +51,7 @@ describe('capability extension environment parity (OMP and pi)', () => {
     expect(environment.PRIME_WORK_ASK_USER_EXTENSION_PATH).toBe('/app/extensions/omp-work-ask-user.ts')
     expect(environment.VCLAW_AGENT_EXTENSION_PATH).toBe('/app/extensions/vclaw-agent.js')
     expect(environment.VCLAW_MANAGES_ASK_USER).toBe('1')
+    expect(environment.VCLAW_MANAGES_OPEN_URL).toBe('1')
     // The Prime-only --skill inputs never reach an extension-based harness.
     expect(environment.PRIME_WORK_SCHEDULE_SKILL_PATH).toBeUndefined()
     expect(environment.PRIME_WORK_BROWSER_SKILL_PATH).toBeUndefined()

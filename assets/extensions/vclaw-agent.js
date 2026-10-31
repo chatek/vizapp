@@ -24945,7 +24945,8 @@ function index_default(pi) {
       const { exit, text } = await runVclaw(argv);
       const notify = ctx.ui?.notify;
       const claimUrl = result.data?.claimUrl;
-      if (claimUrl && argv[0] === "signup" && ctx.hasUI !== false) {
+      const hostManagesOpen = process.env.VCLAW_MANAGES_OPEN_URL === "1";
+      if (claimUrl && argv[0] === "signup" && !hostManagesOpen && ctx.hasUI !== false) {
         openInBrowser(claimUrl);
       }
       if (typeof notify === "function") {

@@ -4,13 +4,19 @@ The `@vclawhub/agent` CLI + extension bundle (agent-sdk, Feature Set 1: `status 
 doctor · signup · who · peers`). Vendored from the `npm pack` tarball built by the
 agent-sdk lane; this is the artefact their installed-state E2E ran against.
 
-- Tarball SHA-256: `708686a938faffe05acec94da45340b08f63a2f1918ee6ff979bcef321dd52ac` (1,532,555 B, 461 files)
+- Tarball SHA-256: `1c90d0f0e75f5294f52f16623b22699e7a5700d49cba9cfc6ee4c11943899b0c` (1,330,102 B)
+- ⚠ WRAPPER DISCREPANCY (2026-10-31): the agent-sdk lane quoted `798cb588…`
+  (1,533,210 B) for this build; the file at `agent-sdk/vclawhub-agent-1.5.0.tgz`
+  hashed `1c90d0f0…` instead. Every INNER digest matches their message exactly
+  (pi-extension `2eaa5323…`, ext-synadia `c8585e4b…`, cli.js `d0aec72e…`), so the
+  contents are their build; only the tarball wrapper differs — a repack after the
+  quote, the same stale-by-builds hazard they flagged. Pin what was measured.
 - Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
 
 ## Pinned contents
 
 | file | bytes | SHA-256 |
-| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 897,355 | `c190be98eb0e04b149042ae957cfc9bdf5eee3365421b92c2d48ef8be1bd3d0f` |
+| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 897,449 | `2eaa5323c61c7674b8d1b0abe66d8b5852536dd9dd692697fca0fcf04c0378cb` |
 | `dist/ext-synadia/index.bundled.js` | 363,605 | `c8585e4ba69c53397043a3f97fdbff0d920656383845734ae7e18f42ea1beeb2` |
 | `dist/cli.js` | 29,205 | `d0aec72e21413ce0a43199fe544713a0bdbb0b48fa16e84cf637d0ad83094cc5` |
 
