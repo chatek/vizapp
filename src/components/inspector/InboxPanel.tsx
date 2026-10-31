@@ -50,6 +50,7 @@ export const InboxPanel = memo(function InboxPanel() {
         <IconButton label="Refresh inbox" onClick={refresh}><RefreshCw size={15} /></IconButton>
       </header>
       <p className="inbox-detail">{detail}</p>
+      {snapshot.warning ? <p className="inbox-warning" role="alert">{snapshot.warning}</p> : null}
       {snapshot.messages.length === 0
         ? <p className="inbox-empty">{snapshot.state === 'unavailable' ? 'Nothing to show — no identity on this host.' : 'No messages spooled yet.'}</p>
         : (

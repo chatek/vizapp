@@ -190,3 +190,88 @@ describe('W4-5 / A18 — CACHED becomes provable without a fourth state', () => 
     expect(describeInboxState('unavailable', 42)).not.toContain('synced as of')
   })
 })
+
+describe('W4-9 — the pane’s failure paths', () => {
+  it('(a) a corrupt or partial line is skipped; the rest survive and nothing throws', () => {
+    const path = `/home/test/.vclaw/inbox/vclaw__${SELF8}.jsonl`
+    const files: Record<string, string> = {
+      [path]: [
+        JSON.stringify(record(1)),
+        '{"kind":"message","seq":2,"subject":"trunc', // partial write at EOF
+        'null',
+        JSON.stringify(record(3)),
+      ].join('\n'),
+    }
+    const service = new VclawInboxService({
+      home: '/home/test',
+      isSessionOpen: () => true,
+      readFile: (p) => (p.endsWith('credentials.json') ? JSON.stringify({ nkey: NKEY }) : files[p]),
+      listDirectory: () => [`vclaw__${SELF8}.jsonl`],
+      statFile: () => ({ mode: 0o100600 }),
+      now: () => new Date('2026-10-31T00:00:00.000Z'),
+    })
+    const snapshot = service.refresh()
+    expect(snapshot.messages.map((m) => m.seq)).toEqual([1, 3])
+    expect(snapshot.state).toBe('live')
+  })
+
+  it('(b) a spool with the wrong mode is still read, and the pane SAYS so', () => {
+    const path = `/home/test/.vclaw/inbox/vclaw__${SELF8}.jsonl`
+    const service = new VclawInboxService({
+      home: '/home/test',
+      isSessionOpen: () => false,
+      readFile: (p) => (p.endsWith('credentials.json') ? JSON.stringify({ nkey: NKEY }) : `${JSON.stringify(record(1))}\n`),
+      listDirectory: () => [`vclaw__${SELF8}.jsonl`],
+      statFile: () => ({ mode: 0o100644 }),
+      now: () => new Date('2026-10-31T00:00:00.000Z'),
+    })
+    const snapshot = service.refresh()
+    expect(snapshot.messages).toHaveLength(1)
+    expect(snapshot.warning).toContain('644')
+    expect(snapshot.warning).toContain('expected 600')
+  })
+
+  it('(b-followup) a 0600 spool carries no warning', () => {
+    const service = new VclawInboxService({
+      home: '/home/test',
+      isSessionOpen: () => true,
+      readFile: (p) => (p.endsWith('credentials.json') ? JSON.stringify({ nkey: NKEY }) : `${JSON.stringify(record(1))}\n`),
+      listDirectory: () => [`vclaw__${SELF8}.jsonl`],
+      statFile: () => ({ mode: 0o100600 }),
+      now: () => new Date('2026-10-31T00:00:00.000Z'),
+    })
+    expect(service.refresh().warning).toBeUndefined()
+  })
+
+  it('(c) a missing inbox directory is an empty state, not an error', () => {
+    const service = new VclawInboxService({
+      home: '/home/test',
+      isSessionOpen: () => false,
+      readFile: (p) => {
+        if (p.endsWith('credentials.json')) return JSON.stringify({ nkey: NKEY })
+        throw new Error('ENOENT')
+      },
+      listDirectory: () => {
+        throw new Error('ENOENT: no such file or directory')
+      },
+      now: () => new Date('2026-10-31T00:00:00.000Z'),
+    })
+    expect(() => service.start()).not.toThrow()
+    const snapshot = service.snapshot()
+    expect(snapshot.state).toBe('cached')
+    expect(snapshot.messages).toEqual([])
+    expect(snapshot.spoolPath).toBe('')
+    expect(snapshot.warning).toBeUndefined()
+    service.stop()
+  })
+
+  it('(d) ordering follows seq, never serverSeq — a live-drained row and a synced row sort together', () => {
+    const synced = { ...record(2), serverSeq: 9 } as VclawInboxMessage
+    const liveDrained = record(3)
+    const merged = mergeSpool([], [synced, liveDrained])
+    expect(merged.map((m) => m.seq)).toEqual([2, 3])
+    // and the reverse input order must not change the answer
+    expect(mergeSpool([], [liveDrained, synced]).map((m) => m.seq)).toEqual([2, 3])
+    expect(lastSeqOf(merged)).toBe(3) // lastSeq is local seq, not the sync cursor
+  })
+})

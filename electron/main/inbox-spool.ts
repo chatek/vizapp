@@ -124,6 +124,7 @@ export function buildSnapshot(input: {
   spoolPath: string
   messages: readonly VclawInboxMessage[]
   now: () => Date
+  warning?: string
 }): VclawInboxSnapshot {
   const messages = [...input.messages]
   return {
@@ -134,7 +135,19 @@ export function buildSnapshot(input: {
     unread: unreadCount(messages),
     sessionOpen: input.sessionOpen,
     observedAt: input.now().toISOString(),
+    ...(input.warning ? { warning: input.warning } : {}),
   }
+}
+
+/**
+ * A spool readable by anyone else is a leak, not a style nit: DM bodies sit in it.
+ * The pane keeps reading (the data is the user's) but must SAY the mode is wrong —
+ * silent absorption would hide the leak behind a working-looking view.
+ */
+export function spoolModeWarning(mode: number): string | undefined {
+  const permissions = mode & 0o777
+  if (permissions === 0o600) return undefined
+  return `Spool permissions are ${permissions.toString(8).padStart(3, '0')} — expected 600. Messages in it may be readable by other users on this machine.`
 }
 
 /** Directory listing helper for the service (kept here so tests can stub it). */

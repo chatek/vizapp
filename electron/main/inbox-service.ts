@@ -1,4 +1,4 @@
-import { readFileSync, watch, type FSWatcher } from 'node:fs'
+import { readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import {
@@ -8,6 +8,7 @@ import {
   listInboxDirectory,
   mergeSpool,
   parseSpool,
+  spoolModeWarning,
   readOwnNkey,
   selfPrefix,
   type VclawInboxMessage,
@@ -34,6 +35,8 @@ export interface VclawInboxServiceOptions {
   /** Injected in tests; defaults to the real filesystem. */
   readFile?: (path: string) => string
   listDirectory?: (path: string) => string[]
+  /** Injected in tests; defaults to real stat (mode is what the warning needs). */
+  statFile?: (path: string) => { mode: number }
   now?: () => Date
   /** Debounce for directory events, in ms. */
   debounceMs?: number
@@ -45,6 +48,7 @@ export class VclawInboxService {
   private readonly onChange: ((snapshot: VclawInboxSnapshot) => void) | undefined
   private readonly readFileImpl: (path: string) => string
   private readonly listDirectoryImpl: (path: string) => string[]
+  private readonly statFileImpl: (path: string) => { mode: number }
   private readonly now: () => Date
   private readonly debounceMs: number
   private watcher: FSWatcher | null = null
@@ -60,6 +64,7 @@ export class VclawInboxService {
     this.onChange = options.onChange
     this.readFileImpl = options.readFile ?? ((path) => readFileSync(path, 'utf8'))
     this.listDirectoryImpl = options.listDirectory ?? listInboxDirectory
+    this.statFileImpl = options.statFile ?? ((path) => statSync(path))
     this.now = options.now ?? (() => new Date())
     this.debounceMs = options.debounceMs ?? 120
     this.snapshotValue = this.computeSnapshot()
@@ -125,11 +130,17 @@ export class VclawInboxService {
     const self8 = nkey ? selfPrefix(nkey) : ''
     const spoolPath = self8 ? findSpoolPath(this.listDirectoryImpl, this.home, self8) : null
     let next: VclawInboxMessage[] = []
+    let warning: string | undefined
     if (spoolPath) {
       try {
         next = parseSpool(this.readFileImpl(spoolPath))
       } catch {
         next = []
+      }
+      try {
+        warning = spoolModeWarning(this.statFileImpl(spoolPath).mode)
+      } catch {
+        warning = undefined
       }
     }
     // Union by seq: a replaced or truncated file must never erase a row we showed.
@@ -140,6 +151,7 @@ export class VclawInboxService {
       spoolPath: spoolPath ?? '',
       messages: this.seen,
       now: this.now,
+      warning,
     })
   }
 }

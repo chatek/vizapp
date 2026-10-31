@@ -45,8 +45,16 @@ export interface VclawInboxSnapshot {
    * Highest server-side seq this spool is known to be caught up to, once
    * `vclaw inbox --sync` exists. Absent today (no endpoint). It sits BESIDE `seq`,
    * never replacing it, and it makes CACHED provable — it never adds a state.
+   *
+   * `seq` is AUTHORITATIVE for ordering: the server re-seeds a lost counter from
+   * retained records, so `serverSeq` is only a sync cursor and must never sort rows.
    */
   serverSeq?: number
+  /**
+   * A condition the pane must SAY OUT LOUD rather than silently absorb — currently a
+   * spool whose permissions have drifted from 0600. Absent when everything is nominal.
+   */
+  warning?: string
 }
 
 export const HARNESS_IDS = ['omp', 'prime', 'pi'] as const

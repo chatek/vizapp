@@ -206,3 +206,4 @@
 .inbox-row__from em { font-style: normal; opacity: 0.7; }
 .inbox-row__subject { font-size: 13px; font-weight: 600; margin-top: 2px; }
 .inbox-row__body { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; }
+.inbox-warning { margin: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--warning); color: var(--warning); font-size: 12px; }
