@@ -157,6 +157,19 @@ lists. Until then `npm test` is red and the release cannot pass `quality`.
 **STATUS.** Open 2026-10-31. Reported, not silently re-pinned: relaxing those assertions would
 delete the guarantee they exist for.
 
+**ROUTING (2026-10-31).** Recorded as **`docs/BACKLOG.md` C20** in the estate register (parent repo,
+commit `b283b19d`, owner: member-integration lane `e2a1f48`), carrying this framing: a member build
+must package the SHA `validate` resolved, secrets stay out of `run:`, and the job joins the
+validation tables. It is **not** an operator decision and is not parked in an operator register.
+The lane has no fabric identity to message directly (18 agents enumerated, none is the member lane),
+so the two registers point at each other and the acceptance is written here:
+
+- `.github/workflows/release.yml` `package-member` takes its SHA from `needs.validate.outputs.sha`
+  and fails closed if that output is empty;
+- no `secrets.*` reference appears inside a `run:` step of that job;
+- `docs/validation.md` gains the `package-member` row in both the CI and release tables;
+- `npx vitest run tests/release-scripts.test.ts tests/validation-documentation.test.ts` is green.
+
 ---
 
 ## B5 — Prime Work never received the SDK bundle (`/vclaw` was dead there)
