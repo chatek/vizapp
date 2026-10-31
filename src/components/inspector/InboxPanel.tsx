@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { Inbox, RefreshCw } from 'lucide-react'
 import type { VclawInboxSnapshot } from '@/types/api'
 import { describeInboxState, INBOX_STATE_LABEL } from '@/lib/inbox-state'
+import { retentionRows } from '@/lib/inbox-retention'
 import { errorMessage } from '@/lib/errors'
 import { EmptyState, IconButton } from '../ui'
 
@@ -38,6 +39,10 @@ export const InboxPanel = memo(function InboxPanel() {
   // CACHED becomes PROVABLE when sync exists (serverSeq present): same label, better
   // sentence. That is the whole change the fourth state source needs — no new state.
   const detail = describeInboxState(snapshot.state, snapshot.serverSeq)
+  // Retention divergence: rows joined across the local spool and (once sync exists) the
+  // gateway. With no server set fetched yet, `server` is undefined = UNKNOWN, so no row
+  // claims the gateway dropped it. A declared expiry renders a loss line ABOVE the list.
+  const { rows, lossLine } = retentionRows({ local: snapshot.messages, expiredThrough: snapshot.expiredThrough })
   return (
     <div className="inbox-panel" data-state={snapshot.state}>
       <header className="inbox-header">
@@ -51,11 +56,12 @@ export const InboxPanel = memo(function InboxPanel() {
       </header>
       <p className="inbox-detail">{detail}</p>
       {snapshot.warning ? <p className="inbox-warning" role="alert">{snapshot.warning}</p> : null}
+      {lossLine ? <p className="inbox-loss" role="note">{lossLine}</p> : null}
       {snapshot.messages.length === 0
         ? <p className="inbox-empty">{snapshot.state === 'unavailable' ? 'Nothing to show — no identity on this host.' : 'No messages spooled yet.'}</p>
         : (
           <ul className="inbox-list">
-            {snapshot.messages.map((message) => (
+            {rows.map(({ message, note }) => (
               <li className={`inbox-row${message.read ? '' : ' is-unread'}`} key={message.seq}>
                 <div className="inbox-row__meta">
                   {/* Asserted, never verified: A2A publish is tenant-wide, so the sender chooses this value. */}
@@ -65,6 +71,7 @@ export const InboxPanel = memo(function InboxPanel() {
                 </div>
                 <div className="inbox-row__subject">{message.subject || '(no subject)'}</div>
                 {message.body ? <p className="inbox-row__body">{message.body}</p> : null}
+                {note ? <p className="inbox-row__note">{note}</p> : null}
               </li>
             ))}
           </ul>

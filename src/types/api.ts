@@ -51,6 +51,12 @@ export interface VclawInboxSnapshot {
    */
   serverSeq?: number
   /**
+   * Highest seq the GATEWAY has declared it no longer retains (`since=0` replay marker).
+   * Absent = no declared loss. Present = a persistent loss line ABOVE the list, with the
+   * rows kept: a silently skipped numbering gap is the same lie as an empty pane.
+   */
+  expiredThrough?: number
+  /**
    * A condition the pane must SAY OUT LOUD rather than silently absorb — currently a
    * spool whose permissions have drifted from 0600. Absent when everything is nominal.
    */
