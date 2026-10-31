@@ -1884,6 +1884,8 @@ test.describe('Prime Work desktop smoke', () => {
     })
     const runtimeArgs = JSON.parse(readFileSync(join(fixtureRoot, 'prime-runtime-args.json'), 'utf8')) as string[]
     expect(runtimeArgs).toContain(join(process.cwd(), 'assets', 'extensions', 'omp-work-ask-user.ts'))
+    // The agent SDK is injected as a shipped bundle, not installed by the join pipe.
+    expect(runtimeArgs).toContain(join(process.cwd(), 'assets', 'extensions', 'vclaw-agent.js'))
     const worked = page.locator('.work-disclosure__button')
     await expect(worked).toContainText(/^Worked for /)
     await expect(worked).toHaveAttribute('aria-expanded', 'false')
@@ -1930,6 +1932,7 @@ test.describe('Prime Work desktop smoke', () => {
     const runtimeArgs = JSON.parse(readFileSync(join(fixtureRoot, 'omp-runtime-args.json'), 'utf8')) as string[]
     const injectedExtensions = runtimeArgs.flatMap((value, index) => value === '--extension' ? [runtimeArgs[index + 1]] : [])
     expect(injectedExtensions).toContain(join(process.cwd(), 'assets', 'extensions', 'omp-work-ask-user.ts'))
+    expect(injectedExtensions).toContain(join(process.cwd(), 'assets', 'extensions', 'vclaw-agent.js'))
     await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true')
     await expect(page.getByText(/OMP RPC exited|Request failed/)).toHaveCount(0)
   })
@@ -1964,6 +1967,7 @@ test.describe('Prime Work desktop smoke', () => {
     const runtime = JSON.parse(readFileSync(join(fixtureRoot, 'pi-runtime-args.json'), 'utf8')) as { args: string[]; cwd: string }
     const injectedExtensions = runtime.args.flatMap((value, index) => value === '--extension' ? [runtime.args[index + 1]] : [])
     expect(injectedExtensions).toContain(join(process.cwd(), 'assets', 'extensions', 'omp-work-ask-user.ts'))
+    expect(injectedExtensions).toContain(join(process.cwd(), 'assets', 'extensions', 'vclaw-agent.js'))
     expect(runtime.args).not.toContain('--cwd')
     if (!currentFixture) throw new Error('Missing hermetic fixture')
     expect(runtime.cwd).toBe(realpathSync(currentFixture.project))

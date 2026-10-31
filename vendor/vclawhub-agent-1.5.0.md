@@ -5,8 +5,15 @@ doctor · signup · who · peers · send · inbox`). Vendored from the `npm pack
 agent-sdk lane; this is the artefact their installed-state E2E and their real-TUI
 acceptance ran against.
 
-- Tarball SHA-256: `0f39a164685b9378055caf4a6a563a74a1b3f09b983ec50bbce8669e0450135e` (1,373,351 B, 376 files — the usage-refusal round: unknown flags refused BEFORE the verb, invalid flag values exit 2, `--help` lists verbs and `--help --json` is one envelope, leading flags no longer swallowed as the verb, refusals carry a machine-readable `error`). Extension surface MOVED: pi-extension `15cd7f64…` → `1294f04e…` (REQUIRED — the fixes must reach the TUI; verified in-bundle), ext-synadia stable at `dee4e723…`. History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → `c57f6a09…` (session mailbox) → this.
-- Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
+- Tarball SHA-256: `0cfa1a68488a7cb1f929dbb2fe0132852dea121452454f242e01132509325322` (1,374,980 B, 377 files — the wrapper round, desktop-lane D4: commander's unknown-option `exit(1)` is mapped into the usage class (2), help/version stay 0, so **exit 1 exists nowhere in the binary**; `dist/cli.js` `8561399b…`). Extension surface **UNCHANGED** at pi-extension `1294f04e…` — the wrapper change is CLI-only, verified in-bundle and by extraction — ext-synadia stable at `dee4e723…`. History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → `c57f6a09…` (session mailbox) → `0f39a164…` (usage-refusal round) → this.
+  *(Corrected 2026-10-31: this line still carried `0f39a164…`/1,373,351 B while the committed archive was `0cfa1a68…`/1,374,980 B — the pinned-contents table below had been updated and this line had not. Measured on the shipped file; `tests/release-vendor-agent.test.ts` now fails when the note and the archive disagree.)*
+- Unpatched: base == patched, no `.patch` — but this archive is **not** skipped by the vendor gate:
+  `npm run vendor:verify-patches` pins its digest and size and proves by extraction that
+  `dist/pi-extension/index.bundled.js` is byte-identical to the shipped
+  `assets/extensions/vclaw-agent.js` (the pairing is enforced by
+  [`vendor-agent-pins.mjs`](../scripts/release/vendor-agent-pins.mjs) and re-checked by
+  `tests/release-vendor-agent.test.ts`). A re-vendor that forgets to update this note, or a bundle
+  swapped without a re-vendor, fails the gate.
 
 ## Pinned contents
 

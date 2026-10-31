@@ -177,7 +177,9 @@ describe('safety-critical coverage inventory', () => {
   })
 
   it('keeps technical exclusions exact, documented, and backed by compensating verification', () => {
-    expect(COVERAGE_TECHNICAL_EXCLUSIONS).toEqual([])
+    // An exact list, not "none": only vendored generated bundles may be excluded, so any
+    // new exclusion fails here instead of quietly shrinking the denominator.
+    expect(COVERAGE_TECHNICAL_EXCLUSIONS.map((exclusion) => exclusion.file)).toEqual(['assets/extensions/vclaw-agent.js'])
     for (const exclusion of COVERAGE_TECHNICAL_EXCLUSIONS) {
       expect(exclusion.reason.length).toBeGreaterThan(40)
       expect(exclusion.compensatingVerification.length).toBeGreaterThanOrEqual(2)

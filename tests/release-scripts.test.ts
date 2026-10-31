@@ -1703,6 +1703,12 @@ describe('vendored supply-chain pins', () => {
     }
     pinned.add(readPinnedNpmArtifact().relativePath)
     for (const entry of Object.values(reference ?? {})) pinned.add(entry.path)
+    // `artifacts` is the third pin registry: locally built archives have no lockfile entry
+    // and no upstream reference release, so their pin lives there (and is proven by
+    // tests/release-vendor-agent.test.ts, which also checks the archive member).
+    for (const entry of Object.values((manifest.artifacts ?? {}) as Record<string, { path?: string }>)) {
+      if (entry?.path) pinned.add(entry.path)
+    }
 
     for (const [name, entry] of Object.entries(reference ?? {})) {
       expect(entry.path, `reference artifact outside vendor/: ${name}`).toMatch(/^vendor\/[^/]+\.tgz$/)
@@ -1718,16 +1724,20 @@ describe('vendored supply-chain pins', () => {
   test('the checked-in npm bootstrap archive matches its strict artifact pin and provenance record', () => {
     const pinManifest = JSON.parse(readFileSync('scripts/release/dependency-pins.json', 'utf8'))
     const artifact = readPinnedNpmArtifact()
-    expect(pinManifest.artifacts).toEqual({
-      npm: {
-        version: '12.0.2',
-        path: 'vendor/npm-12.0.2.tgz',
-        source: 'https://registry.npmjs.org/npm/-/npm-12.0.2.tgz',
-        integrity: PINNED_NPM_INTEGRITY,
-        size: artifact.size,
-        license: 'Artistic-2.0',
-      },
+    expect(pinManifest.artifacts.npm).toEqual({
+      version: '12.0.2',
+      path: 'vendor/npm-12.0.2.tgz',
+      source: 'https://registry.npmjs.org/npm/-/npm-12.0.2.tgz',
+      integrity: PINNED_NPM_INTEGRITY,
+      size: artifact.size,
+      license: 'Artistic-2.0',
     })
+    // Other registry rows are allowed (the agent SDK ships pre-packaged), but none may
+    // arrive without naming the bytes it pins.
+    for (const [name, entry] of Object.entries(pinManifest.artifacts as Record<string, { path?: string; integrity?: string; sha256?: string }>)) {
+      expect(entry.path, `artifact without a vendor path: ${name}`).toMatch(/^vendor\/[^/]+\.tgz$/)
+      expect(entry.integrity ?? entry.sha256 ?? '', `artifact without a digest: ${name}`).toMatch(/^(?:sha512-[A-Za-z0-9+/=]+|[0-9a-f]{64})$/)
+    }
     expect(verifyPinnedNpmArtifact(artifact)).toEqual(artifact)
     expect(readdirSync('vendor').filter((name) => /^npm-\d+\.\d+\.\d+\.tgz$/.test(name))).toEqual(['npm-12.0.2.tgz'])
 

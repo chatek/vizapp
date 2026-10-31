@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { verifyVendorAgentPins } from './vendor-agent-pins.mjs'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const VENDOR = join(ROOT, 'vendor')
@@ -77,3 +78,8 @@ for (const spec of PACKAGES) {
     rmSync(work, { recursive: true, force: true })
   }
 }
+
+// The agent SDK reaches the app PRE-PACKAGED; its archive/bundle pair is verified by a
+// module the test suite also exercises (scripts/release/vendor-agent-pins.mjs).
+const agentPin = verifyVendorAgentPins(ROOT)
+console.log(`${agentPin.archive}: archive member is byte-identical to ${agentPin.shipped} (${agentPin.sha256.slice(0, 12)}…)`)

@@ -1,4 +1,5 @@
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,13 +15,26 @@ interface Fixture {
   registrations: Registration[]
 }
 
-type PrimeFixtureApi = Pick<ExtensionAPI, 'registerTool'>
+type PrimeFixtureApi = Pick<ExtensionAPI, 'registerTool'> & CommandSurfaceApi
+type OmpFixtureApi = OmpExtensionApi & CommandSurfaceApi
 type PiFixtureApi = PiFastModeExtensionApi & Omit<OmpExtensionApi, 'typebox'>
+
+// Commands and events are part of both real hosts, so a fixture without them is
+// not the genuine surface. Prime's ExtensionAPI declares registerCommand/on
+// (node_modules/prime-agent/dist/core/extensions/types.d.ts) and OMP's extension
+// API writes them to extension.commands (@oh-my-pi/pi-coding-agent). The vclaw
+// bundle registers commands and events only — no tools, no typebox.
+type CommandSurfaceApi = {
+  registerCommand: (name: string, options: object) => void
+  on: (event: string, handler: (...args: unknown[]) => unknown) => void
+}
 
 function primeHost(): Fixture {
   const registrations: Registration[] = []
   const target: PrimeFixtureApi = {
     registerTool: (tool) => { registrations.push({ kind: 'tool', name: tool.name }) },
+    registerCommand: (name) => { registrations.push({ kind: 'command', name }) },
+    on: (event) => { registrations.push({ kind: 'event', name: event }) },
   }
   const api = new Proxy(target, {
     get(object, property, receiver) {
@@ -37,7 +51,7 @@ function primeHost(): Fixture {
 function ompHost(): Fixture {
   const registrations: Registration[] = []
   const schema = (kind: string) => (...args: unknown[]) => ({ kind, args })
-  const target: OmpExtensionApi = {
+  const target: OmpFixtureApi = {
     typebox: {
       Type: {
         Object: schema('object'),
@@ -50,6 +64,8 @@ function ompHost(): Fixture {
       },
     },
     registerTool: (tool) => { registrations.push({ kind: 'tool', name: tool.name }) },
+    registerCommand: (name) => { registrations.push({ kind: 'command', name }) },
+    on: (event) => { registrations.push({ kind: 'event', name: event }) },
   }
   const api = new Proxy(target, {
     get(object, property, receiver) {
@@ -104,6 +120,16 @@ const expectedRegistrations: Record<string, Registration[]> = {
     { kind: 'command', name: 'vclaw-fast-mode' },
     { kind: 'event', name: 'before_provider_request' },
   ],
+  // Measured from the vendored bundle (assets/extensions/vclaw-agent.js, sha256
+  // 1294f04e…): seven slash commands and three lifecycle events, no tools and no
+  // typebox — so it initializes on every harness whose host injects commands.
+  'vclaw-agent.js': [
+    { kind: 'event', name: 'turn_end' },
+    ...['vclaw', 'vchat-onboard', 'vchat-status', 'vchat-connect', 'vchat-claim-status', 'vchat-directory', 'vchat-family']
+      .map((name) => ({ kind: 'command' as const, name })),
+    { kind: 'event', name: 'session_start' },
+    { kind: 'event', name: 'session_shutdown' },
+  ],
 }
 
 const brokerVariables: Partial<Record<ExtensionInjection['capability'], readonly [string, string]>> = {
@@ -119,9 +145,21 @@ const LEGACY_UNPREFIXED_TOOLS = [
   'scheduled_task_update', 'scheduled_task_manage',
 ]
 
+const isolatedHomes: string[] = []
+
 async function loadExtension(injection: ExtensionInjection, configured: boolean) {
   vi.resetModules()
   vi.unstubAllEnvs()
+  if (injection.capability === 'vclaw') {
+    // The bundle resolves its identity from HOME. A developer machine that has
+    // joined the fabric carries real credentials, so an unstubbed HOME makes this
+    // contract depend on who runs it — and reads a secret it has no business
+    // reading. An empty home is also the shape the release gate tests.
+    const home = mkdtempSync(join(tmpdir(), 'vclaw-extension-home-'))
+    isolatedHomes.push(home)
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('XDG_CONFIG_HOME', join(home, '.config'))
+  }
   const variables = brokerVariables[injection.capability]
   if (configured && variables) {
     vi.stubEnv(variables[0], 'http://127.0.0.1:1/')
@@ -134,6 +172,7 @@ async function loadExtension(injection: ExtensionInjection, configured: boolean)
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.resetModules()
+  for (const home of isolatedHomes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
 
 describe('shipped extension contracts', () => {
@@ -183,8 +222,10 @@ describe('shipped extension contracts', () => {
   })
 
   it('derives the shipped inventory from the actual extension directory', () => {
+    // Sources (.ts) and shipped bundles (.js) are both manifests entries; deriving
+    // from '.ts' alone reported the directory as short by every vendored bundle.
     const actual = readdirSync(join(process.cwd(), 'assets', 'extensions'), { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .filter((entry) => entry.isFile() && /\.(?:ts|js|mjs|cjs)$/.test(entry.name))
       .map((entry) => entry.name)
       .sort()
     expect(SHIPPED_EXTENSION_FILENAMES).toEqual(actual)

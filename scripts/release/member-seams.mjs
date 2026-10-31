@@ -33,8 +33,7 @@ export const MEMBER_SEAMS_V1 = {
     {
       id: 'index-store-import',
       file: 'electron/main/index.ts',
-      anchor:
-        "import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'",
+      anchor: "import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'",
       why: 'integration inserts the defaultProject + vizshare imports immediately after this line',
     },
     {
@@ -46,10 +45,7 @@ export const MEMBER_SEAMS_V1 = {
     {
       id: 'index-harness-import',
       file: 'electron/main/index.ts',
-      anyOf: [
-        "import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'",
-        "import { HarnessDiscoveryService } from './harness-discovery'",
-      ],
+      anyOf: ["import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'", "import { HarnessDiscoveryService } from './harness-discovery'"],
       why: 'integration rewrites the first form into the second when routing reconciliation through ensureHarness',
     },
     {
@@ -88,7 +84,7 @@ export const MEMBER_SEAMS_V1 = {
     {
       id: 'third-party-manifest-key',
       file: 'electron/main/plugins/catalog.ts',
-      what: "manifest key `vclaw` with legacy `gooeypi` fallback",
+      what: 'manifest key `vclaw` with legacy `gooeypi` fallback',
       note: 'member plugin packages identify themselves through this key',
     },
   ],
@@ -134,10 +130,7 @@ export function reportMemberSeams(root) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const rootIndex = process.argv.indexOf('--root')
-  const root =
-    rootIndex >= 0 && process.argv[rootIndex + 1]
-      ? resolve(process.argv[rootIndex + 1])
-      : resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+  const root = rootIndex >= 0 && process.argv[rootIndex + 1] ? resolve(process.argv[rootIndex + 1]) : resolve(dirname(fileURLToPath(import.meta.url)), '../..')
   const report = reportMemberSeams(root)
   process.exit(report.ok ? 0 : 1)
 }

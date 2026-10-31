@@ -980,6 +980,10 @@ async function bootstrap(): Promise<void> {
     ...collaborationBridge.environmentFor({ ...scope, harness: 'prime' }),
     PRIME_WORK_ASK_USER_EXTENSION_PATH: stateStore.getSettings().askUserEnabled && scope.interactive ? ompAskUserExtensionPath : undefined,
     VCLAW_MANAGES_ASK_USER: '1',
+    // Prime's ExtensionAPI declares registerCommand/on, which is the whole surface the
+    // SDK bundle uses (no tools, no typebox), and the manifest lists the capability for
+    // all three harnesses — so omitting this variable silently cost Prime Work /vclaw.
+    VCLAW_AGENT_EXTENSION_PATH: vclawAgentExtensionPath,
     VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
     VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))
