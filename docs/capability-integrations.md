@@ -36,6 +36,30 @@ local stdio input fields. The initial Add chooser warns that third-party code ma
 APIs and links directly to VClaw's GitHub issue form for failures; the base
 Capabilities screen and the follow-up forms do not repeat that notice.
 
+### Shipped extension injections
+
+VClaw injects its own extensions into every harness; they are not packages a user installs. The
+manifest is [`extension-manifest.ts`](../electron/main/extension-manifest.ts), and the harness
+adapters turn each capability's environment variable into `--extension` argv
+([`harness-adapter.ts`](../electron/main/agent-rpc/harness-adapter.ts)).
+
+| Capability | File | Injected into | Gated by |
+| --- | --- | --- | --- |
+| schedule, browser, ask user, session collaboration | `omp-work-*.ts` (shared by OMP and Pi's ancestral extension API) | Prime, OMP, Pi | the matching settings toggle; the ask-user extension also requires an interactive session |
+| fast mode | `pi-work-fast-mode.ts` | Pi | always |
+| agent SDK (`/vclaw` verbs) | `vclaw-agent.js` — the vendored, minified agent-sdk pi-extension bundle | Prime, OMP, Pi | never: the verbs degrade themselves when no identity exists |
+
+The SDK bundle is **pre-packaged**: the desktop never runs the join pipe. Its provenance and the
+proof that the shipped file is the pinned archive member are in
+[`validation.md`](validation.md) and [`vendor/`](../vendor/); doc, bundle and pins must move
+together.
+
+Two failure modes are already recorded, because both were silent: a capability can be listed in the
+manifest and still never reach a harness if its environment variable is not set where that harness's
+environment is built (Prime Work shipped without `/vclaw` this way), and a bundle can be replaced or
+left stale without any gate noticing unless the digests are pinned. The E2E suite asserts the
+`--extension` argument for all three harnesses, and `npm run vendor:verify-patches` checks the bytes.
+
 ## Product behavior
 
 ### Prime Agent

@@ -41,6 +41,16 @@ gh api repos/am-will/gooey-pi/branches/main/protection \
 | Dependency-install lifecycle | [`package.json`](../package.json) and [`install-app-deps.mjs`](../scripts/release/install-app-deps.mjs) |
 | Package and post-package guarantees | [`scripts/release/package.mjs`](../scripts/release/package.mjs), [`verify-package.mjs`](../scripts/release/verify-package.mjs), and [`verify-cross-platform-package.mjs`](../scripts/release/verify-cross-platform-package.mjs) |
 | Audit policy and accepted risk | [`docs/security.md`](security.md), [`audit-production.mjs`](../scripts/release/audit-production.mjs), and [`audit-exceptions.json`](../scripts/release/audit-exceptions.json) |
+| Vendored agent SDK (shipped as an injected harness extension) | [`vendor/vclawhub-agent-<version>.md`](../vendor/), `artifacts.vclawhub-agent` in [`dependency-pins.json`](../scripts/release/dependency-pins.json), and [`vendor-agent-pins.mjs`](../scripts/release/vendor-agent-pins.mjs) |
+
+The agent SDK reaches the app pre-packaged: `assets/extensions/vclaw-agent.js` is the pinned
+pi-extension bundle, injected into every harness by
+[`extension-manifest.ts`](../electron/main/extension-manifest.ts). `npm run vendor:verify-patches`
+checks both digests and proves by extraction that the shipped file is the archive member renamed —
+never a rebuild — and `tests/release-vendor-agent.test.ts` re-checks the same relationship under
+`npm test`. That bundle is a generated, minified artifact, so it is excluded from the linter scope
+(`scripts/release/biome.json`) and from line coverage with two named compensating verifications;
+neither exclusion applies to authored extensions, which are `.ts`.
 
 Read these files at the commit being validated. Job names, test inventory, dependency versions, budgets, and artifact matrices can change; copying their current values into a permanent pass/fail table would create another stale snapshot.
 
