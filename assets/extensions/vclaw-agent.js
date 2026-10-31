@@ -24290,8 +24290,22 @@ var VERBS = {
     run: peersVerb
   }
 };
+function splitVerb(argv) {
+  if (argv.length === 0) return { verb: "", rest: [] };
+  if (!argv[0].startsWith("--")) return { verb: argv[0], rest: argv.slice(1) };
+  let i = 0;
+  while (i < argv.length) {
+    const t = argv[i];
+    if (!t.startsWith("--")) return { verb: t, rest: [...argv.slice(0, i), ...argv.slice(i + 1)] };
+    const bare = t.slice(2).split("=")[0];
+    i += t.includes("=") || BOOL_FLAGS[bare] === true ? 1 : 2;
+  }
+  return { verb: "", rest: argv };
+}
 function parseArgs(argv) {
-  const [verb = "", ...rest] = argv;
+  const split = splitVerb(argv);
+  const verb = split.verb;
+  const rest = split.rest;
   const flags = {};
   const args = [];
   for (let i = 0; i < rest.length; i++) {
@@ -24317,8 +24331,19 @@ function parseArgs(argv) {
   return { verb, args, flags };
 }
 function usageText() {
-  const lines = Object.values(VERBS).map((v) => `  /vclaw ${v.usage}`);
-  return ["vclaw \u2014 one command, no model required", "", ...lines].join("\n");
+  const lines = Object.values(VERBS).map((v) => `  /vclaw ${v.usage}
+      ${v.summary}`);
+  return [
+    "vclaw \u2014 one command, no model required",
+    "",
+    "verbs:",
+    ...lines,
+    "",
+    "exit codes: 0 ok \xB7 2 usage \xB7 3 dependency unavailable \xB7 4 identity not ready"
+  ].join("\n");
+}
+function firstLine(text) {
+  return text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "refused";
 }
 function completions(prefix) {
   const p = prefix.trim();
@@ -24340,11 +24365,35 @@ async function runVclaw(argv) {
 
 ${usageText()}` };
   }
+  const declared = new Set(spec.flags);
+  const unknown = Object.keys(flags).filter((k) => !declared.has(`--${k}`) && k !== "help");
+  if (unknown.length > 0) {
+    const message = `${verb}: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown.map((k) => `--${k}`).join(", ")}`;
+    return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: `${message}
+
+${usageText()}` };
+  }
+  if (flags.wait !== void 0) {
+    const w = flags.wait;
+    if (w === true || !/^\d+$/.test(String(w))) {
+      const message = `${verb}: --wait expects milliseconds (got ${w === true ? "no value" : String(w)})`;
+      return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: message };
+    }
+  }
   try {
     const r = await spec.run({ args, flags });
     const exit = r.exit ?? 0;
     return {
-      result: { ok: exit === 0, verb, state: r.state, code: exit, data: r.data },
+      result: {
+        ok: exit === 0,
+        verb,
+        state: r.state,
+        code: exit,
+        data: r.data,
+        // D5: a refusal must carry its reason in the machine envelope, not only
+        // in the human text — a model-less JSON consumer had nothing to print.
+        ...exit !== 0 ? { error: firstLine(r.text) } : {}
+      },
       exit,
       text: r.text
     };

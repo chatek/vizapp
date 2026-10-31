@@ -5,13 +5,13 @@ doctor · signup · who · peers · send · inbox`). Vendored from the `npm pack
 agent-sdk lane; this is the artefact their installed-state E2E and their real-TUI
 acceptance ran against.
 
-- Tarball SHA-256: `7fcd4a9f28cb0aae5953c6f7499a671ed3d681f7ff47f9a1a428b479040d421d` (1,371,540 B, **376 files** — the request-assertion lane + the durable-inbox proposal; extension surface UNCHANGED: pi-extension `15cd7f64…`, ext-synadia `dee4e723…`, both verified byte-for-byte in this pin's predecessor and re-verified here). History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → `c57f6a09…` (session mailbox) → this.
+- Tarball SHA-256: `0f39a164685b9378055caf4a6a563a74a1b3f09b983ec50bbce8669e0450135e` (1,373,351 B, 376 files — the usage-refusal round: unknown flags refused BEFORE the verb, invalid flag values exit 2, `--help` lists verbs and `--help --json` is one envelope, leading flags no longer swallowed as the verb, refusals carry a machine-readable `error`). Extension surface MOVED: pi-extension `15cd7f64…` → `1294f04e…` (REQUIRED — the fixes must reach the TUI; verified in-bundle), ext-synadia stable at `dee4e723…`. History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → `c57f6a09…` (session mailbox) → this.
 - Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
 
 ## Pinned contents
 
 | file | bytes | SHA-256 |
-| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 924,891 | `15cd7f64cd2302e2eb2a5f58501251457704272c10e8785edea1c34bdf7272f8` — all verbs + the session mailbox: subscribes `tenant.<t>.a2a.<self>.>` at session_start and drains into the CLI spool (shared record builder); failures are logged, never session-fatal; opt out with `VCLAW_AGENT_AUTOSTART=0`; starts only when an identity exists |
+| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 913,513 | `1294f04e3d4cccfe…` — all verbs + the session mailbox + the usage-refusal fixes: unknown flag → exit 2 before the verb runs, `--wait` values validated, `--help` lists verbs, `--help --json` is one envelope, refusals carry `error`. A no-identity `inbox` still exits 4 (verified installed-state) |
 | `dist/ext-synadia/index.bundled.js` | 363,605 | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — stable across four builds (canary) |
 | `dist/cli.js` | 29,205 | `d0aec72e21413ce0a43199fe544713a0bdbb0b48fa16e84cf637d0ad83094cc5` |
 
