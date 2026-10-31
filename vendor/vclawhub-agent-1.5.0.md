@@ -5,7 +5,7 @@ doctor · signup · who · peers · send · inbox`). Vendored from the `npm pack
 agent-sdk lane; this is the artefact their installed-state E2E and their real-TUI
 acceptance ran against.
 
-- Tarball SHA-256: `c57f6a09e1d8013412cd703990146d2195cc26235a2e9015e25d63709409a6cd` (1,353,895 B, **371 files** — the session mailbox: the extension subscribes `tenant.<t>.a2a.<self>.>` for the whole session and drains into the CLI spool through ONE shared record builder, so CLI `inbox` and the drainer write identical bytes by construction). History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → this.
+- Tarball SHA-256: `7fcd4a9f28cb0aae5953c6f7499a671ed3d681f7ff47f9a1a428b479040d421d` (1,371,540 B, **376 files** — the request-assertion lane + the durable-inbox proposal; extension surface UNCHANGED: pi-extension `15cd7f64…`, ext-synadia `dee4e723…`, both verified byte-for-byte in this pin's predecessor and re-verified here). History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → `c57f6a09…` (session mailbox) → this.
 - Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
 
 ## Pinned contents
