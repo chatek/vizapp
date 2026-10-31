@@ -221,6 +221,33 @@ each asserting `--extension …/vclaw-agent.js` in the argv the runtime actually
 
 ---
 
+## Ownership rule — a REQUIRED service arrives with the fixtures that construct it
+
+**Measured instance (2026-10-31).** The pane lane added `inbox: VclawInboxService` to `Services`
+(`electron/main/ipc.ts`, required) and used it in `registerIpc` (`services.inbox.snapshot()` and
+`.onSnapshot(…)`). Its own tests passed; **three unrelated suites went red** —
+`tests/backend/omp-ipc.test.ts`, `ipc-verify.test.ts`, `ipc-events.test.ts` — because their service
+objects never constructed an `inbox`:
+
+```
+TypeError: Cannot read properties of undefined (reading 'onSnapshot')
+  ❯ electron/main/ipc.ts registerIpc
+47 failed | 16 passed across the three files
+```
+
+The signal was there and was read as parallel flake until the three files ran **in isolation** and
+reproduced the same 47. Fixed by adding an `inboxStub()` (a snapshot plus a subscription returning an
+unsubscribe) to every service object in the three suites: 47/47 green, full suite back to the seven
+C20 failures.
+
+**Rule.** Adding a required member to `Services` is a cross-suite change: the same commit must add it
+to every fixture that builds a `Services` object, and the check is
+`grep -rn "services\.[a-z]*\." electron/main/ipc.ts` against the fixture keys — not "my tests pass".
+A red suite whose failure count moves between parallel runs is a **hint to isolate**, never a verdict:
+run the file alone before calling it flake.
+
+---
+
 ## Build plan — agent-sdk ships pre-packaged (refined 2026-10-31)
 
 The pivot is: **the desktop never installs the SDK; it embeds one pinned build and injects it as a

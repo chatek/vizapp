@@ -52,6 +52,14 @@ function serviceStub(): Record<string, unknown> {
   return new Proxy({}, { get: () => vi.fn(async () => undefined) })
 }
 
+// `Services.inbox` is REQUIRED, and these suites exercise other channels. The stub provides
+// exactly what `registerIpc` touches: a snapshot, and a subscription that returns an
+// unsubscribe. Ownership rule: a required service arrives with the fixtures that construct it.
+function inboxStub(): Record<string, unknown> {
+  const snapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
+  return { snapshot: vi.fn(() => snapshot), onSnapshot: vi.fn(() => () => undefined) }
+}
+
 interface Harness {
   invoke(channel: string, ...args: unknown[]): unknown
   services: ReturnType<typeof buildServices>
@@ -122,6 +130,7 @@ function buildServices() {
       update: vi.fn(async (patch: Partial<typeof settingsState>) => { Object.assign(settingsState, patch); return settingsState }),
     },
     heartbeats: serviceStub(),
+    inbox: inboxStub(),
     schedules: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined), list: vi.fn(() => 'scheduled'), create: vi.fn(async () => 'created') },
     browser: { ...serviceStub(), closeForSession: vi.fn(() => true), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
     omp: {

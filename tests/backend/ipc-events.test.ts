@@ -23,6 +23,14 @@ function serviceStub(): Record<string, unknown> {
   return new Proxy({}, { get: () => vi.fn(async () => undefined) })
 }
 
+// `Services.inbox` is REQUIRED, and these suites exercise other channels. The stub provides
+// exactly what `registerIpc` touches: a snapshot, and a subscription that returns an
+// unsubscribe. Ownership rule: a required service arrives with the fixtures that construct it.
+function inboxStub(): Record<string, unknown> {
+  const snapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
+  return { snapshot: vi.fn(() => snapshot), onSnapshot: vi.fn(() => () => undefined) }
+}
+
 function harnessStub(): Record<string, unknown> {
   return {
     projects: { ...serviceStub(), authorizePath: vi.fn(async () => { throw new Error('denied') }) },
@@ -49,6 +57,7 @@ describe('app:reveal-path authorization', () => {
       schedules: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()) },
       browser: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
       omp: harnessStub(),
+      inbox: inboxStub(),
       pi: harnessStub(),
     }
     electronMocks.ipcMain.handle.mockClear()
@@ -138,6 +147,7 @@ describe('session change IPC', () => {
       schedules: serviceStub(),
       browser: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
       omp: harnessStub(),
+      inbox: inboxStub(),
       pi: harnessStub(),
     }
     const expectedUrl = 'prime-work://app/'
@@ -209,6 +219,7 @@ describe('shell-facing app handlers', () => {
       schedules: serviceStub(),
       browser: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
       omp: harnessStub(),
+      inbox: inboxStub(),
       pi: harnessStub(),
       ...overrides,
     }
@@ -326,6 +337,7 @@ describe('IPC registration lifecycle', () => {
       schedules: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()) },
       browser: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
       omp: harnessStub(),
+      inbox: inboxStub(),
       pi: harnessStub(),
     }
   }
