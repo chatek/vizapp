@@ -4894,7 +4894,7 @@ var require_denobuffer = __commonJS({
     exports.assert = assert;
     exports.concat = concat;
     exports.append = append;
-    exports.readAll = readAll;
+    exports.readAll = readAll2;
     exports.writeAll = writeAll;
     var encoders_1 = require_encoders();
     var AssertionError = class extends Error {
@@ -5068,7 +5068,7 @@ var require_denobuffer = __commonJS({
       }
     };
     exports.DenoBuffer = DenoBuffer;
-    function readAll(r) {
+    function readAll2(r) {
       const buf = new DenoBuffer();
       buf.readFrom(r);
       return buf.bytes();
@@ -15539,7 +15539,7 @@ async function readPears(deep = false) {
 }
 function readPeers() {
   const dir = OMP_DIR();
-  const rows = /* @__PURE__ */ new Map();
+  const rows2 = /* @__PURE__ */ new Map();
   if (!safeStat(dir).exists) return [];
   const files = (() => {
     try {
@@ -15555,7 +15555,7 @@ function readPeers() {
       const raw = JSON.parse(readFileSync3(p, "utf8"));
       for (const [id, v] of Object.entries(raw)) {
         const e = v ?? {};
-        rows.set(id, {
+        rows2.set(id, {
           id,
           ...typeof e.name === "string" ? { name: e.name } : {},
           ...typeof e.owner === "string" ? { owner: e.owner } : {},
@@ -15576,14 +15576,14 @@ function readPeers() {
       if (!Array.isArray(ids)) continue;
       for (const id of ids) {
         if (typeof id !== "string") continue;
-        const cur = rows.get(id);
-        if (cur) rows.set(id, { ...cur, buddy: true });
-        else rows.set(id, { id, tier: "unknown", buddy: true, source: f });
+        const cur = rows2.get(id);
+        if (cur) rows2.set(id, { ...cur, buddy: true });
+        else rows2.set(id, { id, tier: "unknown", buddy: true, source: f });
       }
     } catch {
     }
   }
-  return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...rows2.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 function readInbox() {
   const dir = join2(PEARS_DIR(), "inbox");
@@ -15668,14 +15668,14 @@ ${checks.filter((c) => !c.ok).length} check(s) failing` : "\nall checks pass"
 
 // src/vclaw/render.ts
 function kv(pairs) {
-  const rows = pairs.filter(([, v]) => v !== void 0);
-  if (rows.length === 0) return "";
-  const width = Math.max(...rows.map(([k]) => k.length));
-  return rows.map(([k, v]) => `  ${k.padEnd(width)}  ${String(v)}`).join("\n");
+  const rows2 = pairs.filter(([, v]) => v !== void 0);
+  if (rows2.length === 0) return "";
+  const width = Math.max(...rows2.map(([k]) => k.length));
+  return rows2.map(([k, v]) => `  ${k.padEnd(width)}  ${String(v)}`).join("\n");
 }
-function table(headers, rows) {
-  if (rows.length === 0) return "  (none)";
-  const cells = rows.map((r) => r.map((c) => c === null || c === void 0 ? "\u2014" : String(c)));
+function table(headers, rows2) {
+  if (rows2.length === 0) return "  (none)";
+  const cells = rows2.map((r) => r.map((c) => c === null || c === void 0 ? "\u2014" : String(c)));
   const widths = headers.map((h2, i) => Math.max(h2.length, ...cells.map((r) => (r[i] ?? "").length)));
   const line = (r) => `  ${r.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ")}`.trimEnd();
   return [line(headers), line(widths.map((w) => "\u2500".repeat(w))), ...cells.map(line)].join("\n");
@@ -15690,7 +15690,7 @@ async function peersVerb(ctx) {
   }
   const cloud = await readCloud();
   const all = readPeers();
-  const rows = tier === "all" ? all : all.filter((p) => p.tier === tier);
+  const rows2 = tier === "all" ? all : all.filter((p) => p.tier === tier);
   if (!cloud.credentials.present && all.length === 0) {
     return {
       state: "unavailable",
@@ -15700,14 +15700,14 @@ async function peersVerb(ctx) {
     };
   }
   const state = all.length === 0 ? "degraded" : "ok";
-  const data = { tier, source: "cached", peers: rows };
+  const data = { tier, source: "cached", peers: rows2 };
   const text = [
     `vclaw peers${tier === "all" ? "" : ` --tier ${tier}`}  (cached)`,
     table(
       ["id", "name", "tier", "buddy", "last seen", "source"],
-      rows.map((p) => [p.id, p.name ?? null, p.tier, p.buddy ? "yes" : null, p.lastSeen ?? null, p.source])
+      rows2.map((p) => [p.id, p.name ?? null, p.tier, p.buddy ? "yes" : null, p.lastSeen ?? null, p.source])
     ),
-    rows.length === 0 ? "\nno peers recorded \u2014 live discovery lands with the tool surface (roadmap C)" : ""
+    rows2.length === 0 ? "\nno peers recorded \u2014 live discovery lands with the tool surface (roadmap C)" : ""
   ].filter((l) => l !== "").join("\n");
   return { state, data, text, exit: 0 };
 }
@@ -23860,20 +23860,20 @@ async function whoVerb(ctx) {
   await nc.close().catch(() => void 0);
   void drain;
   const self2 = creds.public_key;
-  const rows = dir.snapshot().map(whoRowOf).sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
-  const others = rows.filter((r) => r.nkey !== self2);
-  const data = { segment, server, windowMs: waitMs, self: self2, peers: rows, others: others.length, accepted: dir.accepted, rejected: dir.rejected };
+  const rows2 = dir.snapshot().map(whoRowOf).sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
+  const others = rows2.filter((r) => r.nkey !== self2);
+  const data = { segment, server, windowMs: waitMs, self: self2, peers: rows2, others: others.length, accepted: dir.accepted, rejected: dir.rejected };
   const text = [
     `vclaw who  (segment ${segment}, ${Math.round(waitMs / 1e3)}s window, read-only)`,
     table(
       ["peer", "name", "state", "seen"],
-      rows.map((r) => [r.nkey === self2 ? `${r.nkey.slice(0, 12)}\u2026 (you)` : `${r.nkey.slice(0, 12)}\u2026`, r.name ?? null, r.state ?? null, r.seen ?? null])
+      rows2.map((r) => [r.nkey === self2 ? `${r.nkey.slice(0, 12)}\u2026 (you)` : `${r.nkey.slice(0, 12)}\u2026`, r.name ?? null, r.state ?? null, r.seen ?? null])
     ),
-    rows.length === 0 ? `
+    rows2.length === 0 ? `
 no verified announcements in this window \u2014 nobody on this segment is online, they announce less often than the window${dir.rejected > 0 ? `, or ${dir.rejected} record(s) failed verification` : ""}` : `
 ${others.length} other agent(s) around${dir.rejected > 0 ? ` (${dir.rejected} record(s) rejected)` : ""}`
   ].join("\n");
-  return { state: rows.length > 0 ? "ok" : "degraded", data, text, exit: 0 };
+  return { state: rows2.length > 0 ? "ok" : "degraded", data, text, exit: 0 };
 }
 
 // src/vclaw/verbs/signup.ts
@@ -23950,6 +23950,282 @@ still waiting after ${waitSec}s \u2014 re-run \`vclaw signup --wait 60\``);
   };
 }
 
+// src/vclaw/verbs/send.ts
+import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
+
+// src/vclaw/fabric.ts
+var b64urlJson = (segment) => {
+  try {
+    return JSON.parse(Buffer.from(segment.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+  } catch {
+    return null;
+  }
+};
+function scopeFromJwt(jwt) {
+  const out = { tenant: "default", self: "", segment: "default" };
+  const payload = b64urlJson(jwt.split(".")[1] ?? "");
+  const nats = payload?.nats ?? {};
+  const allow = Array.isArray(nats.sub?.allow) ? nats.sub.allow : [];
+  for (const s of allow) {
+    if (typeof s !== "string") continue;
+    const mailbox = /^tenant\.([^.>]+)\.a2a\.([^.>]+)\.>$/.exec(s);
+    if (mailbox) {
+      out.tenant = mailbox[1];
+      out.self = mailbox[2];
+      continue;
+    }
+    const ann = /^\$SRV\.INFO\.agents\.([^.>]+)\.>$/.exec(s);
+    if (ann) out.segment = ann[1];
+  }
+  return out;
+}
+function dmSubject(tenant, peer) {
+  return `tenant.${tenant}.a2a.${peer}.req`;
+}
+function ownMailbox(tenant, self2) {
+  return `tenant.${tenant}.a2a.${self2}.>`;
+}
+async function openFabric() {
+  const creds = await loadCredentials();
+  if (!creds?.public_key || !creds?.seed) throw new VclawError(4, "no identity on this host \u2014 run `vclaw-agent vclaw signup` first");
+  const cfg = readConfigSync();
+  const vgate = cfg?.vgateUrl ?? process.env.VCLAW_API_URL ?? "https://api.vclawhub.com";
+  const server = cfg?.server ?? process.env.VCLAW_NATS_URL ?? "nats://vchat3:4223";
+  const jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
+  const scope = scopeFromJwt(jwt);
+  if (!scope.self) throw new VclawError(4, "this identity's JWT grants no a2a mailbox \u2014 the claim may not be active yet");
+  let nc;
+  try {
+    nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-fabric");
+  } catch (e) {
+    throw new VclawError(3, `cannot reach the fabric at ${server}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return { ...scope, nc, jwt, close: async () => void await nc.close().catch(() => void 0) };
+}
+
+// src/vclaw/verbs/send.ts
+function assertPeerToken(peer) {
+  if (!/^[A-Za-z0-9_-]{6,80}$/.test(peer)) {
+    throw new Error(
+      `invalid peer "${peer}" \u2014 pass a single NKey token (no dots, wildcards or spaces); see \`vclaw who\``
+    );
+  }
+  return peer;
+}
+async function sendVerb(ctx) {
+  const [peer, ...rest] = ctx.args;
+  const text = rest.join(" ").trim();
+  if (!peer || text.length === 0) {
+    return { state: "unavailable", data: {}, text: "usage: vclaw send <peer-nkey> <text>", exit: 2 };
+  }
+  const to = assertPeerToken(peer);
+  const f = await openFabric();
+  try {
+    const subject = dmSubject(f.tenant, to);
+    const id = randomUUID2();
+    const ts = (/* @__PURE__ */ new Date()).toISOString();
+    const conversationId = randomUUID2();
+    const envelope = {
+      type: "a2a_request",
+      id,
+      prompt: text,
+      from: { nkey: f.self, name: f.self.slice(0, 8) },
+      a2a: { intent: "request", conversationId },
+      ts
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(envelope));
+    const digest = createHash3("sha256").update(bytes).digest("hex");
+    f.nc.publish(subject, bytes);
+    await f.nc.flush();
+    return {
+      state: "ok",
+      data: { to, subject, tenant: f.tenant, id, conversationId, digest, digestAlg: "sha256(frame-bytes)", bytes: bytes.length, ts, delivery: "at-most-once" },
+      text: [
+        `vclaw send \u2014 published ${bytes.length} B`,
+        `  to      ${to.slice(0, 12)}\u2026`,
+        `  subject ${subject}`,
+        `  id      ${id}`,
+        `  digest  ${digest.slice(0, 16)}\u2026`,
+        "",
+        "at-most-once: there is no replay, so a peer with no standing subscription never sees this."
+      ].join("\n"),
+      exit: 0
+    };
+  } finally {
+    await f.close();
+  }
+}
+
+// src/vclaw/inbox-store.ts
+import { appendFileSync, existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync5, renameSync, writeFileSync } from "node:fs";
+import { createHash as createHash4 } from "node:crypto";
+import { homedir as homedir3 } from "node:os";
+import { join as join3 } from "node:path";
+var MAX_LINES = 2e3;
+function inboxDir() {
+  return join3(homedir3(), ".vclaw", "inbox");
+}
+function spoolPath(tenant, self2) {
+  return join3(inboxDir(), `${tenant}__${self2.slice(0, 8)}.jsonl`);
+}
+function readSetPath(tenant, self2) {
+  return join3(inboxDir(), `${tenant}__${self2.slice(0, 8)}.read.json`);
+}
+function dedupeKey(r) {
+  return r.id && r.id.length > 0 ? `id:${r.id}` : `d:${r.digest}`;
+}
+function frameDigest(frame) {
+  return createHash4("sha256").update(frame).digest("hex");
+}
+function readSet(tenant, self2) {
+  try {
+    const raw = JSON.parse(readFileSync5(readSetPath(tenant, self2), "utf8"));
+    return new Set(Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : []);
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
+function writeSet(tenant, self2, set) {
+  mkdirSync2(inboxDir(), { recursive: true });
+  const tmp = `${readSetPath(tenant, self2)}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify([...set]), { mode: 384 });
+  renameSync(tmp, readSetPath(tenant, self2));
+}
+function appendFor(tenant, self2, rec) {
+  mkdirSync2(inboxDir(), { recursive: true });
+  const existing = readAll(tenant, self2);
+  const key = dedupeKey(rec);
+  if (existing.some((r) => dedupeKey(r) === key)) return false;
+  const seq2 = existing.reduce((m, r) => Math.max(m, r.seq ?? 0), 0) + 1;
+  appendFileSync(spoolPath(tenant, self2), JSON.stringify({ ...rec, seq: seq2 }) + "\n", { mode: 384 });
+  return true;
+}
+function readAll(tenant, self2) {
+  if (!existsSync4(spoolPath(tenant, self2))) return [];
+  const out = [];
+  for (const line of readFileSync5(spoolPath(tenant, self2), "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  return out;
+}
+function rows(tenant, self2) {
+  const seen = readSet(tenant, self2);
+  return readAll(tenant, self2).map((r) => ({ ...r, read: seen.has(dedupeKey(r)) }));
+}
+function markRead(tenant, self2, keys) {
+  const all = readAll(tenant, self2);
+  const seen = readSet(tenant, self2);
+  let flipped = 0;
+  for (const r of all) {
+    const key = dedupeKey(r);
+    if (seen.has(key)) continue;
+    if (keys && !keys.includes(key)) continue;
+    seen.add(key);
+    flipped += 1;
+  }
+  if (flipped > 0) writeSet(tenant, self2, seen);
+  return flipped;
+}
+function prune(tenant, self2) {
+  const all = readAll(tenant, self2);
+  if (all.length <= MAX_LINES) return 0;
+  const seen = readSet(tenant, self2);
+  const unread = all.filter((r) => !seen.has(dedupeKey(r)));
+  const budget = MAX_LINES - unread.length;
+  if (budget <= 0) return 0;
+  const readKept = all.filter((r) => seen.has(dedupeKey(r))).slice(-budget);
+  const keep = new Set([...unread, ...readKept].map((r) => dedupeKey(r)));
+  const kept = all.filter((r) => keep.has(dedupeKey(r)));
+  if (kept.length === all.length) return 0;
+  writeFileSync(spoolPath(tenant, self2), kept.map((r) => JSON.stringify(r)).join("\n") + "\n", { mode: 384 });
+  return all.length - kept.length;
+}
+
+// src/vclaw/verbs/inbox.ts
+async function inboxVerb(ctx) {
+  const waitMs = Math.min(Math.max(Number(ctx.flags.wait ?? 3e3) || 3e3, 200), 6e4);
+  const showAll = ctx.flags.all === true;
+  const f = await openFabric();
+  const decoder2 = new TextDecoder();
+  let received = 0;
+  let duplicates = 0;
+  const sub = f.nc.subscribe(ownMailbox(f.tenant, f.self));
+  const drain = (async () => {
+    for await (const m of sub) {
+      const raw = decoder2.decode(m.data);
+      let env2 = null;
+      try {
+        env2 = JSON.parse(raw);
+      } catch {
+      }
+      const fromObj = env2?.from ?? {};
+      const a2a = env2?.a2a ?? {};
+      const from = typeof fromObj.nkey === "string" ? fromObj.nkey : "";
+      const ts = typeof env2?.ts === "string" ? env2.ts : (/* @__PURE__ */ new Date()).toISOString();
+      const body = typeof env2?.prompt === "string" ? env2.prompt : raw;
+      const rec = {
+        kind: "message",
+        v: 1,
+        seq: 0,
+        // assigned by appendFor (monotonic per file)
+        id: typeof env2?.id === "string" ? env2.id : "",
+        ts,
+        from,
+        ...typeof fromObj.name === "string" && fromObj.name ? { fromName: fromObj.name } : {},
+        ...typeof a2a.conversationId === "string" && a2a.conversationId ? { conversationId: a2a.conversationId } : {},
+        subject: m.subject,
+        body,
+        digest: frameDigest(m.data),
+        // sha256 over the EXACT received bytes
+        recvTs: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (appendFor(f.tenant, f.self, rec)) received += 1;
+      else duplicates += 1;
+    }
+  })();
+  await f.nc.flush();
+  await new Promise((r) => setTimeout(r, waitMs));
+  sub.unsubscribe();
+  await f.close();
+  void drain;
+  const all = rows(f.tenant, f.self);
+  const unread = all.filter((r) => !r.read);
+  const shown = showAll ? all : unread;
+  const text = shown.length === 0 ? `vclaw inbox \u2014 nothing ${showAll ? "recorded" : "unread"} (window ${waitMs} ms, received ${received}, duplicates ${duplicates})` : [
+    `vclaw inbox \u2014 ${shown.length} ${showAll ? "message(s)" : "unread"} (window ${waitMs} ms)`,
+    table(
+      ["from", "subject", "received", "body"],
+      shown.slice(-20).map((r) => [
+        r.from ? `${r.from.slice(0, 10)}\u2026` : "(unattributed)",
+        r.subject.split(".").slice(-2).join("."),
+        r.recvTs.slice(11, 19),
+        r.body.replace(/\s+/g, " ").slice(0, 60)
+      ])
+    ),
+    "",
+    "from is SELF-ASSERTED (canon V3.1 Q9) \u2014 the transport proves the subject, not the sender."
+  ].join("\n");
+  if (!showAll && unread.length > 0) markRead(f.tenant, f.self, unread.map(dedupeKey));
+  if (ctx.flags.prune === true) prune(f.tenant, f.self);
+  return {
+    state: shown.length > 0 ? "ok" : "degraded",
+    data: {
+      messages: shown.map((r) => ({ ...r })),
+      unread: unread.length,
+      total: all.length,
+      received,
+      duplicates,
+      windowMs: waitMs
+    },
+    text,
+    exit: 0
+  };
+}
+
 // src/vclaw/run.ts
 var VclawError = class extends Error {
   constructor(code, message) {
@@ -23973,6 +24249,20 @@ var VERBS = {
     usage: "doctor [--json]",
     flags: ["--json"],
     run: doctorVerb
+  },
+  send: {
+    name: "send",
+    summary: "send one DM to a peer on the vclaw fabric (at-most-once)",
+    usage: "send <peer-nkey> <text\u2026> [--json]",
+    flags: ["--json"],
+    run: sendVerb
+  },
+  inbox: {
+    name: "inbox",
+    summary: "read what arrived on this agent's mailbox (durable local spool)",
+    usage: "inbox [--wait <ms>] [--all] [--prune] [--json]",
+    flags: ["--wait", "--all", "--prune", "--json"],
+    run: inboxVerb
   },
   signup: {
     name: "signup",
@@ -24037,12 +24327,12 @@ function completions(prefix) {
 async function runVclaw(argv) {
   const { verb, args, flags } = parseArgs(argv);
   if (!verb || flags.help === true) {
-    return { result: { ok: true, verb: verb || "help", state: "ok" }, exit: 0, text: usageText() };
+    return { result: { ok: true, verb: verb || "help", state: "ok", code: 0 }, exit: 0, text: usageText() };
   }
   const spec = VERBS[verb];
   if (!spec) {
     const message = `unknown verb "${verb}"`;
-    return { result: { ok: false, verb, state: "unavailable", error: message, code: 2 }, exit: 2, text: `${message}
+    return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: `${message}
 
 ${usageText()}` };
   }
@@ -24050,14 +24340,14 @@ ${usageText()}` };
     const r = await spec.run({ args, flags });
     const exit = r.exit ?? 0;
     return {
-      result: { ok: exit === 0, verb, state: r.state, data: r.data, ...exit !== 0 ? { code: exit } : {} },
+      result: { ok: exit === 0, verb, state: r.state, code: exit, data: r.data },
       exit,
       text: r.text
     };
   } catch (e) {
     const code = e instanceof VclawError ? e.code : 1;
     const message = redactError(e instanceof Error ? e.message : String(e));
-    return { result: { ok: false, verb, state: "unavailable", error: message, code }, exit: code, text: `error: ${message}` };
+    return { result: { ok: false, verb, state: "unavailable", code, error: message }, exit: code, text: `error: ${message}` };
   }
 }
 
@@ -24107,9 +24397,9 @@ function openBrowser(url) {
 }
 
 // src/pi-extension/index.ts
-import { appendFileSync, mkdirSync as mkdirSync2 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync3 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { dirname as dirname2, join as join5 } from "node:path";
 
 // src/agent/runtime.ts
 var import_nats_core3 = __toESM(require_mod4(), 1);
@@ -24566,24 +24856,24 @@ function ack(ev, verb) {
 
 // src/daemon/paths.ts
 import { mkdir as mkdir2, readFile as readFile2, readdir, rename, writeFile as writeFile2 } from "node:fs/promises";
-import { existsSync as existsSync4 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { dirname, join as join3 } from "node:path";
+import { existsSync as existsSync5 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { dirname, join as join4 } from "node:path";
 function xdgConfigHome() {
-  return process.env.XDG_CONFIG_HOME?.trim() || join3(homedir3(), ".config");
+  return process.env.XDG_CONFIG_HOME?.trim() || join4(homedir4(), ".config");
 }
 function familyRoot() {
   const override = env("FAMILY_DIR");
   if (override) return override;
-  return join3(xdgConfigHome(), "vclaw", "family");
+  return join4(xdgConfigHome(), "vclaw", "family");
 }
 function familyDir(lead) {
-  return join3(familyRoot(), lead);
+  return join4(familyRoot(), lead);
 }
 
 // src/daemon/panel.ts
 function renderPanel(family) {
-  const rows = [
+  const rows2 = [
     ["NAME", "ROLE", "DRIVER", "STATE", "PID", "QUEUED", "LAST_REPLY", "NOTE"],
     ...family.workers.map((w) => [
       w.name,
@@ -24596,14 +24886,14 @@ function renderPanel(family) {
       w.note ?? "-"
     ])
   ];
-  const widths = rows[0].map((_, i) => Math.max(...rows.map((r) => r[i].length)));
+  const widths = rows2[0].map((_, i) => Math.max(...rows2.map((r) => r[i].length)));
   const line = (r) => r.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
   const head = [
     `family ${family.familyId} \xB7 lead ${family.lead} \xB7 dir ${family.familyDir}`,
     `daemon pid ${family.daemon.pid} since ${family.daemon.startedAt}`,
     ""
   ];
-  return [...head, line(rows[0]), ...rows.slice(1).map(line), ""].join("\n");
+  return [...head, line(rows2[0]), ...rows2.slice(1).map(line), ""].join("\n");
 }
 
 // src/pi-extension/index.ts
@@ -25033,9 +25323,9 @@ function index_default(pi) {
       const argv = args.trim().length > 0 ? args.trim().split(/\s+/) : [];
       const { result, exit, text } = await runVclaw(argv);
       try {
-        const outFile = join4(homedir4(), ".vclaw", "vclaw-out.txt");
-        mkdirSync2(dirname2(outFile), { recursive: true });
-        appendFileSync(outFile, `=== ${(/* @__PURE__ */ new Date()).toISOString()} /vclaw ${argv.join(" ")} exit=${exit}
+        const outFile = join5(homedir5(), ".vclaw", "vclaw-out.txt");
+        mkdirSync3(dirname2(outFile), { recursive: true });
+        appendFileSync2(outFile, `=== ${(/* @__PURE__ */ new Date()).toISOString()} /vclaw ${argv.join(" ")} exit=${exit}
 ${text}
 
 `, { mode: 384 });
