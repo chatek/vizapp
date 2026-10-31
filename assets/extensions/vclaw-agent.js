@@ -23781,6 +23781,69 @@ function b64url2(data) {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+// src/vclaw/fabric.ts
+var b64urlJson = (segment) => {
+  try {
+    return JSON.parse(Buffer.from(segment.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+  } catch {
+    return null;
+  }
+};
+function scopeFromJwt(jwt) {
+  const out = { tenant: "default", self: "", segment: "default" };
+  const payload = b64urlJson(jwt.split(".")[1] ?? "");
+  const nats = payload?.nats ?? {};
+  const allow = Array.isArray(nats.sub?.allow) ? nats.sub.allow : [];
+  for (const s of allow) {
+    if (typeof s !== "string") continue;
+    const mailbox = /^tenant\.([^.>]+)\.a2a\.([^.>]+)\.>$/.exec(s);
+    if (mailbox) {
+      out.tenant = mailbox[1];
+      out.self = mailbox[2];
+      continue;
+    }
+    const ann = /^\$SRV\.INFO\.agents\.([^.>]+)\.>$/.exec(s);
+    if (ann) out.segment = ann[1];
+  }
+  return out;
+}
+function dmSubject(tenant, peer) {
+  return `tenant.${tenant}.a2a.${peer}.req`;
+}
+function ownMailbox(tenant, self2) {
+  return `tenant.${tenant}.a2a.${self2}.>`;
+}
+function classifyFabricError(e) {
+  if (e instanceof VclawError) return e;
+  const message = e instanceof Error ? e.message : String(e);
+  if (/agent_not_claimed|not claimed|already issued/i.test(message)) {
+    return new VclawError(4, `identity not ready \u2014 the claim is not approved yet (${message})`);
+  }
+  return new VclawError(3, message);
+}
+async function openFabric() {
+  const creds = await loadCredentials();
+  if (!creds?.public_key || !creds?.seed) throw new VclawError(4, "no identity on this host \u2014 run `vclaw-agent vclaw signup` first");
+  const cfg = readConfigSync();
+  const vgate = cfg?.vgateUrl ?? process.env.VCLAW_API_URL ?? "https://api.vclawhub.com";
+  const server = cfg?.server ?? process.env.VCLAW_NATS_URL ?? "nats://vchat3:4223";
+  let jwt;
+  try {
+    jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
+  } catch (e) {
+    throw classifyFabricError(e);
+  }
+  const scope = scopeFromJwt(jwt);
+  if (!scope.self) throw new VclawError(4, "this identity's JWT grants no a2a mailbox \u2014 the claim may not be active yet");
+  let nc;
+  try {
+    nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-fabric");
+  } catch (e) {
+    throw new VclawError(3, `cannot reach the fabric at ${server}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return { ...scope, nc, jwt, close: async () => void await nc.close().catch(() => void 0) };
+}
+
 // src/vclaw/verbs/who.ts
 function whoRowOf(entry) {
   return {
@@ -23829,11 +23892,12 @@ async function whoVerb(ctx) {
     if (requestedSegment === void 0) segment = segmentFromJwt(jwt) ?? "default";
     nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-who");
   } catch (e) {
+    const err2 = classifyFabricError(e);
     return {
       state: "unavailable",
-      data: { segment, server, reason: e instanceof Error ? e.message : String(e) },
-      text: `cannot reach the fabric (${server}) \u2014 ${e instanceof Error ? e.message : String(e)}`,
-      exit: 3
+      data: { segment, server, reason: err2.message },
+      text: err2.code === 4 ? `error: ${err2.message}` : `cannot reach the fabric (${server}) \u2014 ${err2.message}`,
+      exit: err2.code
     };
   }
   const dir = new Directory();
@@ -23952,58 +24016,6 @@ still waiting after ${waitSec}s \u2014 re-run \`vclaw signup --wait 60\``);
 
 // src/vclaw/verbs/send.ts
 import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
-
-// src/vclaw/fabric.ts
-var b64urlJson = (segment) => {
-  try {
-    return JSON.parse(Buffer.from(segment.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
-  } catch {
-    return null;
-  }
-};
-function scopeFromJwt(jwt) {
-  const out = { tenant: "default", self: "", segment: "default" };
-  const payload = b64urlJson(jwt.split(".")[1] ?? "");
-  const nats = payload?.nats ?? {};
-  const allow = Array.isArray(nats.sub?.allow) ? nats.sub.allow : [];
-  for (const s of allow) {
-    if (typeof s !== "string") continue;
-    const mailbox = /^tenant\.([^.>]+)\.a2a\.([^.>]+)\.>$/.exec(s);
-    if (mailbox) {
-      out.tenant = mailbox[1];
-      out.self = mailbox[2];
-      continue;
-    }
-    const ann = /^\$SRV\.INFO\.agents\.([^.>]+)\.>$/.exec(s);
-    if (ann) out.segment = ann[1];
-  }
-  return out;
-}
-function dmSubject(tenant, peer) {
-  return `tenant.${tenant}.a2a.${peer}.req`;
-}
-function ownMailbox(tenant, self2) {
-  return `tenant.${tenant}.a2a.${self2}.>`;
-}
-async function openFabric() {
-  const creds = await loadCredentials();
-  if (!creds?.public_key || !creds?.seed) throw new VclawError(4, "no identity on this host \u2014 run `vclaw-agent vclaw signup` first");
-  const cfg = readConfigSync();
-  const vgate = cfg?.vgateUrl ?? process.env.VCLAW_API_URL ?? "https://api.vclawhub.com";
-  const server = cfg?.server ?? process.env.VCLAW_NATS_URL ?? "nats://vchat3:4223";
-  const jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
-  const scope = scopeFromJwt(jwt);
-  if (!scope.self) throw new VclawError(4, "this identity's JWT grants no a2a mailbox \u2014 the claim may not be active yet");
-  let nc;
-  try {
-    nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-fabric");
-  } catch (e) {
-    throw new VclawError(3, `cannot reach the fabric at ${server}: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  return { ...scope, nc, jwt, close: async () => void await nc.close().catch(() => void 0) };
-}
-
-// src/vclaw/verbs/send.ts
 function assertPeerToken(peer) {
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(peer)) {
     throw new Error(
