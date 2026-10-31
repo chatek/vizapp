@@ -5,14 +5,14 @@ doctor · signup · who · peers · send · inbox`). Vendored from the `npm pack
 agent-sdk lane; this is the artefact their installed-state E2E and their real-TUI
 acceptance ran against.
 
-- Tarball SHA-256: `459b0b4fd156ed47a56a1a03363f334413a49e9b40c7f90928f4028d8101f2d9` (1,352,692 B, **368 files** — Feature Set 2 complete IN the extension surface: `send` + `inbox` register in the TUI; uniform top-level `code`; frozen digest spec; suffixed spool). History: `1c90d0f0…` (355 files, FS1-CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → this, the first artefact where CLI and TUI are the same verb table.
+- Tarball SHA-256: `c57f6a09e1d8013412cd703990146d2195cc26235a2e9015e25d63709409a6cd` (1,353,895 B, **371 files** — the session mailbox: the extension subscribes `tenant.<t>.a2a.<self>.>` for the whole session and drains into the CLI spool through ONE shared record builder, so CLI `inbox` and the drainer write identical bytes by construction). History: `1c90d0f0…` (FS1, CLI-only) → `50a5e9ec…` (FS2 CLI-only; the surface split) → `459b0b4f…` (all verbs in both surfaces) → this.
 - Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
 
 ## Pinned contents
 
 | file | bytes | SHA-256 |
-| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 911,226 | `3b3533d2a9854aa082795927aa35e3a341d89fff9a5ea71a7eda688b45b7448c` — carries ALL verbs incl. send/inbox + the delta-2 exit classification; their real-TUI acceptance was measured on exactly this digest, so it transfers to our asset |
-| `dist/ext-synadia/index.bundled.js` | 363,605 | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — moved once at `31ac4de` (G14 touched the bridge; verified real, not staleness) and stable since |
+| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 924,891 | `15cd7f64cd2302e2eb2a5f58501251457704272c10e8785edea1c34bdf7272f8` — all verbs + the session mailbox: subscribes `tenant.<t>.a2a.<self>.>` at session_start and drains into the CLI spool (shared record builder); failures are logged, never session-fatal; opt out with `VCLAW_AGENT_AUTOSTART=0`; starts only when an identity exists |
+| `dist/ext-synadia/index.bundled.js` | 363,605 | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — stable across four builds (canary) |
 | `dist/cli.js` | 29,205 | `d0aec72e21413ce0a43199fe544713a0bdbb0b48fa16e84cf637d0ad83094cc5` |
 
 Verified on this artefact (2026-10-31): both bundles import clean under `env -i`
@@ -79,9 +79,15 @@ SDK side and is not set speculatively.
   TUI; a no-identity `/vclaw inbox` reports the 4-class error. Root cause was structural (`build:extensions` was
   not part of `npm run build`; see the rebuild-trap section). The FS2 verbs' exit codes were also re-classified
   (fabric failures → 3/4, never a bare 1).
-- ⚠ **AT-MOST-ONCE today**: no standing subscription — a DM sent while nobody is subscribed is NOT replayed.
-  The spool is durable for what was received; it is not a mailbox. Do not treat it as complete until the
-  SDK lane lands the session_start subscription.
+- ✅ **DURABLE WHILE A SESSION IS OPEN (artefact c57f6a09…)**: the extension subscribes
+  `tenant.<t>.a2a.<self>.>` for the whole session and drains every frame into the SAME spool the CLI reads — a DM
+  sent while the host idles (no inbox running) is spooled and renders later (their cross-container measurement).
+  ⚠ **NOT durable across a CLOSED host**: with no session running the fabric does not replay — that needs a
+  broker-side durable consumer (JetStream/queue), which this fabric does not grant agents today.
+  HONEST INBOX LABELS (freeze these): **LIVE** (session open, subscription healthy) | **CACHED** (spool read,
+  session closed — may have gaps) | **UNAVAILABLE** (no identity / no fabric). Never "complete".
+  Opt-out: `VCLAW_AGENT_AUTOSTART=0`. The mailbox starts only when an identity exists — no identity, no
+  subscribe, no error noise.
 
 Artefact history: `50a5e9ec…` (FS2, 1,348,203 B) → `a511aa4b01287c62b9e5fbfdbc9860d54e0bec65b1074e02f216b7167c43218f`
 (1,349,041 B, 368 files). Inner digests UNCHANGED between them (pi `994a3913…`, ext-synadia `dee4e723…`, cli

@@ -24145,6 +24145,37 @@ function prune(tenant, self2) {
   return all.length - kept.length;
 }
 
+// src/vclaw/mailbox.ts
+function recordFromFrame(subject, data) {
+  const raw = new TextDecoder().decode(data);
+  let env2 = null;
+  try {
+    env2 = JSON.parse(raw);
+  } catch {
+  }
+  const fromObj = env2?.from ?? {};
+  const a2a = env2?.a2a ?? {};
+  return {
+    kind: "message",
+    v: 1,
+    seq: 0,
+    // assigned by appendFor (monotonic per file)
+    id: typeof env2?.id === "string" ? env2.id : "",
+    ts: typeof env2?.ts === "string" ? env2.ts : (/* @__PURE__ */ new Date()).toISOString(),
+    from: typeof fromObj.nkey === "string" ? fromObj.nkey : "",
+    ...typeof fromObj.name === "string" && fromObj.name ? { fromName: fromObj.name } : {},
+    ...typeof a2a.conversationId === "string" && a2a.conversationId ? { conversationId: a2a.conversationId } : {},
+    subject,
+    body: typeof env2?.prompt === "string" ? env2.prompt : raw,
+    digest: frameDigest(data),
+    // sha256 over the EXACT received bytes
+    recvTs: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function mailboxSubject(tenant, self2) {
+  return `tenant.${tenant}.a2a.${self2}.>`;
+}
+
 // src/vclaw/verbs/inbox.ts
 async function inboxVerb(ctx) {
   const waitMs = Math.min(Math.max(Number(ctx.flags.wait ?? 3e3) || 3e3, 200), 6e4);
@@ -24156,34 +24187,7 @@ async function inboxVerb(ctx) {
   const sub = f.nc.subscribe(ownMailbox(f.tenant, f.self));
   const drain = (async () => {
     for await (const m of sub) {
-      const raw = decoder2.decode(m.data);
-      let env2 = null;
-      try {
-        env2 = JSON.parse(raw);
-      } catch {
-      }
-      const fromObj = env2?.from ?? {};
-      const a2a = env2?.a2a ?? {};
-      const from = typeof fromObj.nkey === "string" ? fromObj.nkey : "";
-      const ts = typeof env2?.ts === "string" ? env2.ts : (/* @__PURE__ */ new Date()).toISOString();
-      const body = typeof env2?.prompt === "string" ? env2.prompt : raw;
-      const rec = {
-        kind: "message",
-        v: 1,
-        seq: 0,
-        // assigned by appendFor (monotonic per file)
-        id: typeof env2?.id === "string" ? env2.id : "",
-        ts,
-        from,
-        ...typeof fromObj.name === "string" && fromObj.name ? { fromName: fromObj.name } : {},
-        ...typeof a2a.conversationId === "string" && a2a.conversationId ? { conversationId: a2a.conversationId } : {},
-        subject: m.subject,
-        body,
-        digest: frameDigest(m.data),
-        // sha256 over the EXACT received bytes
-        recvTs: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      if (appendFor(f.tenant, f.self, rec)) received += 1;
+      if (appendFor(f.tenant, f.self, recordFromFrame(m.subject, m.data))) received += 1;
       else duplicates += 1;
     }
   })();
@@ -25108,6 +25112,20 @@ async function startRuntime(opts = {}) {
       console.error(`[vchat] A2A (no-reply): ${msg.raw.slice(0, 160)}`);
     }
   });
+  try {
+    nc.subscribe(mailboxSubject(segment, nkey), {
+      callback: (_err, msg) => {
+        try {
+          appendFor(segment, nkey, recordFromFrame(msg.subject, msg.data));
+        } catch (e) {
+          dbg(`mailbox: spool write failed - ${e.message}`);
+        }
+      }
+    });
+    dbg(`mailbox: draining ${mailboxSubject(segment, nkey)} for the session`);
+  } catch (e) {
+    dbg(`mailbox: subscribe failed - ${e.message}`);
+  }
   const h2aSub = nc.subscribe(SubjectTree.PROMPT(nkey), {
     queue: "agents",
     // load-balance when multiple sessions share the nkey
