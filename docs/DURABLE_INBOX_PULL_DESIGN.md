@@ -10,13 +10,15 @@ agent-sdk/vgate's.
 
 ```
 GET <vgateUrl>/v1/agent/inbox?since=<serverSeq>&limit=<n>
-  -> { agent, messages[], latest, more }
+  -> { agent, messages[], latest, more, expiredThrough? }
 ```
 
 - each record is the spool record **plus** `serverSeq`.
 - the spool record is fixed today in `agent-sdk/src/vclaw/inbox-store.ts` · `InboxRecord`:
   `kind:"message", v:1, seq, id, ts, from, fromName?, conversationId?, subject, body, digest, recvTs`.
 - `latest` is the cursor to store; `more` says the page was full.
+- `expiredThrough?` is additive (an older client still parses): the highest seq the caller skipped
+  that is gone for good. Ignoring it is legal on the wire and wrong in the UI — see §6.
 
 ## 1. Where the URL is configured
 
@@ -60,9 +62,12 @@ competing truth:
 
 - spool (local, at-most-once, `~/.vclaw/inbox/<tenant>.<self8>.spool.jsonl`, append-only, `seq`)
   is what the window *saw*;
-- server (`serverSeq`, `latest`) is what the gateway *holds*;
-- the pane shows the server page, annotates rows the spool already has (by `id`/`digest`), and shows
-  the difference as *"not captured locally"* rather than as an empty list.
+- server (`serverSeq`, `latest`) is what the gateway *holds* — with a **7-day TTL**, so the two sets
+  diverge in both directions and the pane names each one:
+  - a server row the spool lacks → *"not captured locally"* (the window was closed);
+  - a spool row the server no longer holds → *"captured locally, no longer on the gateway"*;
+  - neither holds it, but `expiredThrough` says so → *"gone for good up to seq N"* (§6).
+  None of the three may render as an empty list.
 - **Read state has one writer.** Today that is the CLI (`<self>.read.json`). The desktop must not
   write it until the CLI exposes read/unread through the bridge; a second writer is how a message
   becomes read twice or never.
@@ -87,15 +92,48 @@ escaped as exit 1, a class outside the contract), and never a silently empty pan
 ## 5. Acceptance for when the endpoint lands
 
 1. Fixture server serving the frozen shape: every record's spool fields byte-identical to the local
-   spool record, plus `serverSeq`; `latest`/`more` honoured.
+   spool record, plus `serverSeq`; `latest`/`more`/`expiredThrough` honoured.
 2. `403 agent_not_claimed` → class 4 (asserted, not observed); hang past the deadline → class 3.
 3. A static test that the desktop never reads `~/.config/vclaw/credentials.json` (grep-level, plus a
    temp `HOME` in the test), so shape C cannot creep in.
 4. Pane distinguishes the four rows of the table above in a renderer test.
+5. A page answering `expiredThrough: N` renders the loss line above the list **and** keeps the rows;
+   a page without the field renders no loss line. Assert both, so "ignore the field" fails a test.
+6. Rows older than the server's 7-day TTL still present in the local spool are labelled
+   captured-locally, not missing: assert with a fixture whose server page starts after them.
 
-## Open questions for the owner of the server half
+## 6. Server-side answers (measured, not assumed)
 
-- `since` semantics: `0` = replay from the first retained record, or "start from now"? At-most-once
-  delivery makes this a product decision, not a detail.
-- `limit` bounds: suggest default 100, hard max 500, and `more` derived from that bound.
-- Who allocates `serverSeq` — vgate spool or the fabric — and does it survive a gateway restart?
+Taken from the endpoint spec `docs/C19_INBOX_ENDPOINT.md` in the estate repo (commit `ff5c227d`)
+and re-read before citing — the three questions this note used to leave open are now answered:
+
+| question | answer |
+|---|---|
+| `since=0` | replay from the **first retained** record, bounded. `Page()` starts at `since+1`, raises the start to the oldest seq the accounting still holds, and caps an ancient cursor at `pageScanBudget`, answering with `expiredThrough` — the highest skipped seq that is **gone for good** |
+| `limit` | default **100**, max **500**, clamped server-side (`DefaultLimit`/`MaxLimit`); the client asks 100 and clamps at 500 — this note's guess matched |
+| `serverSeq` across restart | the counter bucket carries no TTL, and `latest` never rewinds; a **recreated** bucket used to restart at 1 while records existed (reissued seqs, key collisions, a wedged mailbox) — fixed by re-seeding from retained records through a Create-CAS |
+
+**Response shape is now `{agent, messages[], latest, more, expiredThrough?}`** — one field more than
+this note was written against. `expiredThrough` is additive, so a client that ignores it still parses;
+the pane must not ignore it (below).
+
+### What `expiredThrough` means for the pane
+
+A non-zero `expiredThrough` is a **stated loss**, not an empty range: "messages up to seq N are gone
+for good". Render it as its own persistent line above the list, never as a gap the user must infer
+from a jump in numbering, and never by dropping the rows. `since=0` on a mailbox with a long history
+therefore shows *retained tail + explicit loss marker*, which is the whole point of the field.
+
+Records carry a **7-day TTL** on the server (`vchat_inbox … TTL 7d`), while the local spool keeps
+2,000 lines with no TTL. So the pane's three-way view is:
+- **server rows** — what the gateway holds now;
+- **local-only rows** — older than the server TTL, still in `~/.vclaw/inbox/…`; label them as
+  captured locally, not "missing";
+- **`expiredThrough`** — gone from both; the only honest thing is to say so.
+
+## 7. Still open (client-side, not the server's to decide)
+
+- Whether the pane writes read state at all before the CLI exposes read/unread (see §3), or renders
+  unread purely from the spool's `<self>.read.json`.
+- Whether `expiredThrough` should also be persisted in the desktop's own state so the loss marker
+  survives a restart before the next successful page.
