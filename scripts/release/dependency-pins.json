@@ -47,15 +47,15 @@
       "version": "1.5.0",
       "path": "vendor/vclawhub-agent-1.5.0.tgz",
       "source": "agent-sdk npm pack of the pinned build (see vendor/vclawhub-agent-1.5.0.md)",
-      "sha256": "0cfa1a68488a7cb1f929dbb2fe0132852dea121452454f242e01132509325322",
-      "size": 1374980,
+      "sha256": "bf1e237fa2db47c6f5433f4ba709424bba2ff22707de4381d2e15d3ade51a4e5",
+      "size": 1376152,
       "license": "MIT",
       "shipped": {
         "path": "assets/extensions/vclaw-agent.js",
         "from": "package/dist/pi-extension/index.bundled.js",
-        "sha256": "1294f04e3d4cccfe59f9078afd80bfb89e30d357b0719e78c46267d2fd068150",
-        "size": 913513,
-        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject."
+        "sha256": "407c872257fa7e6418bdaa46f657e67ef6fc3d24754ec000b7fc324a4cbe403d",
+        "size": 913941,
+        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Carries the classifyFabricError contract (agent_not_claimed is exit 4 in every verb)."
       }
     }
   }

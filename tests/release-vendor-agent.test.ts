@@ -63,5 +63,11 @@ describe('vendored agent artifact pins', () => {
     expect(note).toContain(pin.sha256)
     // The note abbreviates the extension digest in its pinned-contents row.
     expect(note).toContain(pin.shipped.sha256.slice(0, 16))
+    // Doc-vs-pin, both directions (desktop-lane B2 extension): a doc bump without
+    // an artefact bump — or the reverse — must fail here, because the .md rows
+    // and dependency-pins.json describe the same bytes or one of them is lying.
+    expect(note).toContain(pin.shipped.sha256)
+    expect(note).toContain(Number(pin.shipped.size).toLocaleString('en-US'))
+    expect(note).toContain(Number(pin.size).toLocaleString('en-US'))
   })
 })
