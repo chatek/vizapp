@@ -6,6 +6,52 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
+
+// ── Toolchain gate for the tests that spawn the release scripts ────────────────
+// package.mjs and preflight.mjs refuse to run below the pinned toolchain, so a test
+// that spawns them is measuring the SHELL, not the code, on an old machine. Neither a
+// red nor a silent green is honest there: a red meaning "your shell is old" trains
+// people to ignore the suite (that is how five real defects survived review), and a
+// pass would claim coverage we do not have. So: SKIP with a reason that NAMES BOTH
+// numbers, and a meta-test below fails if the reason loses one.
+const requiredNode = readFileSync(new URL('../.nvmrc', import.meta.url), 'utf8').trim()
+const requiredNpm = String(
+  (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { engines?: { npm?: string } })
+    .engines?.npm ?? '',
+).replace(/^>=/, '')
+// Resolve npm the way the release scripts do — through npm_execpath when present —
+// so the gate measures the same npm the spawned script will.
+function detectNpmVersion(): string {
+  const execpath = process.env.npm_execpath
+  if (execpath) {
+    const viaExecpath = spawnSync(process.execPath, [execpath, '--version'], { encoding: 'utf8' })
+    const reported = (viaExecpath.stdout ?? '').trim()
+    if (reported) return reported
+  }
+  const viaPath = spawnSync('npm', ['--version'], { encoding: 'utf8' })
+  return (viaPath.stdout ?? '').trim() || 'unknown'
+}
+const currentNpmVersion = detectNpmVersion()
+function atLeastVersion(actual: string, required: string): boolean {
+  const a = actual.split('.').map((part) => Number.parseInt(part, 10) || 0)
+  const r = required.split('.').map((part) => Number.parseInt(part, 10) || 0)
+  for (let index = 0; index < Math.max(a.length, r.length); index += 1) {
+    const left = a[index] ?? 0
+    const right = r[index] ?? 0
+    if (left !== right) return left > right
+  }
+  return true
+}
+const toolchainReady =
+  atLeastVersion(process.versions.node, requiredNode) && atLeastVersion(currentNpmVersion, requiredNpm)
+const TOOLCHAIN_SKIP_REASON =
+  `requires Node >=${requiredNode} and npm >=${requiredNpm} (.nvmrc + package.json engines; supply them with npm run toolchain:bootstrap) — this shell has v${process.versions.node}/${currentNpmVersion}`
+
+/** Names the pin in the skipped test's title so the reason cannot rot into 'skipped'. */
+function toolchainTestName(name: string): string {
+  return toolchainReady ? name : `${name} [${TOOLCHAIN_SKIP_REASON}]`
+}
+
 import {
   bootstrapNpm,
   parsePinnedNpmArtifact,
@@ -176,7 +222,16 @@ function createPinnedNpmArtifactFixture(contents = Buffer.from('verified npm arc
 }
 
 describe('release preflight', () => {
-  test('package.mjs --dry-run says nothing executed instead of claiming success', () => {
+
+  test('the toolchain skip reason names both pinned numbers and the shell versions', () => {
+    // If this fails, a skipped release test just became an unexplained hole.
+    expect(TOOLCHAIN_SKIP_REASON).toContain(`Node >=${requiredNode}`)
+    expect(TOOLCHAIN_SKIP_REASON).toContain(`npm >=${requiredNpm}`)
+    expect(TOOLCHAIN_SKIP_REASON).toContain(process.versions.node)
+    expect(TOOLCHAIN_SKIP_REASON).toContain(currentNpmVersion)
+  })
+
+  test.skipIf(!toolchainReady)(toolchainTestName('package.mjs --dry-run says nothing executed instead of claiming success'), () => {
     const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
     const result = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--dry-run'], { encoding: 'utf8' })
     expect(result.status, result.stderr).toBe(0)
@@ -332,7 +387,7 @@ describe('release preflight', () => {
     }
   })
 
-  test('probes npm through its JavaScript CLI and both release entry points reject an old npm', () => {
+  test.skipIf(!toolchainReady)(toolchainTestName('probes npm through its JavaScript CLI and both release entry points reject an old npm'), () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-npm-version-'))
     const npmCli = join(directory, 'npm-cli.mjs')
     writeFileSync(npmCli, "process.stdout.write('12.0.1\\n')\n")
