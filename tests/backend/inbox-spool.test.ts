@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildSnapshot,
   classifyState,
+  describeInboxState,
   findSpoolPath,
+  INBOX_STATE_LABEL,
   lastSeqOf,
   mergeSpool,
   parseSpool,
@@ -169,5 +171,22 @@ describe('service snapshots', () => {
     })
     expect(snapshot.messages[0].from).toBe('UBN5HKOLCWNK')
     expect(snapshot.messages[0].fromName).toBe('claimed-name')
+  })
+})
+
+describe('W4-5 / A18 — CACHED becomes provable without a fourth state', () => {
+  it('keeps exactly three labels and never says complete', () => {
+    expect(Object.keys(INBOX_STATE_LABEL).sort()).toEqual(['cached', 'live', 'unavailable'])
+    for (const state of ['live', 'cached', 'unavailable'] as const) {
+      expect(describeInboxState(state)).not.toMatch(/complete/i)
+    }
+  })
+
+  it('gains "synced as of seq N" only for cached, and only when serverSeq exists', () => {
+    expect(describeInboxState('cached')).not.toContain('synced as of')
+    expect(describeInboxState('cached', 42)).toContain('synced as of seq 42')
+    // serverSeq must never upgrade a LIVE sentence or invent one for UNAVAILABLE.
+    expect(describeInboxState('live', 42)).not.toContain('synced as of')
+    expect(describeInboxState('unavailable', 42)).not.toContain('synced as of')
   })
 })

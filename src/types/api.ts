@@ -41,6 +41,12 @@ export interface VclawInboxSnapshot {
   unread: number
   sessionOpen: boolean
   observedAt: string
+  /**
+   * Highest server-side seq this spool is known to be caught up to, once
+   * `vclaw inbox --sync` exists. Absent today (no endpoint). It sits BESIDE `seq`,
+   * never replacing it, and it makes CACHED provable — it never adds a state.
+   */
+  serverSeq?: number
 }
 
 export const HARNESS_IDS = ['omp', 'prime', 'pi'] as const

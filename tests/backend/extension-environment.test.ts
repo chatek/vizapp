@@ -19,8 +19,11 @@ const electron = vi.hoisted(() => ({
 
 vi.mock('electron', () => electron)
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { extensionRuntimeEnvironment, type CapabilityExtensionPaths } from '../../electron/main/index'
 import { OMP_RPC_ADAPTER, PI_RPC_ADAPTER, PRIME_RPC_ADAPTER } from '../../electron/main/agent-rpc'
+import { extensionInjection } from '../../electron/main/extension-manifest'
 
 const extensionPaths: CapabilityExtensionPaths = {
   schedule: '/app/extensions/omp-work-schedules.ts',
@@ -133,5 +136,42 @@ describe('capability extension environment parity (OMP and pi)', () => {
     expect(args.slice(-2)).toEqual(['--extension', '/app/extensions/omp-work-collaboration.ts'])
     const unsafe = adapter.buildStartArgs({ cwd: '/work', environment: { VCLAW_COLLABORATION_EXTENSION_PATH: '--session-injection' } })
     expect(unsafe).not.toContain('--session-injection')
+  })
+})
+
+describe('B5 class — the vclaw capability row is proven by its environment, per harness', () => {
+  // B5 shipped a live defect: the manifest said Prime had a capability, the environment
+  // disagreed, and only an E2E assertion caught it. The class rule is: every capability
+  // row must be proven by its environment, per harness. These rows prove the vclaw row
+  // the same way the ask_user rows prove theirs.
+  const environment = extensionRuntimeEnvironment(scheduleBridgeEnvironment, () => browserBridgeEnvironment, extensionPaths)
+  const adapters = [['omp', OMP_RPC_ADAPTER], ['pi', PI_RPC_ADAPTER], ['prime', PRIME_RPC_ADAPTER]] as const
+
+  it.each(adapters)('%s receives the vclaw extension path from a real environment', (harness, adapter) => {
+    // The manifest row itself must exist for this harness — B5 was a manifest that
+    // claimed a capability the environment did not provide.
+    expect(extensionInjection(harness, 'vclaw').environmentVariable).toBe('VCLAW_AGENT_EXTENSION_PATH')
+    expect(environment.VCLAW_AGENT_EXTENSION_PATH).toBe('/app/extensions/vclaw-agent.js')
+    const args = adapter.buildStartArgs({ cwd: '/work', environment })
+    const injected = args.filter((value, index) => index > 0 && args[index - 1] === '--extension')
+    expect(injected).toContain('/app/extensions/vclaw-agent.js')
+  })
+
+  it.each(adapters)('%s stops receiving it when the environment loses the variable (mutation-proof)', (_harness, adapter) => {
+    const withoutVclaw = { ...environment }
+    delete withoutVclaw.VCLAW_AGENT_EXTENSION_PATH
+    const injected = adapter.buildStartArgs({ cwd: '/work', environment: withoutVclaw })
+    expect(injected).not.toContain('/app/extensions/vclaw-agent.js')
+  })
+
+  it('the shipped asset actually registers /vclaw for every built verb', () => {
+    // The bundle is what a session loads; a row that injects a hollow or stale file is
+    // the same B5 defect one layer deeper. Assert against the file we ship.
+    const asset = readFileSync(join(process.cwd(), 'assets/extensions/vclaw-agent.js'), 'utf8')
+    expect(asset).toContain('vclaw')
+    for (const verb of ['status', 'doctor', 'signup', 'who', 'peers', 'send', 'inbox']) {
+      expect(asset).toContain(verb)
+    }
+    expect(asset).toMatch(/unknown flag|unknown verb/)
   })
 })

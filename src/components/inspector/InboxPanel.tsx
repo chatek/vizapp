@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from 'react'
 import { Inbox, RefreshCw } from 'lucide-react'
 import type { VclawInboxSnapshot } from '@/types/api'
+import { describeInboxState, INBOX_STATE_LABEL } from '@/lib/inbox-state'
 import { errorMessage } from '@/lib/errors'
 import { EmptyState, IconButton } from '../ui'
 
@@ -12,12 +13,6 @@ import { EmptyState, IconButton } from '../ui'
  * spool is what was captured, not what was sent. `from`/`fromName` are asserted by the
  * sender and are labelled as a claim, never shown as verified identity.
  */
-const STATE_COPY: Record<VclawInboxSnapshot['state'], { label: string; detail: string }> = {
-  live: { label: 'LIVE', detail: 'Session open and the mailbox subscription is running — messages are spooled as they arrive.' },
-  cached: { label: 'CACHED', detail: 'Read from the local spool. No session is open, so messages sent while closed were not captured and this view may have gaps.' },
-  unavailable: { label: 'UNAVAILABLE', detail: 'No vclaw identity on this host, so there is no spool to read.' },
-}
-
 export const InboxPanel = memo(function InboxPanel() {
   const [snapshot, setSnapshot] = useState<VclawInboxSnapshot | null>(null)
   const [error, setError] = useState('')
@@ -40,19 +35,21 @@ export const InboxPanel = memo(function InboxPanel() {
   if (error) return <EmptyState icon={<Inbox size={22} />} title="Inbox unavailable">{error}</EmptyState>
   if (!snapshot) return <div className="inbox-panel"><p className="inbox-empty">Reading the spool…</p></div>
 
-  const copy = STATE_COPY[snapshot.state]
+  // CACHED becomes PROVABLE when sync exists (serverSeq present): same label, better
+  // sentence. That is the whole change the fourth state source needs — no new state.
+  const detail = describeInboxState(snapshot.state, snapshot.serverSeq)
   return (
     <div className="inbox-panel" data-state={snapshot.state}>
       <header className="inbox-header">
         <div>
-          <span className={`inbox-badge inbox-badge--${snapshot.state}`}>{copy.label}</span>
+          <span className={`inbox-badge inbox-badge--${snapshot.state}`}>{INBOX_STATE_LABEL[snapshot.state]}</span>
           <span className="inbox-counts">
             {snapshot.messages.length} message{snapshot.messages.length === 1 ? '' : 's'} · {snapshot.unread} unread · last seq {snapshot.lastSeq}
           </span>
         </div>
         <IconButton label="Refresh inbox" onClick={refresh}><RefreshCw size={15} /></IconButton>
       </header>
-      <p className="inbox-detail">{copy.detail}</p>
+      <p className="inbox-detail">{detail}</p>
       {snapshot.messages.length === 0
         ? <p className="inbox-empty">{snapshot.state === 'unavailable' ? 'Nothing to show — no identity on this host.' : 'No messages spooled yet.'}</p>
         : (

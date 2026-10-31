@@ -1,8 +1,10 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { VclawInboxMessage, VclawInboxSnapshot, VclawInboxState } from '../../src/types/api'
+import { describeInboxState, INBOX_STATE_LABEL } from '../../src/lib/inbox-state'
 
 export type { VclawInboxMessage, VclawInboxSnapshot, VclawInboxState }
+export { describeInboxState, INBOX_STATE_LABEL }
 
 /**
  * vclaw inbox spool — the read side of agent-sdk's durable spool.
