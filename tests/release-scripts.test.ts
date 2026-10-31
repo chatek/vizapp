@@ -47,6 +47,17 @@ const toolchainReady =
 const TOOLCHAIN_SKIP_REASON =
   `requires Node >=${requiredNode} and npm >=${requiredNpm} (.nvmrc + package.json engines; supply them with npm run toolchain:bootstrap) — this shell has v${process.versions.node}/${currentNpmVersion}`
 
+/**
+ * Registers a test that EXECUTES the pinned toolchain (spawns a release script, runs
+ * npm, or calls bootstrapNpm/installAppDependencies). Below the pin it SKIPS with the
+ * reason naming both numbers, so an old shell is never reported as a product defect —
+ * and the meta-test at the top of this file fails if a toolchain-executing test is
+ * registered any other way.
+ */
+function toolchainTest(name: string, body: () => void | Promise<void>, timeoutMs?: number): void {
+  test.skipIf(!toolchainReady)(toolchainTestName(name), body, timeoutMs)
+}
+
 /** Names the pin in the skipped test's title so the reason cannot rot into 'skipped'. */
 function toolchainTestName(name: string): string {
   return toolchainReady ? name : `${name} [${TOOLCHAIN_SKIP_REASON}]`
@@ -223,7 +234,42 @@ function createPinnedNpmArtifactFixture(contents = Buffer.from('verified npm arc
 
 describe('release preflight', () => {
 
-  test('the toolchain skip reason names both pinned numbers and the shell versions', () => {
+test('every test that executes the toolchain is registered through toolchainTest', () => {
+  // The class guarantee lives here, not in each author's memory: adding a test that
+  // REALLY runs the toolchain (spawns a release script or npm, or calls bootstrapNpm
+  // without an injected runner) and does not register through toolchainTest is a RED.
+  // Tests that inject a fake runner/readOutput call nothing and are correctly not gated.
+  const source = readFileSync(new URL('./release-scripts.test.ts', import.meta.url), 'utf8')
+  const lines = source.split('\n')
+  const selfStart = lines.findIndex((line) => line.includes('every test that executes the toolchain'))
+  const selfEnd = lines.findIndex((line, index) => index > selfStart && /^\}\)$/.test(line))
+  const realExecutions: number[] = []
+  lines.forEach((line, index) => {
+    if (index >= selfStart && index <= selfEnd) return
+    const spawnsReleaseScript = line.includes("spawnSync(process.execPath, ['scripts/release/")
+    const spawnsNpm = line.includes("spawnSync('npm'")
+    const callsBootstrap = /\bbootstrapNpm\(/.test(line)
+    const callsInstall = /(^|\s)installAppDependencies\(/.test(line) && !/installAppDependencies\(run\b/.test(line)
+    if (spawnsReleaseScript || spawnsNpm) realExecutions.push(index)
+    else if (callsBootstrap || callsInstall) {
+      const window = lines.slice(index, index + 12).join('\n')
+      if (!/readOutput:/.test(window)) realExecutions.push(index)
+    }
+  })
+  const unguarded: string[] = []
+  for (const index of realExecutions) {
+    for (let cursor = index; cursor >= 0; cursor -= 1) {
+      const match = lines[cursor].match(/^\s*(toolchainTest|test)(?:\.skipIf\([^)]*\))?\(/)
+      if (!match) continue
+      if (match[1] !== 'toolchainTest') unguarded.push(`line ${index + 1} under: ${lines[cursor].trim().slice(0, 90)}`)
+      break
+    }
+  }
+  expect(unguarded, 'toolchain-executing tests must register through toolchainTest').toEqual([])
+  expect(realExecutions.length, 'the scan must find the known toolchain-executing tests').toBeGreaterThanOrEqual(4)
+})
+
+test('the toolchain skip reason names both pinned numbers and the shell versions', () => {
     // If this fails, a skipped release test just became an unexplained hole.
     expect(TOOLCHAIN_SKIP_REASON).toContain(`Node >=${requiredNode}`)
     expect(TOOLCHAIN_SKIP_REASON).toContain(`npm >=${requiredNpm}`)
@@ -231,7 +277,7 @@ describe('release preflight', () => {
     expect(TOOLCHAIN_SKIP_REASON).toContain(currentNpmVersion)
   })
 
-  test.skipIf(!toolchainReady)(toolchainTestName('package.mjs --dry-run says nothing executed instead of claiming success'), () => {
+  toolchainTest('package.mjs --dry-run says nothing executed instead of claiming success', () => {
     const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
     const result = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--dry-run'], { encoding: 'utf8' })
     expect(result.status, result.stderr).toBe(0)
@@ -387,7 +433,7 @@ describe('release preflight', () => {
     }
   })
 
-  test.skipIf(!toolchainReady)(toolchainTestName('probes npm through its JavaScript CLI and both release entry points reject an old npm'), () => {
+  toolchainTest('probes npm through its JavaScript CLI and both release entry points reject an old npm', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-npm-version-'))
     const npmCli = join(directory, 'npm-cli.mjs')
     writeFileSync(npmCli, "process.stdout.write('12.0.1\\n')\n")
@@ -499,7 +545,7 @@ describe('release preflight', () => {
     }
   })
 
-  test('executes the installed npm CLI and selects its shim for the next workflow step', () => {
+  toolchainTest('executes the installed npm CLI and selects its shim for the next workflow step', () => {
     const fixture = createPinnedNpmArtifactFixture()
     const directory = mkdtempSync(join(tmpdir(), 'vclaw stale npm & bootstrap-'))
     const prefix = join(directory, 'configured global')
@@ -539,7 +585,7 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     }
   })
 
-  test('installs the checked-in npm archive into a fresh prefix without network access', () => {
+  toolchainTest('installs the checked-in npm archive into a fresh prefix without network access', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw real npm bootstrap & '))
     const prefix = join(directory, 'fresh global prefix')
     const githubPath = join(directory, 'github-path')
