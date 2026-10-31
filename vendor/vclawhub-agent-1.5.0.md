@@ -13,7 +13,7 @@ acceptance ran against.
 | file | bytes | SHA-256 |
 | `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 913,513 | `1294f04e3d4cccfe…` — all verbs + the session mailbox + the usage-refusal fixes: unknown flag → exit 2 before the verb runs, `--wait` values validated, `--help` lists verbs, `--help --json` is one envelope, refusals carry `error`. A no-identity `inbox` still exits 4 (verified installed-state) |
 | `dist/ext-synadia/index.bundled.js` | 363,605 | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — stable across four builds (canary) |
-| `dist/cli.js` | 29,205 | `d0aec72e21413ce0a43199fe544713a0bdbb0b48fa16e84cf637d0ad83094cc5` |
+| `dist/cli.js` | 29,412 | `8561399b3ee0174b3d91ef4bff798d5684c85a6f5245f2d3052193f77cb16c7c` — the wrapper now maps commander's unknown-option exit(1) into the usage class (2), help/version stay 0: **exit 1 exists nowhere in the binary** (desktop-lane D4 finding) |
 
 Verified on this artefact (2026-10-31): both bundles import clean under `env -i`
 (PATH only) with an empty `$HOME` — no credential read, no connect, no timer at
