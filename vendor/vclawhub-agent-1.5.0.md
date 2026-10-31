@@ -4,20 +4,14 @@ The `@vclawhub/agent` CLI + extension bundle (agent-sdk, Feature Set 1: `status 
 doctor · signup · who · peers`). Vendored from the `npm pack` tarball built by the
 agent-sdk lane; this is the artefact their installed-state E2E ran against.
 
-- Tarball SHA-256: `1c90d0f0e75f5294f52f16623b22699e7a5700d49cba9cfc6ee4c11943899b0c` (1,330,102 B, **355 files** — the `test/` tree is excluded from the pack; the one nested `dist/pears-sidecar.tgz` is the sidecar payload, not the stray-root-tarball defect the SDK lane excluded)
-- ⚠ WRAPPER DISCREPANCY (2026-10-31): the agent-sdk lane quoted `798cb588…`
-  (1,533,210 B) for this build; the file at `agent-sdk/vclawhub-agent-1.5.0.tgz`
-  hashed `1c90d0f0…` instead. Every INNER digest matches their message exactly
-  (pi-extension `2eaa5323…`, ext-synadia `c8585e4b…`, cli.js `d0aec72e…`), so the
-  contents are their build; only the tarball wrapper differs — a repack after the
-  quote, the same stale-by-builds hazard they flagged. Pin what was measured.
+- Tarball SHA-256: `50a5e9ecae59e6ed6c99629236e39da7fa8dc879b8cb4a46c3ac5fd327670c36` (1,348,203 B, **368 files** — Feature Set 2: `send` + `inbox`, uniform top-level `code`, frozen digest spec, tenant-keyed append-only spool). Historical: `1c90d0f0…` (355 files, FS1) matched its quote exactly; the earlier `798cb588…` quote was superseded before it existed on disk.
 - Unpatched: base == patched, no `.patch`, `vendor:verify-patches` passes trivially.
 
 ## Pinned contents
 
 | file | bytes | SHA-256 |
-| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 897,449 | `2eaa5323c61c7674b8d1b0abe66d8b5852536dd9dd692697fca0fcf04c0378cb` |
-| `dist/ext-synadia/index.bundled.js` | 363,605 | `c8585e4ba69c53397043a3f97fdbff0d920656383845734ae7e18f42ea1beeb2` |
+| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | — | `994a3913d65b3785a9b02d05aa6f0ffbe071eb7170f034f538105ab7690f3b25` |
+| `dist/ext-synadia/index.bundled.js` | — | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — CHANGED at agent-sdk `31ac4de` (the G14 one-prompt-in-flight fix genuinely touched this package; the canary fired and the change was verified real, not staleness) |
 | `dist/cli.js` | 29,205 | `d0aec72e21413ce0a43199fe544713a0bdbb0b48fa16e84cf637d0ad83094cc5` |
 
 Verified on this artefact (2026-10-31): both bundles import clean under `env -i`
@@ -55,3 +49,18 @@ opens. The extension's best-effort `open`/`xdg-open` is therefore the single
 opener for the signup link today. If the desktop ever routes extension output
 through a link component, set the flag then — it is a one-line precedence on the
 SDK side and is not set speculatively.
+
+## Feature Set 2 consumer notes (measured on 50a5e9ec…, 2026-10-31)
+
+- Uniform envelope CONFIRMED on status and send: top-level `code` === process exit, no `data.code`.
+  **Open bug filed with the SDK lane**: `inbox --json` with no identity exits **1** (`ok:false, state:"unavailable"`)
+  — outside the frozen set {0,2,3,4}; no-identity should be 4. Until fixed, consumers must not branch on
+  exit codes alone for inbox.
+- Spool contract as shipped: `~/.vclaw/inbox/<tenant>.jsonl`, 0600, `kind`-first records with per-file monotonic
+  `seq`, `conversationId` pass-through, `--prune` the only rewrite. The desktop watches the DIRECTORY and re-tails
+  from the last `seq`. Pending decision with the SDK lane: suffix the filename with the own-identity prefix
+  (`<tenant>__<self8>.jsonl`) before the first consumer ships, to keep a second identity on one host from
+  interleaving into the same file.
+- ⚠ **AT-MOST-ONCE today**: no standing subscription — a DM sent while nobody is subscribed is NOT replayed.
+  The spool is durable for what was received; it is not a mailbox. Do not treat it as complete until the
+  SDK lane lands the session_start subscription.

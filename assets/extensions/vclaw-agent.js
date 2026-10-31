@@ -6294,12 +6294,12 @@ var require_nkeys2 = __commonJS({
       };
       return function(mod) {
         if (mod && mod.__esModule) return mod;
-        var result2 = {};
+        var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result2, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
-        __setModuleDefault(result2, mod);
-        return result2;
+        __setModuleDefault(result, mod);
+        return result;
       };
     })();
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -14651,9 +14651,6 @@ var require_mod5 = __commonJS({
   }
 });
 
-// src/pi-extension/index.ts
-import { spawn as spawn2 } from "node:child_process";
-
 // src/env.ts
 function env(name) {
   const vclaw = process.env[`VCLAW_${name}`];
@@ -14807,6 +14804,7 @@ async function backupCredentials() {
   const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const backupPath = join(live[1], `credentials.json.bak-${stamp}`);
   await copyFile(live[0], backupPath);
+  enforceSecretMode(backupPath);
   return backupPath;
 }
 
@@ -15496,6 +15494,7 @@ async function readCloud() {
     credentials: { path: credentialDisplayPath(), present: creds !== null },
     ...creds?.name ? { name: creds.name } : {},
     ...creds?.public_key ? { nkey: creds.public_key } : {},
+    ...creds?.agent_nkey ? { agentNkey: creds.agent_nkey } : {},
     ...creds?.steward ? { steward: creds.steward } : {},
     pendingClaim: hasPendingFlag(),
     config: {
@@ -15713,6 +15712,329 @@ async function peersVerb(ctx) {
   return { state, data, text, exit: 0 };
 }
 
+// src/lib/approve-proof.ts
+var import_nkeys3 = __toESM(require_mod(), 1);
+var APPROVE_PROOF_AUDIENCE = "vchat-claim-approve";
+var PROOF_HEADER = { alg: "ed25519-nkey", typ: "JWT" };
+function b64url(data) {
+  return (typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data)).toString(
+    "base64url"
+  );
+}
+function buildApproveProof(input) {
+  const { seed, publicKey, challenge, now, expiresInSeconds } = input;
+  if (!challenge) {
+    throw new Error(
+      "buildApproveProof: empty approve_challenge \u2014 the pending record has no challenge, so it is UNPROVABLE (fail closed; re-run onboarding so a challenge is minted on the resume)"
+    );
+  }
+  if (!publicKey.startsWith("U")) {
+    throw new Error(
+      `buildApproveProof: publicKey must be the NKey-pub U-form (got "${publicKey.slice(0, 4)}\u2026") \u2014 the server verifies the signature against nkeys.FromPublicKey(iss)`
+    );
+  }
+  const payload = {
+    aud: APPROVE_PROOF_AUDIENCE,
+    iss: publicKey,
+    jti: challenge,
+    sub: publicKey
+  };
+  if (expiresInSeconds !== void 0) {
+    const iat = now ?? Math.floor(Date.now() / 1e3);
+    payload.iat = iat;
+    payload.exp = iat + expiresInSeconds;
+  } else if (now !== void 0) {
+    payload.iat = now;
+  }
+  const signingInput = `${b64url(JSON.stringify(PROOF_HEADER))}.${b64url(JSON.stringify(payload))}`;
+  const kp = (0, import_nkeys3.fromSeed)(new TextEncoder().encode(seed));
+  const sig = kp.sign(new TextEncoder().encode(signingInput));
+  return `${signingInput}.${b64url(sig)}`;
+}
+function buildApproveProofForKeypair(keypair, challenge, opts = {}) {
+  return buildApproveProof({ seed: keypair.seed, publicKey: keypair.publicKey, challenge, ...opts });
+}
+function claimUrlWithProof(claimBase, sessionId, proof) {
+  const url = `${claimBase}/a/${encodeURIComponent(sessionId)}`;
+  return proof ? `${url}?proof=${encodeURIComponent(proof)}` : url;
+}
+function decodeApproveProof(proof) {
+  const parts = proof.split(".");
+  if (parts.length !== 3) throw new Error("malformed proof: expected 3 segments");
+  return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+}
+function checkApproveProofLocally(proof, keyForms, expectedNonce, nowSec = Math.floor(Date.now() / 1e3)) {
+  const forms = (Array.isArray(keyForms) ? keyForms : [keyForms]).filter(Boolean);
+  if (!expectedNonce) return "no approve challenge on the pending record";
+  if (!proof) return "proof is required";
+  const parts = proof.split(".");
+  if (parts.length !== 3) return "malformed proof";
+  let payload;
+  try {
+    payload = decodeApproveProof(proof);
+  } catch (e) {
+    return `malformed proof payload: ${e.message}`;
+  }
+  if (!payload.iss || payload.iss !== payload.sub) {
+    return "proof iss/sub must both name the agent key";
+  }
+  if (payload.aud !== APPROVE_PROOF_AUDIENCE) {
+    return `proof audience must be ${JSON.stringify(APPROVE_PROOF_AUDIENCE)}`;
+  }
+  if (!payload.jti || payload.jti !== expectedNonce) {
+    return "proof challenge does not match this pending record";
+  }
+  if (forms.length > 0 && !forms.includes(payload.iss)) {
+    return "proof is for a different key than the pending record";
+  }
+  if (payload.exp) {
+    if (payload.iat && payload.exp <= payload.iat) return "proof expiry precedes its issue time";
+    if (payload.exp < nowSec) return "proof expired";
+  }
+  if (payload.iat && payload.iat > nowSec + 60) return "proof issue time is in the future";
+  let kp;
+  try {
+    kp = (0, import_nkeys3.fromPublic)(payload.iss);
+  } catch (e) {
+    return `invalid proof issuer NKey: ${e.message}`;
+  }
+  let ok;
+  try {
+    ok = kp.verify(
+      new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+      Buffer.from(parts[2], "base64url")
+    );
+  } catch (e) {
+    return `proof signature verification failed: ${e.message}`;
+  }
+  return ok ? null : "proof signature verification failed";
+}
+
+// src/lib/vgate.ts
+var DEFAULT_API_URL = env("API_URL") || env("VGATE_URL") || "https://api.vclawhub.com";
+var VgateClient = class {
+  apiUrl;
+  constructor(apiUrl) {
+    this.apiUrl = apiUrl || DEFAULT_API_URL;
+  }
+  /* ── Introduction (splash-screen flow) ───────────────────── */
+  /**
+   * Introduce an unclaimed agent to vgate.
+   * POST /v1/agent/introduce
+   */
+  async introduceAgent(params) {
+    const resp = await fetch(`${this.apiUrl}/v1/agent/introduce`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`introduce failed (${resp.status}): ${text}`);
+    }
+    return resp.json();
+  }
+  /* ── Register (dashboard-side approval) ──────────────────── */
+  /**
+   * Register an agent with vgate — called by dashboard on approve.
+   * POST /v1/agent/register
+   */
+  async registerAgent(params) {
+    const resp = await fetch(`${this.apiUrl}/v1/agent/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`register failed (${resp.status}): ${text}`);
+    }
+    return resp.json();
+  }
+  /* ── Status (check if claimed) ───────────────────────────── */
+  /**
+   * Check if an agent is claimed (approved).
+   * GET /v1/agent/status?nkey=<nkey_public>
+   */
+  async getClaimStatus(nkeyPublic) {
+    const resp = await fetch(`${this.apiUrl}/v1/agent/status?nkey=${encodeURIComponent(nkeyPublic)}`);
+    if (resp.status === 404) {
+      return { claimed: false };
+    }
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`status check failed (${resp.status}): ${text}`);
+    }
+    return resp.json();
+  }
+  /* ── Retire (J16a — lifecycle close, steward path) ───────── */
+  /**
+   * Retire an agent — POST /v1/agent/{nkey}/retire.
+   *
+   * Unlike the methods above (which throw and lose the HTTP status), this
+   * returns a STRUCTURED result — the CLI maps status → CI-assertable exit
+   * codes (agent-sdk docs/AGENT_RETIRE.md §2): 200→0 (fresh OR idempotent
+   * retry — the server cannot be told apart and the CLI does not need to),
+   * 404 not_claimed→2, 403 forbidden→3, network failure→4.
+   *
+   * Wire contract read from vgate/internal/agentidp/retire.go:
+   *   - nkey goes in the PATH in EITHER form (base64url or U-form); the
+   *     server canonicalizes (E1) and answers `retired` in canonical U-form.
+   *   - body {reason, confirm:true} — the server rejects confirm:false with
+   *     400 confirm_required; the CLI mirrors the destructiveness.
+   *   - auth: Authorization: Bearer <Authelia id_token> (the steward path).
+   *     The token is a bearer credential: never logged, never in argv
+   *     (O37/O44 class) — the caller passes it in, sourced from env.
+   */
+  async retireAgent(params) {
+    let resp;
+    try {
+      resp = await fetch(
+        `${this.apiUrl}/v1/agent/${encodeURIComponent(params.nkey)}/retire`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${params.idToken}`
+          },
+          body: JSON.stringify({
+            reason: params.reason ?? "",
+            confirm: params.confirm
+          })
+        }
+      );
+    } catch (e) {
+      return { ok: false, status: 0, error: "unreachable", message: e.message };
+    }
+    const text = await resp.text().catch(() => "");
+    let body = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+      }
+    }
+    if (resp.ok) {
+      return {
+        ok: true,
+        // retired = canonical U-form (server-normalized, what every
+        // tombstone/ownership row keys by). Fall back to the input only if
+        // the body is missing the field (defensive; retire.go always sets it).
+        retired: body.retired ?? params.nkey,
+        audit_id: body.audit_id ?? ""
+      };
+    }
+    return {
+      ok: false,
+      status: resp.status,
+      // apierr envelope: {error: <registry code>, message} (+legacy fields).
+      error: body.error ?? `http_${resp.status}`,
+      message: body.message ?? text.slice(0, 200)
+    };
+  }
+  /* ── Health & status ─────────────────────────────────────── */
+  /**
+   * Health check — GET /health
+   */
+  async health() {
+    const resp = await fetch(`${this.apiUrl}/health`);
+    if (!resp.ok) throw new Error(`health check failed (${resp.status})`);
+    return resp.json();
+  }
+  /**
+   * Check vgate is in claim-ready state.
+   */
+  async getVgateStatus() {
+    const healthResult = await this.health();
+    return {
+      status: healthResult.status,
+      version: healthResult.version
+    };
+  }
+};
+
+// src/lib/signup.ts
+var CLAIM_BASE = () => process.env.CLAIM_BASE_URL || "https://login.vclawhub.com";
+async function beginSignup(opts = {}) {
+  const existing = await loadCredentials().catch(() => null);
+  const pending = hasPendingFlag();
+  if (pending && !opts.force) {
+    return { kind: "pending_claim", nkey: existing?.public_key ?? "" };
+  }
+  if (existing && !opts.force) {
+    return {
+      kind: "existing_credentials",
+      ...existing.name ? { name: existing.name } : {},
+      ...existing.agent_nkey ? { agent_nkey: existing.agent_nkey } : {}
+    };
+  }
+  let backupPath;
+  if (existing && opts.force) {
+    try {
+      backupPath = await backupCredentials() ?? void 0;
+    } catch (e) {
+      throw new Error(
+        `refusing to overwrite: the previous credentials could not be backed up (${e instanceof Error ? e.message : String(e)}) \u2014 nothing was changed`
+      );
+    }
+  }
+  if (pending && opts.forceDiscard) await clearPendingFlag();
+  const resume = pending && opts.force && !opts.forceDiscard;
+  const keypair = resume && existing?.seed ? await keypairFromSeed(existing.seed) : await generateNkeyPair();
+  const base64urlPub = Buffer.from(keypair.rawPublicKey).toString("base64url");
+  const name = opts.name || existing?.name || `agent-${keypair.hexPublicKey.slice(0, 8)}`;
+  const client = new VgateClient();
+  const intro = await client.introduceAgent({ nkey_public: base64urlPub, name });
+  const sessionId = intro.session_id || intro.agent_id || "";
+  await saveCredentials({
+    seed: keypair.seed,
+    public_key: keypair.publicKey,
+    agent_nkey: base64urlPub,
+    name,
+    steward: existing?.steward ?? "unknown",
+    created_at: existing?.created_at ?? (/* @__PURE__ */ new Date()).toISOString()
+  });
+  await writePendingFlag(keypair.publicKey);
+  const challenge = intro.approve_challenge ?? "";
+  let proofMinted = false;
+  let proof = "";
+  if (challenge) {
+    try {
+      const p = buildApproveProofForKeypair(keypair, challenge, { expiresInSeconds: 24 * 3600 });
+      checkApproveProofLocally(p, [keypair.publicKey, base64urlPub], challenge);
+      proof = p;
+      proofMinted = true;
+    } catch {
+    }
+  }
+  return {
+    claimUrl: claimUrlWithProof(CLAIM_BASE(), sessionId, proof || void 0),
+    sessionId,
+    nkey: keypair.publicKey,
+    base64urlPub,
+    name,
+    proofMinted,
+    resumed: intro.resumed === true,
+    ...backupPath ? { backupPath } : {}
+  };
+}
+async function pollClaimOnce(client, base64urlPub) {
+  try {
+    const s = await client.getClaimStatus(base64urlPub);
+    return { claimed: Boolean(s.claimed), ...s.steward ? { steward: s.steward } : {} };
+  } catch {
+    return { claimed: false };
+  }
+}
+async function completeSignup(claim) {
+  const creds = await loadCredentials();
+  if (!creds) throw new Error("credentials disappeared between begin and complete");
+  const steward = claim.steward ?? creds.steward ?? "unknown";
+  await saveCredentials({ ...creds, steward });
+  await clearPendingFlag();
+  return { steward };
+}
+
 // src/vclaw/verbs/status.ts
 async function statusVerb(ctx) {
   const deep = ctx.flags.deep === true;
@@ -15721,7 +16043,25 @@ async function statusVerb(ctx) {
   const pears = await readPears(deep);
   const inbox = readInbox();
   const peers = readPeers();
+  let pendingClaim = cloud.pendingClaim;
+  let steward = cloud.steward;
+  let reconciled;
+  const unsettled = pendingClaim;
+  if (deep && unsettled && cloud.agentNkey) {
+    const tick = await pollClaimOnce(new VgateClient(), cloud.agentNkey);
+    if (tick.claimed) {
+      try {
+        const done = await completeSignup(tick);
+        steward = done.steward;
+        pendingClaim = false;
+        reconciled = "approved";
+      } catch {
+      }
+    }
+  }
   const identityReady = cloud.credentials.present;
+  const claim = !identityReady ? "none" : pendingClaim ? "pending" : "approved";
+  const stewardKnown = steward && steward !== "unknown" ? steward : null;
   const siteOk = site.present && site.tokenPresent;
   const byTier = {
     cloud: peers.filter((p) => p.tier === "cloud").length,
@@ -15738,8 +16078,9 @@ async function statusVerb(ctx) {
       present: identityReady,
       name: cloud.name ?? null,
       nkey: cloud.nkey ?? null,
-      steward: cloud.steward ?? null,
-      pendingClaim: cloud.pendingClaim,
+      steward: stewardKnown,
+      claim,
+      pendingClaim,
       path: cloud.credentials.path,
       source: "cached"
     },
@@ -15764,7 +16105,7 @@ async function statusVerb(ctx) {
     "vclaw status",
     kv([
       ["identity", identityReady ? `${cloud.name ?? "?"}  ${(cloud.nkey ?? "").slice(0, 12)}\u2026` : "not onboarded"],
-      ["claim", cloud.pendingClaim ? "PENDING \u2014 approve in the browser" : identityReady ? "approved" : "\u2014"],
+      ["claim", claim === "pending" ? "PENDING \u2014 approve in the browser, then `vclaw status --deep`" : claim === "approved" ? reconciled ? "approved (reconciled with the server)" : stewardKnown ? `approved \xB7 steward ${stewardKnown}` : "approved (steward not disclosed by the anonymous status call)" : "\u2014"],
       ["cloud", cloud.config.server ? `${cloud.config.server}${cloud.config.runtime ? `  (runtime ${cloud.config.runtime})` : ""}` : "no config"],
       ["site", site.present ? `${site.url}  token:${site.tokenPresent ? "yes" : "no"}` : "absent (optional)"],
       ["tier P", pears.available ? `helper ${pears.helper ?? "?"}  node ${pears.node ?? "?"}  delegations ${pears.delegations ?? 0}${deep && pears.socketLive !== void 0 ? `  socket:${pears.socketLive}` : ""}` : `unavailable \u2014 ${pears.detail ?? "no reason given"}`],
@@ -16026,14 +16367,14 @@ function ImmutableRegExp(value) {
   return value;
 }
 function ImmutableObject(value) {
-  const result2 = {};
+  const result = {};
   for (const key of Object.getOwnPropertyNames(value)) {
-    result2[key] = Immutable(value[key]);
+    result[key] = Immutable(value[key]);
   }
   for (const key of Object.getOwnPropertySymbols(value)) {
-    result2[key] = Immutable(value[key]);
+    result[key] = Immutable(value[key]);
   }
-  return globalThis.Object.freeze(result2);
+  return globalThis.Object.freeze(result);
 }
 function Immutable(value) {
   return IsArray2(value) ? ImmutableArray(value) : IsDate2(value) ? ImmutableDate(value) : IsUint8Array2(value) ? ImmutableUint8Array(value) : IsRegExp(value) ? ImmutableRegExp(value) : IsObject2(value) ? ImmutableObject(value) : value;
@@ -16053,14 +16394,14 @@ function RegExpType(value) {
   return new RegExp(value.source, value.flags);
 }
 function ObjectType(value) {
-  const result2 = {};
+  const result = {};
   for (const key of Object.getOwnPropertyNames(value)) {
-    result2[key] = Visit(value[key]);
+    result[key] = Visit(value[key]);
   }
   for (const key of Object.getOwnPropertySymbols(value)) {
-    result2[key] = Visit(value[key]);
+    result[key] = Visit(value[key]);
   }
-  return result2;
+  return result;
 }
 function Visit(value) {
   return IsArray2(value) ? ArrayType(value) : IsDate2(value) ? DateType(value) : IsUint8Array2(value) ? Uint8ArrayType(value) : IsRegExp(value) ? RegExpType(value) : IsObject2(value) ? ObjectType(value) : value;
@@ -16071,14 +16412,14 @@ function Clone(value) {
 
 // node_modules/@sinclair/typebox/build/esm/type/create/type.mjs
 function CreateType(schema, options) {
-  const result2 = options !== void 0 ? { ...options, ...schema } : schema;
+  const result = options !== void 0 ? { ...options, ...schema } : schema;
   switch (TypeSystemPolicy.InstanceMode) {
     case "freeze":
-      return Immutable(result2);
+      return Immutable(result);
     case "clone":
-      return Clone(result2);
+      return Clone(result);
     default:
-      return result2;
+      return result;
   }
 }
 
@@ -16666,10 +17007,10 @@ function FromTemplateLiteral(templateLiteral) {
   return keys.map((key) => key.toString());
 }
 function FromUnion2(types) {
-  const result2 = [];
+  const result = [];
   for (const type of types)
-    result2.push(...IndexPropertyKeys(type));
-  return result2;
+    result.push(...IndexPropertyKeys(type));
+  return result;
 }
 function FromLiteral(literalValue) {
   return [literalValue.toString()];
@@ -16680,11 +17021,11 @@ function IndexPropertyKeys(type) {
 
 // node_modules/@sinclair/typebox/build/esm/type/indexed/indexed-from-mapped-result.mjs
 function FromProperties2(type, properties, options) {
-  const result2 = {};
+  const result = {};
   for (const K2 of Object.getOwnPropertyNames(properties)) {
-    result2[K2] = Index(type, IndexPropertyKeys(properties[K2]), options);
+    result[K2] = Index(type, IndexPropertyKeys(properties[K2]), options);
   }
-  return result2;
+  return result;
 }
 function FromMappedResult2(type, mappedResult, options) {
   return FromProperties2(type, mappedResult.properties, options);
@@ -16747,8 +17088,8 @@ function MappedIndexPropertyKey(type, key, options) {
   return { [key]: Index(type, [key], Clone(options)) };
 }
 function MappedIndexPropertyKeys(type, propertyKeys, options) {
-  return propertyKeys.reduce((result2, left) => {
-    return { ...result2, ...MappedIndexPropertyKey(type, left, options) };
+  return propertyKeys.reduce((result, left) => {
+    return { ...result, ...MappedIndexPropertyKey(type, left, options) };
   }, {});
 }
 function MappedIndexProperties(type, mappedKey, options) {
@@ -16905,10 +17246,10 @@ function Ref(...args) {
 
 // node_modules/@sinclair/typebox/build/esm/type/keyof/keyof-property-keys.mjs
 function FromRest3(types) {
-  const result2 = [];
+  const result = [];
   for (const L2 of types)
-    result2.push(KeyOfPropertyKeys(L2));
-  return result2;
+    result.push(KeyOfPropertyKeys(L2));
+  return result;
 }
 function FromIntersect2(types) {
   const propertyKeysArray = FromRest3(types);
@@ -16959,8 +17300,8 @@ function FromRef($ref) {
 function KeyOfFromType(type, options) {
   const propertyKeys = KeyOfPropertyKeys(type);
   const propertyKeyTypes = KeyOfPropertyKeysToRest(propertyKeys);
-  const result2 = UnionEvaluated(propertyKeyTypes);
-  return CreateType(result2, options);
+  const result = UnionEvaluated(propertyKeyTypes);
+  return CreateType(result, options);
 }
 function KeyOfPropertyKeysToRest(propertyKeys) {
   return propertyKeys.map((L2) => L2 === "[number]" ? Number2() : Literal(L2));
@@ -16971,10 +17312,10 @@ function KeyOf(type, options) {
 
 // node_modules/@sinclair/typebox/build/esm/type/keyof/keyof-from-mapped-result.mjs
 function FromProperties6(properties, options) {
-  const result2 = {};
+  const result = {};
   for (const K2 of globalThis.Object.getOwnPropertyNames(properties))
-    result2[K2] = KeyOf(properties[K2], Clone(options));
-  return result2;
+    result[K2] = KeyOf(properties[K2], Clone(options));
+  return result;
 }
 function FromMappedResult5(mappedResult, options) {
   return FromProperties6(mappedResult.properties, options);
@@ -17609,8 +17950,8 @@ var ExtendsResult;
   ExtendsResult2[ExtendsResult2["True"] = 1] = "True";
   ExtendsResult2[ExtendsResult2["False"] = 2] = "False";
 })(ExtendsResult || (ExtendsResult = {}));
-function IntoBooleanResult(result2) {
-  return result2 === ExtendsResult.False ? result2 : ExtendsResult.True;
+function IntoBooleanResult(result) {
+  return result === ExtendsResult.False ? result : ExtendsResult.True;
 }
 function Throw(message) {
   throw new ExtendsResolverError(message);
@@ -19440,14 +19781,14 @@ function FromConstructor5(schema, references, value) {
   if (Check(schema, references, value))
     return Create2(schema, references);
   const required = new Set(schema.returns.required || []);
-  const result2 = function() {
+  const result = function() {
   };
   for (const [key, property] of Object.entries(schema.returns.properties)) {
     if (!required.has(key) && value.prototype[key] === void 0)
       continue;
-    result2.prototype[key] = Visit8(property, references, value.prototype[key]);
+    result.prototype[key] = Visit8(property, references, value.prototype[key]);
   }
-  return result2;
+  return result;
 }
 function FromImport4(schema, references, value) {
   const definitions = globalThis.Object.values(schema.$defs);
@@ -19459,9 +19800,9 @@ function IntersectAssign(correct, value) {
     return correct;
   if (!IsObject(correct) || !IsObject(value))
     return value;
-  return globalThis.Object.getOwnPropertyNames(correct).reduce((result2, key) => {
+  return globalThis.Object.getOwnPropertyNames(correct).reduce((result, key) => {
     const property = key in value ? IntersectAssign(correct[key], value[key]) : correct[key];
-    return { ...result2, [key]: property };
+    return { ...result, [key]: property };
   }, {});
 }
 function FromIntersect7(schema, references, value) {
@@ -19480,21 +19821,21 @@ function FromObject6(schema, references, value) {
   if (value === null || typeof value !== "object")
     return Create2(schema, references);
   const required = new Set(schema.required || []);
-  const result2 = {};
+  const result = {};
   for (const [key, property] of Object.entries(schema.properties)) {
     if (!required.has(key) && value[key] === void 0)
       continue;
-    result2[key] = Visit8(property, references, value[key]);
+    result[key] = Visit8(property, references, value[key]);
   }
   if (typeof schema.additionalProperties === "object") {
     const propertyNames = Object.getOwnPropertyNames(schema.properties);
     for (const propertyName of Object.getOwnPropertyNames(value)) {
       if (propertyNames.includes(propertyName))
         continue;
-      result2[propertyName] = Visit8(schema.additionalProperties, references, value[propertyName]);
+      result[propertyName] = Visit8(schema.additionalProperties, references, value[propertyName]);
     }
   }
-  return result2;
+  return result;
 }
 function FromRecord5(schema, references, value) {
   if (Check(schema, references, value))
@@ -19503,11 +19844,11 @@ function FromRecord5(schema, references, value) {
     return Create2(schema, references);
   const subschemaPropertyName = Object.getOwnPropertyNames(schema.patternProperties)[0];
   const subschema = schema.patternProperties[subschemaPropertyName];
-  const result2 = {};
+  const result = {};
   for (const [propKey, propValue] of Object.entries(value)) {
-    result2[propKey] = Visit8(subschema, references, propValue);
+    result[propKey] = Visit8(subschema, references, propValue);
   }
-  return result2;
+  return result;
 }
 function FromRef5(schema, references, value) {
   return Visit8(Deref(schema, references), references, value);
@@ -19961,8 +20302,8 @@ function FromIntersect10(schema, references, path3, value) {
 function FromImport7(schema, references, path3, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result2 = Visit11(target, [...references, ...additional], path3, value);
-  return Default3(schema, path3, result2);
+  const result = Visit11(target, [...references, ...additional], path3, value);
+  return Default3(schema, path3, result);
 }
 function FromNot5(schema, references, path3, value) {
   return Default3(schema, path3, Visit11(schema.not, references, path3, value));
@@ -20099,8 +20440,8 @@ function FromArray12(schema, references, path3, value) {
 function FromImport8(schema, references, path3, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result2 = Default4(schema, path3, value);
-  return Visit12(target, [...references, ...additional], path3, result2);
+  const result = Default4(schema, path3, value);
+  return Visit12(target, [...references, ...additional], path3, result);
 }
 function FromIntersect11(schema, references, path3, value) {
   const defaulted = Default4(schema, path3, value);
@@ -20254,7 +20595,7 @@ function FromIntersect12(schema, references) {
   return IsTransform(schema) || IsTransform(schema.unevaluatedProperties) || schema.allOf.some((schema2) => Visit13(schema2, references));
 }
 function FromImport9(schema, references) {
-  const additional = globalThis.Object.getOwnPropertyNames(schema.$defs).reduce((result2, key) => [...result2, schema.$defs[key]], []);
+  const additional = globalThis.Object.getOwnPropertyNames(schema.$defs).reduce((result, key) => [...result, schema.$defs[key]], []);
   const target = schema.$defs[schema.$ref];
   return IsTransform(schema) || Visit13(target, [...additional, ...references]);
 }
@@ -20447,9 +20788,9 @@ function FromTuple13(schema, references, value) {
 function FromUnion15(schema, references, value) {
   const defaulted = ValueOrDefault(schema, value);
   for (const inner of schema.anyOf) {
-    const result2 = Visit14(inner, references, Clone2(defaulted));
-    if (Check(inner, references, result2)) {
-      return result2;
+    const result = Visit14(inner, references, Clone2(defaulted));
+    if (Check(inner, references, result)) {
+      return result;
     }
   }
   return defaulted;
@@ -21139,10 +21480,10 @@ function RecordCreateFromPattern(pattern, T, options) {
   return CreateType({ [Kind]: "Record", type: "object", patternProperties: { [pattern]: T } }, options);
 }
 function RecordCreateFromKeys(K, T, options) {
-  const result2 = {};
+  const result = {};
   for (const K2 of K)
-    result2[K2] = T;
-  return Object2(result2, { ...options, [Hint]: "Record" });
+    result[K2] = T;
+  return Object2(result, { ...options, [Hint]: "Record" });
 }
 function FromTemplateLiteralKey(K, T, options) {
   return IsTemplateLiteralFinite(K) ? RecordCreateFromKeys(IndexPropertyKeys(K), T, options) : RecordCreateFromPattern(K.pattern, T, options);
@@ -21237,8 +21578,8 @@ function FromObject13(args, type) {
 function FromRecord12(args, type) {
   const mappedKey = FromType(args, RecordKey2(type));
   const mappedValue = FromType(args, RecordValue2(type));
-  const result2 = Record(mappedKey, mappedValue);
-  return { ...type, ...result2 };
+  const result = Record(mappedKey, mappedValue);
+  return { ...type, ...result };
 }
 function FromArgument4(args, argument) {
   return argument.index in args ? args[argument.index] : Unknown();
@@ -21250,8 +21591,8 @@ function FromProperty2(args, type) {
   return isReadonly && isOptional ? ReadonlyOptional(mapped) : isReadonly && !isOptional ? Readonly(mapped) : !isReadonly && isOptional ? Optional(mapped) : mapped;
 }
 function FromProperties11(args, properties) {
-  return globalThis.Object.getOwnPropertyNames(properties).reduce((result2, key) => {
-    return { ...result2, [key]: FromProperty2(args, properties[key]) };
+  return globalThis.Object.getOwnPropertyNames(properties).reduce((result, key) => {
+    return { ...result, [key]: FromProperty2(args, properties[key]) };
   }, {});
 }
 function FromTypes(args, types) {
@@ -21276,10 +21617,10 @@ function MappedIntrinsicPropertyKey(K, M2, options) {
   };
 }
 function MappedIntrinsicPropertyKeys(K, M2, options) {
-  const result2 = K.reduce((Acc, L2) => {
+  const result = K.reduce((Acc, L2) => {
     return { ...Acc, ...MappedIntrinsicPropertyKey(L2, M2, options) };
   }, {});
-  return result2;
+  return result;
 }
 function MappedIntrinsicProperties(T, M2, options) {
   return MappedIntrinsicPropertyKeys(T["keys"], M2, options);
@@ -21356,10 +21697,10 @@ function Uppercase(T, options = {}) {
 
 // node_modules/@sinclair/typebox/build/esm/type/omit/omit-from-mapped-result.mjs
 function FromProperties12(properties, propertyKeys, options) {
-  const result2 = {};
+  const result = {};
   for (const K2 of globalThis.Object.getOwnPropertyNames(properties))
-    result2[K2] = Omit(properties[K2], propertyKeys, Clone(options));
-  return result2;
+    result[K2] = Omit(properties[K2], propertyKeys, Clone(options));
+  return result;
 }
 function FromMappedResult9(mappedResult, propertyKeys, options) {
   return FromProperties12(mappedResult.properties, propertyKeys, options);
@@ -21389,8 +21730,8 @@ function FromObject14(type, propertyKeys, properties) {
   return Object2(mappedProperties, options);
 }
 function UnionFromPropertyKeys(propertyKeys) {
-  const result2 = propertyKeys.reduce((result3, key) => IsLiteralValue(key) ? [...result3, Literal(key)] : result3, []);
-  return Union(result2);
+  const result = propertyKeys.reduce((result2, key) => IsLiteralValue(key) ? [...result2, Literal(key)] : result2, []);
+  return Union(result);
 }
 function OmitResolve(type, propertyKeys) {
   return IsIntersect(type) ? Intersect(FromIntersect16(type.allOf, propertyKeys)) : IsUnion(type) ? Union(FromUnion18(type.anyOf, propertyKeys)) : IsObject3(type) ? FromObject14(type, propertyKeys, type.properties) : Object2({});
@@ -21422,10 +21763,10 @@ function OmitFromMappedKey(type, mappedKey, options) {
 
 // node_modules/@sinclair/typebox/build/esm/type/pick/pick-from-mapped-result.mjs
 function FromProperties14(properties, propertyKeys, options) {
-  const result2 = {};
+  const result = {};
   for (const K2 of globalThis.Object.getOwnPropertyNames(properties))
-    result2[K2] = Pick(properties[K2], propertyKeys, Clone(options));
-  return result2;
+    result[K2] = Pick(properties[K2], propertyKeys, Clone(options));
+  return result;
 }
 function FromMappedResult10(mappedResult, propertyKeys, options) {
   return FromProperties14(mappedResult.properties, propertyKeys, options);
@@ -21443,11 +21784,11 @@ function FromUnion19(types, propertyKeys) {
   return types.map((type) => PickResolve(type, propertyKeys));
 }
 function FromProperties15(properties, propertyKeys) {
-  const result2 = {};
+  const result = {};
   for (const K2 of propertyKeys)
     if (K2 in properties)
-      result2[K2] = properties[K2];
-  return result2;
+      result[K2] = properties[K2];
+  return result;
 }
 function FromObject15(Type2, keys, properties) {
   const options = Discard(Type2, [TransformKind, "$id", "required", "properties"]);
@@ -21455,8 +21796,8 @@ function FromObject15(Type2, keys, properties) {
   return Object2(mappedProperties, options);
 }
 function UnionFromPropertyKeys2(propertyKeys) {
-  const result2 = propertyKeys.reduce((result3, key) => IsLiteralValue(key) ? [...result3, Literal(key)] : result3, []);
-  return Union(result2);
+  const result = propertyKeys.reduce((result2, key) => IsLiteralValue(key) ? [...result2, Literal(key)] : result2, []);
+  return Union(result);
 }
 function PickResolve(type, propertyKeys) {
   return IsIntersect(type) ? Intersect(FromIntersect17(type.allOf, propertyKeys)) : IsUnion(type) ? Union(FromUnion19(type.anyOf, propertyKeys)) : IsObject3(type) ? FromObject15(type, propertyKeys, type.properties) : Object2({});
@@ -21476,8 +21817,8 @@ function FromPropertyKey3(type, key, options) {
   };
 }
 function FromPropertyKeys3(type, propertyKeys, options) {
-  return propertyKeys.reduce((result2, leftKey) => {
-    return { ...result2, ...FromPropertyKey3(type, leftKey, options) };
+  return propertyKeys.reduce((result, leftKey) => {
+    return { ...result, ...FromPropertyKey3(type, leftKey, options) };
   }, {});
 }
 function FromMappedKey4(type, mappedKey, options) {
@@ -21653,15 +21994,15 @@ function FromIterator7(moduleProperties, type) {
   return Iterator(FromType2(moduleProperties, type));
 }
 function FromObject18(moduleProperties, properties) {
-  return Object2(globalThis.Object.keys(properties).reduce((result2, key) => {
-    return { ...result2, [key]: FromType2(moduleProperties, properties[key]) };
+  return Object2(globalThis.Object.keys(properties).reduce((result, key) => {
+    return { ...result, [key]: FromType2(moduleProperties, properties[key]) };
   }, {}));
 }
 function FromRecord13(moduleProperties, type) {
   const [value, pattern] = [FromType2(moduleProperties, RecordValue2(type)), RecordPattern(type)];
-  const result2 = CloneType(type);
-  result2.patternProperties[pattern] = value;
-  return result2;
+  const result = CloneType(type);
+  result.patternProperties[pattern] = value;
+  return result;
 }
 function FromTransform(moduleProperties, transform) {
   return IsRef(transform) ? { ...Dereference(moduleProperties, transform.$ref), [TransformKind]: transform[TransformKind] } : transform;
@@ -21691,8 +22032,8 @@ function ComputeType(moduleProperties, key) {
   return key in moduleProperties ? FromType2(moduleProperties, moduleProperties[key]) : Never();
 }
 function ComputeModuleProperties(moduleProperties) {
-  return globalThis.Object.getOwnPropertyNames(moduleProperties).reduce((result2, key) => {
-    return { ...result2, [key]: ComputeType(moduleProperties, key) };
+  return globalThis.Object.getOwnPropertyNames(moduleProperties).reduce((result, key) => {
+    return { ...result, [key]: ComputeType(moduleProperties, key) };
   }, {});
 }
 
@@ -21710,8 +22051,8 @@ var TModule = class {
   }
   // prettier-ignore
   WithIdentifiers($defs) {
-    return globalThis.Object.getOwnPropertyNames($defs).reduce((result2, key) => {
-      return { ...result2, [key]: { ...$defs[key], $id: key } };
+    return globalThis.Object.getOwnPropertyNames($defs).reduce((result, key) => {
+      return { ...result, [key]: { ...$defs[key], $id: key } };
     }, {});
   }
 };
@@ -22847,15 +23188,15 @@ var STREAMS = {
   }
 };
 function sanitizeToken(s) {
-  let result2 = "";
+  let result = "";
   for (const c of s) {
     if (c >= "a" && c <= "z" || c >= "A" && c <= "Z" || c >= "0" && c <= "9" || c === "-" || c === "_" || c === ".") {
-      result2 += c;
+      result += c;
     } else {
-      result2 += "_";
+      result += "_";
     }
   }
-  return result2;
+  return result;
 }
 
 // src/version.ts
@@ -23031,7 +23372,7 @@ function startPresence(nc, identity, options) {
 }
 
 // src/net/directory.ts
-var import_nkeys3 = __toESM(require_mod(), 1);
+var import_nkeys4 = __toESM(require_mod(), 1);
 var DEFAULT_TTL_MS = 9e4;
 var DEFAULT_MAX_FUTURE_MS = 5e3;
 var DEFAULT_SWEEP_MS = 3e4;
@@ -23081,7 +23422,7 @@ function verifyAnnouncement(subject, data, now, ttlMs = DEFAULT_TTL_MS, maxFutur
   }
   let kp;
   try {
-    kp = (0, import_nkeys3.fromPublic)(ann.nkey);
+    kp = (0, import_nkeys4.fromPublic)(ann.nkey);
   } catch {
     return { ok: false, reason: "bad_signature" };
   }
@@ -23373,9 +23714,9 @@ async function fetchNatsUserJWT(vgateUrl, nkeyPublic, seed) {
   return withRetry(() => fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed));
 }
 async function fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed) {
-  const header = b64url(JSON.stringify({ alg: "ed25519-nkey", typ: "JWT" }));
+  const header = b64url2(JSON.stringify({ alg: "ed25519-nkey", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1e3);
-  const payload = b64url(JSON.stringify({
+  const payload = b64url2(JSON.stringify({
     iss: nkeyPublic,
     sub: nkeyPublic,
     aud: vgateUrl,
@@ -23386,7 +23727,7 @@ async function fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed) {
   const signingInput = `${header}.${payload}`;
   const kp = import_nats_core2.nkeys.fromSeed(new TextEncoder().encode(seed));
   const sig = kp.sign(new TextEncoder().encode(signingInput));
-  const assertion = `${signingInput}.${b64url(sig)}`;
+  const assertion = `${signingInput}.${b64url2(sig)}`;
   const resp = await fetch(`${vgateUrl}/v1/agent/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -23433,7 +23774,7 @@ async function connectViaJWT(natsUrl, tokenProvider, seed, name) {
   });
   return conn;
 }
-function b64url(data) {
+function b64url2(data) {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -23441,20 +23782,35 @@ function b64url(data) {
 }
 
 // src/vclaw/verbs/who.ts
-function whoRowOf(raw, fallbackTs) {
-  if (raw === null || typeof raw !== "object") return null;
-  const a = raw;
-  const nkey = typeof a.nkey === "string" ? a.nkey : void 0;
-  if (!nkey) return null;
-  const name = typeof a.name === "string" ? a.name : typeof a.nonce === "string" ? a.nonce : void 0;
-  const state = typeof a.state === "string" ? a.state : typeof a.status === "string" ? a.status : void 0;
-  const segment = typeof a.segment === "string" ? a.segment : void 0;
-  const ts = typeof a.ts === "string" ? a.ts : fallbackTs;
-  return { nkey, ...name ? { name } : {}, ...state ? { state } : {}, ...segment ? { segment } : {}, ...ts ? { seen: ts } : {} };
+function whoRowOf(entry) {
+  return {
+    nkey: entry.nkey,
+    ...entry.name ? { name: entry.name } : {},
+    state: entry.online ? "online" : "offline",
+    ...entry.segment ? { segment: entry.segment } : {},
+    ...entry.ts ? { seen: entry.ts } : {}
+  };
+}
+function segmentFromJwt(jwt) {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString()
+    );
+    const allow = payload?.nats?.sub?.allow;
+    if (!Array.isArray(allow)) return void 0;
+    for (const sub of allow) {
+      if (typeof sub !== "string") continue;
+      const m = /^\$SRV\.INFO\.agents\.([^.>]+)\.>$/.exec(sub);
+      if (m) return m[1];
+    }
+  } catch {
+  }
+  return void 0;
 }
 async function whoVerb(ctx) {
-  const segment = typeof ctx.flags.segment === "string" ? ctx.flags.segment : "default";
+  const requestedSegment = typeof ctx.flags.segment === "string" ? ctx.flags.segment : void 0;
   const waitMs = Number(ctx.flags.wait ?? 4e3) || 4e3;
+  let segment = requestedSegment ?? "default";
   const creds = await loadCredentials().catch(() => null);
   if (!creds) {
     return {
@@ -23470,6 +23826,7 @@ async function whoVerb(ctx) {
   let nc;
   try {
     const jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
+    if (requestedSegment === void 0) segment = segmentFromJwt(jwt) ?? "default";
     nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-who");
   } catch (e) {
     return {
@@ -23479,357 +23836,44 @@ async function whoVerb(ctx) {
       exit: 3
     };
   }
-  const decoder2 = new TextDecoder();
-  const seen = /* @__PURE__ */ new Map();
-  const sub = nc.subscribe(`$SRV.INFO.agents.${segment}.>`);
+  const dir = new Directory();
+  let sub;
+  try {
+    sub = nc.subscribe(`$SRV.INFO.agents.${segment}.>`);
+  } catch (e) {
+    await nc.close().catch(() => void 0);
+    return {
+      state: "unavailable",
+      data: { segment, server, reason: e instanceof Error ? e.message : String(e) },
+      text: `this identity is not granted \`$SRV.INFO.agents.${segment}.>\` (segment scope) \u2014 pass --segment with the granted one`,
+      exit: 3
+    };
+  }
   const drain = (async () => {
     for await (const m of sub) {
-      try {
-        const row = whoRowOf(JSON.parse(decoder2.decode(m.data)));
-        if (row) seen.set(row.nkey, row);
-      } catch {
-      }
+      dir.ingest(m.subject, m.data);
     }
   })();
   await nc.flush();
-  await new Promise((r) => setTimeout(r, Math.max(500, waitMs)));
+  await new Promise((r) => setTimeout(r, Math.max(500, Math.min(waitMs, 6e4))));
   sub.unsubscribe();
   await nc.close().catch(() => void 0);
   void drain;
   const self2 = creds.public_key;
-  const rows = [...seen.values()].sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
+  const rows = dir.snapshot().map(whoRowOf).sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
   const others = rows.filter((r) => r.nkey !== self2);
-  const data = { segment, server, windowMs: waitMs, self: self2, peers: rows, others: others.length };
+  const data = { segment, server, windowMs: waitMs, self: self2, peers: rows, others: others.length, accepted: dir.accepted, rejected: dir.rejected };
   const text = [
     `vclaw who  (segment ${segment}, ${Math.round(waitMs / 1e3)}s window, read-only)`,
     table(
       ["peer", "name", "state", "seen"],
       rows.map((r) => [r.nkey === self2 ? `${r.nkey.slice(0, 12)}\u2026 (you)` : `${r.nkey.slice(0, 12)}\u2026`, r.name ?? null, r.state ?? null, r.seen ?? null])
     ),
-    rows.length === 0 ? "\nno announcements in this window \u2014 nobody on this segment is online, or they announce less often than the window" : `
-${others.length} other agent(s) around`
+    rows.length === 0 ? `
+no verified announcements in this window \u2014 nobody on this segment is online, they announce less often than the window${dir.rejected > 0 ? `, or ${dir.rejected} record(s) failed verification` : ""}` : `
+${others.length} other agent(s) around${dir.rejected > 0 ? ` (${dir.rejected} record(s) rejected)` : ""}`
   ].join("\n");
   return { state: rows.length > 0 ? "ok" : "degraded", data, text, exit: 0 };
-}
-
-// src/lib/approve-proof.ts
-var import_nkeys4 = __toESM(require_mod(), 1);
-var APPROVE_PROOF_AUDIENCE = "vchat-claim-approve";
-var PROOF_HEADER = { alg: "ed25519-nkey", typ: "JWT" };
-function b64url2(data) {
-  return (typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data)).toString(
-    "base64url"
-  );
-}
-function buildApproveProof(input) {
-  const { seed, publicKey, challenge, now, expiresInSeconds } = input;
-  if (!challenge) {
-    throw new Error(
-      "buildApproveProof: empty approve_challenge \u2014 the pending record has no challenge, so it is UNPROVABLE (fail closed; re-run onboarding so a challenge is minted on the resume)"
-    );
-  }
-  if (!publicKey.startsWith("U")) {
-    throw new Error(
-      `buildApproveProof: publicKey must be the NKey-pub U-form (got "${publicKey.slice(0, 4)}\u2026") \u2014 the server verifies the signature against nkeys.FromPublicKey(iss)`
-    );
-  }
-  const payload = {
-    aud: APPROVE_PROOF_AUDIENCE,
-    iss: publicKey,
-    jti: challenge,
-    sub: publicKey
-  };
-  if (expiresInSeconds !== void 0) {
-    const iat = now ?? Math.floor(Date.now() / 1e3);
-    payload.iat = iat;
-    payload.exp = iat + expiresInSeconds;
-  } else if (now !== void 0) {
-    payload.iat = now;
-  }
-  const signingInput = `${b64url2(JSON.stringify(PROOF_HEADER))}.${b64url2(JSON.stringify(payload))}`;
-  const kp = (0, import_nkeys4.fromSeed)(new TextEncoder().encode(seed));
-  const sig = kp.sign(new TextEncoder().encode(signingInput));
-  return `${signingInput}.${b64url2(sig)}`;
-}
-function buildApproveProofForKeypair(keypair, challenge, opts = {}) {
-  return buildApproveProof({ seed: keypair.seed, publicKey: keypair.publicKey, challenge, ...opts });
-}
-function claimUrlWithProof(claimBase, sessionId, proof) {
-  const url = `${claimBase}/a/${encodeURIComponent(sessionId)}`;
-  return proof ? `${url}?proof=${encodeURIComponent(proof)}` : url;
-}
-function decodeApproveProof(proof) {
-  const parts = proof.split(".");
-  if (parts.length !== 3) throw new Error("malformed proof: expected 3 segments");
-  return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-}
-function checkApproveProofLocally(proof, keyForms, expectedNonce, nowSec = Math.floor(Date.now() / 1e3)) {
-  const forms = (Array.isArray(keyForms) ? keyForms : [keyForms]).filter(Boolean);
-  if (!expectedNonce) return "no approve challenge on the pending record";
-  if (!proof) return "proof is required";
-  const parts = proof.split(".");
-  if (parts.length !== 3) return "malformed proof";
-  let payload;
-  try {
-    payload = decodeApproveProof(proof);
-  } catch (e) {
-    return `malformed proof payload: ${e.message}`;
-  }
-  if (!payload.iss || payload.iss !== payload.sub) {
-    return "proof iss/sub must both name the agent key";
-  }
-  if (payload.aud !== APPROVE_PROOF_AUDIENCE) {
-    return `proof audience must be ${JSON.stringify(APPROVE_PROOF_AUDIENCE)}`;
-  }
-  if (!payload.jti || payload.jti !== expectedNonce) {
-    return "proof challenge does not match this pending record";
-  }
-  if (forms.length > 0 && !forms.includes(payload.iss)) {
-    return "proof is for a different key than the pending record";
-  }
-  if (payload.exp) {
-    if (payload.iat && payload.exp <= payload.iat) return "proof expiry precedes its issue time";
-    if (payload.exp < nowSec) return "proof expired";
-  }
-  if (payload.iat && payload.iat > nowSec + 60) return "proof issue time is in the future";
-  let kp;
-  try {
-    kp = (0, import_nkeys4.fromPublic)(payload.iss);
-  } catch (e) {
-    return `invalid proof issuer NKey: ${e.message}`;
-  }
-  let ok;
-  try {
-    ok = kp.verify(
-      new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-      Buffer.from(parts[2], "base64url")
-    );
-  } catch (e) {
-    return `proof signature verification failed: ${e.message}`;
-  }
-  return ok ? null : "proof signature verification failed";
-}
-
-// src/lib/vgate.ts
-var DEFAULT_API_URL = env("API_URL") || env("VGATE_URL") || "https://api.vclawhub.com";
-var VgateClient = class {
-  apiUrl;
-  constructor(apiUrl) {
-    this.apiUrl = apiUrl || DEFAULT_API_URL;
-  }
-  /* ── Introduction (splash-screen flow) ───────────────────── */
-  /**
-   * Introduce an unclaimed agent to vgate.
-   * POST /v1/agent/introduce
-   */
-  async introduceAgent(params) {
-    const resp = await fetch(`${this.apiUrl}/v1/agent/introduce`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params)
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`introduce failed (${resp.status}): ${text}`);
-    }
-    return resp.json();
-  }
-  /* ── Register (dashboard-side approval) ──────────────────── */
-  /**
-   * Register an agent with vgate — called by dashboard on approve.
-   * POST /v1/agent/register
-   */
-  async registerAgent(params) {
-    const resp = await fetch(`${this.apiUrl}/v1/agent/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params)
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`register failed (${resp.status}): ${text}`);
-    }
-    return resp.json();
-  }
-  /* ── Status (check if claimed) ───────────────────────────── */
-  /**
-   * Check if an agent is claimed (approved).
-   * GET /v1/agent/status?nkey=<nkey_public>
-   */
-  async getClaimStatus(nkeyPublic) {
-    const resp = await fetch(`${this.apiUrl}/v1/agent/status?nkey=${encodeURIComponent(nkeyPublic)}`);
-    if (resp.status === 404) {
-      return { claimed: false };
-    }
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`status check failed (${resp.status}): ${text}`);
-    }
-    return resp.json();
-  }
-  /* ── Retire (J16a — lifecycle close, steward path) ───────── */
-  /**
-   * Retire an agent — POST /v1/agent/{nkey}/retire.
-   *
-   * Unlike the methods above (which throw and lose the HTTP status), this
-   * returns a STRUCTURED result — the CLI maps status → CI-assertable exit
-   * codes (agent-sdk docs/AGENT_RETIRE.md §2): 200→0 (fresh OR idempotent
-   * retry — the server cannot be told apart and the CLI does not need to),
-   * 404 not_claimed→2, 403 forbidden→3, network failure→4.
-   *
-   * Wire contract read from vgate/internal/agentidp/retire.go:
-   *   - nkey goes in the PATH in EITHER form (base64url or U-form); the
-   *     server canonicalizes (E1) and answers `retired` in canonical U-form.
-   *   - body {reason, confirm:true} — the server rejects confirm:false with
-   *     400 confirm_required; the CLI mirrors the destructiveness.
-   *   - auth: Authorization: Bearer <Authelia id_token> (the steward path).
-   *     The token is a bearer credential: never logged, never in argv
-   *     (O37/O44 class) — the caller passes it in, sourced from env.
-   */
-  async retireAgent(params) {
-    let resp;
-    try {
-      resp = await fetch(
-        `${this.apiUrl}/v1/agent/${encodeURIComponent(params.nkey)}/retire`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${params.idToken}`
-          },
-          body: JSON.stringify({
-            reason: params.reason ?? "",
-            confirm: params.confirm
-          })
-        }
-      );
-    } catch (e) {
-      return { ok: false, status: 0, error: "unreachable", message: e.message };
-    }
-    const text = await resp.text().catch(() => "");
-    let body = {};
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-      }
-    }
-    if (resp.ok) {
-      return {
-        ok: true,
-        // retired = canonical U-form (server-normalized, what every
-        // tombstone/ownership row keys by). Fall back to the input only if
-        // the body is missing the field (defensive; retire.go always sets it).
-        retired: body.retired ?? params.nkey,
-        audit_id: body.audit_id ?? ""
-      };
-    }
-    return {
-      ok: false,
-      status: resp.status,
-      // apierr envelope: {error: <registry code>, message} (+legacy fields).
-      error: body.error ?? `http_${resp.status}`,
-      message: body.message ?? text.slice(0, 200)
-    };
-  }
-  /* ── Health & status ─────────────────────────────────────── */
-  /**
-   * Health check — GET /health
-   */
-  async health() {
-    const resp = await fetch(`${this.apiUrl}/health`);
-    if (!resp.ok) throw new Error(`health check failed (${resp.status})`);
-    return resp.json();
-  }
-  /**
-   * Check vgate is in claim-ready state.
-   */
-  async getVgateStatus() {
-    const healthResult = await this.health();
-    return {
-      status: healthResult.status,
-      version: healthResult.version
-    };
-  }
-};
-
-// src/lib/signup.ts
-var CLAIM_BASE = () => process.env.CLAIM_BASE_URL || "https://login.vclawhub.com";
-async function beginSignup(opts = {}) {
-  const existing = await loadCredentials().catch(() => null);
-  const pending = hasPendingFlag();
-  if (pending && !opts.force) {
-    return { kind: "pending_claim", nkey: existing?.public_key ?? "" };
-  }
-  if (existing && !opts.force) {
-    return {
-      kind: "existing_credentials",
-      ...existing.name ? { name: existing.name } : {},
-      ...existing.agent_nkey ? { agent_nkey: existing.agent_nkey } : {}
-    };
-  }
-  let backupPath;
-  if (existing && opts.force) {
-    try {
-      backupPath = await backupCredentials() ?? void 0;
-    } catch {
-    }
-  }
-  if (pending && opts.forceDiscard) await clearPendingFlag();
-  const resume = pending && opts.force && !opts.forceDiscard;
-  const keypair = resume && existing?.seed ? await keypairFromSeed(existing.seed) : await generateNkeyPair();
-  const base64urlPub = Buffer.from(keypair.rawPublicKey).toString("base64url");
-  const name = opts.name || existing?.name || `agent-${keypair.hexPublicKey.slice(0, 8)}`;
-  const client = new VgateClient();
-  const intro = await client.introduceAgent({ nkey_public: base64urlPub, name });
-  const sessionId = intro.session_id || intro.agent_id || "";
-  await saveCredentials({
-    seed: keypair.seed,
-    public_key: keypair.publicKey,
-    agent_nkey: base64urlPub,
-    name,
-    steward: existing?.steward ?? "unknown",
-    created_at: existing?.created_at ?? (/* @__PURE__ */ new Date()).toISOString()
-  });
-  await writePendingFlag(keypair.publicKey);
-  const challenge = intro.approve_challenge ?? "";
-  let proofMinted = false;
-  let proof = "";
-  if (challenge) {
-    try {
-      const p = buildApproveProofForKeypair(keypair, challenge);
-      checkApproveProofLocally(p, [keypair.publicKey, base64urlPub], challenge);
-      proof = p;
-      proofMinted = true;
-    } catch {
-    }
-  }
-  return {
-    claimUrl: claimUrlWithProof(CLAIM_BASE(), sessionId, proof || void 0),
-    sessionId,
-    nkey: keypair.publicKey,
-    base64urlPub,
-    name,
-    proofMinted,
-    resumed: intro.resumed === true,
-    ...backupPath ? { backupPath } : {}
-  };
-}
-async function pollClaimOnce(client, base64urlPub) {
-  try {
-    const s = await client.getClaimStatus(base64urlPub);
-    return { claimed: Boolean(s.claimed), ...s.steward ? { steward: s.steward } : {} };
-  } catch {
-    return { claimed: false };
-  }
-}
-async function completeSignup(claim) {
-  const creds = await loadCredentials();
-  if (!creds) throw new Error("credentials disappeared between begin and complete");
-  const steward = claim.steward ?? creds.steward ?? "unknown";
-  await saveCredentials({ ...creds, steward });
-  await clearPendingFlag();
-  return { steward };
 }
 
 // src/vclaw/verbs/signup.ts
@@ -23896,9 +23940,11 @@ still waiting after ${waitSec}s \u2014 re-run \`vclaw signup --wait 60\``);
   } else {
     words.push("", "after approving, run `vclaw signup --wait 60` (or `vclaw status`) to pick it up.");
   }
+  const withProof = ctx.flags["with-proof"] === true;
+  const { claimUrl: _url, ...safe } = started;
   return {
     state: claimed ? "ok" : "degraded",
-    data: { ...started, claimed, steward: steward ?? null },
+    data: { ...withProof ? started : safe, claimed, steward: steward ?? null },
     text: words.join("\n"),
     exit: 0
   };
@@ -23932,7 +23978,7 @@ var VERBS = {
     name: "signup",
     summary: "start (or resume) signup \u2014 prints the vclaw auth link to approve in a browser",
     usage: "signup [--wait <s>] [--force] [--force-discard] [--json]",
-    flags: ["--wait", "--force", "--force-discard", "--json"],
+    flags: ["--wait", "--force", "--force-discard", "--with-proof", "--json"],
     run: signupVerb
   },
   who: {
@@ -24014,6 +24060,56 @@ ${usageText()}` };
     return { result: { ok: false, verb, state: "unavailable", error: message, code }, exit: code, text: `error: ${message}` };
   }
 }
+
+// src/lib/open-browser.ts
+import { spawn as spawn2 } from "node:child_process";
+function assertOpenableUrl(raw) {
+  const u = new URL(raw);
+  const dev = process.env.VCLAW_DEV === "1";
+  if (u.protocol !== "https:" && !(dev && u.protocol === "http:")) {
+    throw new Error(`refusing to open a non-https URL (${u.protocol})`);
+  }
+  return u;
+}
+function openBrowser(url) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = assertOpenableUrl(url);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const platform = process.platform;
+    let cmd = null;
+    let args = [];
+    if (platform === "darwin") {
+      cmd = "open";
+      args = [target.toString()];
+    } else if (platform === "linux") {
+      cmd = "xdg-open";
+      args = [target.toString()];
+    } else if (platform === "win32") {
+      cmd = "cmd";
+      args = ["/c", "start", "", target.toString()];
+    }
+    if (cmd === null) {
+      reject(new Error(`Unsupported platform: ${platform}`));
+      return;
+    }
+    const child = spawn2(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", reject);
+    child.on("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+// src/pi-extension/index.ts
+import { appendFileSync, mkdirSync as mkdirSync2 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname2, join as join4 } from "node:path";
 
 // src/agent/runtime.ts
 var import_nats_core3 = __toESM(require_mod4(), 1);
@@ -24925,24 +25021,26 @@ function index_default(pi) {
     }
   });
   function openInBrowser(url) {
-    try {
-      const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-      const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-      const child = spawn2(cmd, args, { detached: true, stdio: "ignore" });
-      child.on("error", () => void 0);
-      child.unref();
-    } catch {
-    }
+    void openBrowser(url).catch(() => void 0);
   }
   pi.registerCommand("vclaw", {
-    description: "VClaw operator surface \u2014 status \xB7 doctor \xB7 peers (no LLM required)",
+    description: "VClaw operator surface \u2014 status \xB7 doctor \xB7 peers \xB7 who \xB7 signup (no LLM required)",
     getArgumentCompletions(argumentPrefix) {
       const items = completions(argumentPrefix);
       return items.length > 0 ? items : null;
     },
     handler: async (args, ctx) => {
       const argv = args.trim().length > 0 ? args.trim().split(/\s+/) : [];
-      const { exit, text } = await runVclaw(argv);
+      const { result, exit, text } = await runVclaw(argv);
+      try {
+        const outFile = join4(homedir4(), ".vclaw", "vclaw-out.txt");
+        mkdirSync2(dirname2(outFile), { recursive: true });
+        appendFileSync(outFile, `=== ${(/* @__PURE__ */ new Date()).toISOString()} /vclaw ${argv.join(" ")} exit=${exit}
+${text}
+
+`, { mode: 384 });
+      } catch {
+      }
       const notify = ctx.ui?.notify;
       const claimUrl = result.data?.claimUrl;
       const hostManagesOpen = process.env.VCLAW_MANAGES_OPEN_URL === "1";
