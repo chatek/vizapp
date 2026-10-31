@@ -105,6 +105,12 @@ SDK side and is not set speculatively.
 - 🔎 **CLASS TO WATCH**: both this defect and the earlier `$SRV.INFO.agents.default.>` violation came from a
   CONSTANT defaulting to `'default'` leaking into a subject before the JWT tenant is adopted. Grep constants in
   subject construction, not verbs.
+  MINT HALF VERIFIED CLEAN (2026-10-31, agent-sdk audit "Mint-side verification"): vgate builds every subject
+  from the configured/resolved segment (`token.go:344,345,352,385,386`; `cmd/vgate/main.go:454,833,1435`) — no
+  literal `"default"` builds a subject. One residual, LOW and `[INFERENCE]`: `approve.go:522` falls back to
+  `segmentname.Canonical` (`"vclaw"`) for an admin record with an empty segment — a hardcoded deployment value
+  that silently ATTRIBUTES to vclaw instead of refusing; harmless while vclaw is the only segment, and
+  refusing should become the default the moment a second one is real.
 
 Artefact history: `50a5e9ec…` (FS2, 1,348,203 B) → `a511aa4b01287c62b9e5fbfdbc9860d54e0bec65b1074e02f216b7167c43218f`
 (1,349,041 B, 368 files). Inner digests UNCHANGED between them (pi `994a3913…`, ext-synadia `dee4e723…`, cli
