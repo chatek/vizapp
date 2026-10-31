@@ -7,8 +7,41 @@ export const BROWSER_PARTITION = 'persist:prime-work-browser'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type WorkspaceView = 'session' | 'projects' | 'activity' | 'scheduled' | 'plugins' | 'settings'
-export type InspectorTab = 'summary' | 'changes' | 'browser' | 'files'
+export type InspectorTab = 'summary' | 'changes' | 'browser' | 'files' | 'inbox'
 export type SessionStatus = 'idle' | 'running' | 'waiting' | 'complete' | 'failed' | 'unknown'
+
+/**
+ * The frozen vclaw inbox vocabulary — three labels and nothing finer-grained until a
+ * durable consumer exists on the fabric. 'complete' is deliberately not a member: with
+ * the session closed the spool is what was captured, not what was sent.
+ */
+export type VclawInboxState = 'live' | 'cached' | 'unavailable'
+
+export interface VclawInboxMessage {
+  kind: string
+  seq: number
+  id?: string
+  ts?: string
+  /** Asserted by the sender (A2A publish is tenant-wide), never verified — render as a claim. */
+  from?: string
+  fromName?: string
+  subject?: string
+  body?: string
+  digest?: string
+  conversationId?: string
+  read?: boolean
+}
+
+export interface VclawInboxSnapshot {
+  state: VclawInboxState
+  /** Absolute spool path, or '' when no identity is on this host. */
+  spoolPath: string
+  messages: VclawInboxMessage[]
+  lastSeq: number
+  unread: number
+  sessionOpen: boolean
+  observedAt: string
+}
 
 export const HARNESS_IDS = ['omp', 'prime', 'pi'] as const
 export type HarnessId = (typeof HARNESS_IDS)[number]
@@ -862,6 +895,11 @@ export interface PrimeWorkApi {
     delete(id: string): Promise<boolean>
     runNow(id: string): Promise<ScheduleRunRecord>
     onChanged(callback: (event: ScheduleChangeEvent) => void): () => void
+  }
+  /** vclaw inbox pane: the frozen spool, read-only, with the three state labels. */
+  inbox: {
+    read(): Promise<VclawInboxSnapshot>
+    onChanged(callback: (snapshot: VclawInboxSnapshot) => void): () => void
   }
 }
 

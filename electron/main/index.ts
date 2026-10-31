@@ -35,6 +35,7 @@ import { AgentCollaborationBridge } from './collaboration/agent-bridge'
 import { configureVClawAgentMessageSigning, loadOrCreateVClawAgentMessageKey } from './collaboration/message-envelope'
 import { extensionInjection, resolveExtensionPath, type ExtensionCapability } from './extension-manifest'
 import { SessionService } from './sessions'
+import { VclawInboxService } from './inbox-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
@@ -1042,13 +1043,18 @@ async function bootstrap(): Promise<void> {
     return { meta: structuredClone(meta), settings: currentSettings }
   }
   trustedRendererUrl = resolveRendererUrl()
+  const inboxService = new VclawInboxService({
+    isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
+  })
   ipc = registerIpc({
     meta, refreshHarnesses, projects, checkouts, sessions, agents, terminals, git, plugins, providers, settings, updates, cuaDriver, heartbeats, schedules, browser: browserService, voice, pets,
     popupApplicationMenu, setTitleBarTheme,
+    inbox: inboxService,
     omp: { projects: ompProjects, sessions: ompSessions, agents: ompManager, catalog: ompCatalog, plugins: ompPlugins },
     pi: { projects: piProjects, sessions: piSessions, agents: piManager, catalog: piCatalog, plugins: piPlugins },
     applyInterfaceZoom,
   }, trustedRendererUrl)
+  inboxService.start()
   // Both managers share the one renderer forwarding path: envelopes carry the
   // runtimeId and RuntimeInfo carries the harness, so the renderer can route.
   const forwardAgentEvent = (envelope: PrimeEventEnvelope): void => {

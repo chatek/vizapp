@@ -13,6 +13,7 @@ import type { SettingsService } from './settings-schedules'
 import type { AutomationService } from './schedules/service'
 import type { HeartbeatService } from './schedules/heartbeats'
 import type { SessionService } from './sessions'
+import type { VclawInboxService } from './inbox-service'
 import type { TerminalService } from './terminal'
 import type { VoiceService } from './voice'
 import type { UpdateService } from './updates'
@@ -46,6 +47,8 @@ interface Services {
   pi: HarnessServices
   /** Applies the persisted interface scale to every live app renderer. */
   applyInterfaceZoom?(scale: number): void
+  /** vclaw inbox: reads the frozen spool and pushes state changes. */
+  inbox: VclawInboxService
 }
 
 interface HarnessServices {
@@ -442,6 +445,14 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
   handle('schedules:resume', (_event, id) => services.schedules.resume(id))
   handle('schedules:delete', (_event, id) => services.schedules.delete(id))
   handle('schedules:run-now', (_event, id) => services.schedules.runNow(id))
+  handle('vclaw-inbox:read', () => services.inbox.snapshot())
+  const unsubscribeInbox = services.inbox.onSnapshot((snapshot) => {
+    for (const [id, contents] of authorized) {
+      if (contents.isDestroyed()) { authorized.delete(id); continue }
+      if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+        && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-inbox:changed', snapshot)
+    }
+  })
 
   const forwardSessionChange = (change: SessionChangeEvent): void => {
     for (const [id, contents] of authorized) {
@@ -498,6 +509,7 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       unsubscribeSessionChanges()
       unsubscribeOmpSessionChanges()
       unsubscribePiSessionChanges()
+      unsubscribeInbox()
       if (typeof unsubscribeScheduleChanges === 'function') unsubscribeScheduleChanges()
       if (typeof unsubscribeBrowserChanges === 'function') unsubscribeBrowserChanges()
       if (typeof unsubscribeBrowserPointer === 'function') unsubscribeBrowserPointer()
