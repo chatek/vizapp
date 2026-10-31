@@ -18,6 +18,26 @@ const electronMocks = vi.hoisted(() => ({
 vi.mock('electron', () => electronMocks)
 
 import { registerIpc } from '../../electron/main/ipc'
+import type { VclawInboxService } from '../../electron/main/inbox-service'
+import type { VclawInboxSnapshot } from '../../src/types/api'
+
+
+/**
+ * Every member `registerIpc` requires, with stub values. Annotating a fixture with this is the
+ * point: adding a required member to `Services` then fails TYPECHECK here, at construction, in every
+ * suite — instead of a TypeError at the first call site (measured 2026-10-31: three suites went red
+ * with `services.inbox` undefined because the fixtures were `Record<string, unknown>`).
+ * Extra fixture-only keys stay legal through the index signature.
+ */
+type RegisterIpcServices = Parameters<typeof registerIpc>[0]
+type ServiceFixtures = { [Key in keyof RegisterIpcServices]: unknown } & Record<string, unknown>
+
+/** Members these suites never exercise. Spreading them lets a fixture satisfy `Services` completely
+ *  without listing a dozen spies, so a NEW required member still fails typecheck at construction. */
+type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets'>
+function unrelatedServices(): UnrelatedServices {
+  return serviceStub() as UnrelatedServices
+}
 
 function serviceStub(): Record<string, unknown> {
   return new Proxy({}, { get: () => vi.fn(async () => undefined) })
@@ -26,8 +46,10 @@ function serviceStub(): Record<string, unknown> {
 // `Services.inbox` is REQUIRED, and these suites exercise other channels. The stub provides
 // exactly what `registerIpc` touches: a snapshot, and a subscription that returns an
 // unsubscribe. Ownership rule: a required service arrives with the fixtures that construct it.
-function inboxStub(): Record<string, unknown> {
-  const snapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
+function inboxStub(): Pick<VclawInboxService, 'snapshot' | 'onSnapshot'> {
+  // Typed, not inferred: `state` widens to `string` otherwise, which is exactly the drift a
+  // narrowed view is meant to stop.
+  const snapshot: VclawInboxSnapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
   return { snapshot: vi.fn(() => snapshot), onSnapshot: vi.fn(() => () => undefined) }
 }
 
@@ -45,6 +67,7 @@ describe('app:reveal-path authorization', () => {
 
   function revealHarness(overrides: { projects?: unknown; sessions?: unknown; plugins?: unknown }) {
     const services = {
+      ...unrelatedServices(),
       meta: {},
       projects: overrides.projects ?? serviceStub(),
       sessions: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), ...(overrides.sessions as object | undefined) },
@@ -59,7 +82,7 @@ describe('app:reveal-path authorization', () => {
       omp: harnessStub(),
       inbox: inboxStub(),
       pi: harnessStub(),
-    }
+    } satisfies ServiceFixtures
     electronMocks.ipcMain.handle.mockClear()
     electronMocks.shell.showItemInFolder.mockClear()
     const registration = registerIpc(services as never, expectedUrl)
@@ -136,6 +159,7 @@ describe('session change IPC', () => {
       }),
     }
     const services = {
+      ...unrelatedServices(),
       meta: {},
       projects: serviceStub(),
       sessions,
@@ -149,7 +173,7 @@ describe('session change IPC', () => {
       omp: harnessStub(),
       inbox: inboxStub(),
       pi: harnessStub(),
-    }
+    } satisfies ServiceFixtures
     const expectedUrl = 'prime-work://app/'
     const trusted = {
       id: 1,
@@ -208,6 +232,7 @@ describe('shell-facing app handlers', () => {
       handlers.set(channel, listener)
     })
     const services = {
+      ...unrelatedServices(),
       meta: {},
       projects: serviceStub(),
       sessions: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined) },
@@ -222,7 +247,7 @@ describe('shell-facing app handlers', () => {
       inbox: inboxStub(),
       pi: harnessStub(),
       ...overrides,
-    }
+    } satisfies ServiceFixtures
     const registration = registerIpc(services as never, expectedUrl)
     registration.authorize(sender as never)
     return registration
@@ -324,8 +349,9 @@ describe('shell-facing app handlers', () => {
 })
 
 describe('IPC registration lifecycle', () => {
-  function servicesWithUnsubscribe(unsubscribe: () => void): Record<string, unknown> {
+  function servicesWithUnsubscribe(unsubscribe: () => void) {
     return {
+      ...unrelatedServices(),
       meta: {},
       projects: serviceStub(),
       sessions: { ...serviceStub(), onDidChange: vi.fn(() => unsubscribe) },
@@ -339,7 +365,7 @@ describe('IPC registration lifecycle', () => {
       omp: harnessStub(),
       inbox: inboxStub(),
       pi: harnessStub(),
-    }
+    } satisfies ServiceFixtures
   }
 
   it('removes any prior listener before registering event channels', () => {

@@ -246,6 +246,22 @@ to every fixture that builds a `Services` object, and the check is
 A red suite whose failure count moves between parallel runs is a **hint to isolate**, never a verdict:
 run the file alone before calling it flake.
 
+**Rule enforced by the compiler (2026-10-31).** The fixtures were `Record<string, unknown>`, so `tsc`
+structurally could not see a missing member — the defect could only appear at the first call site,
+which is why 47 tests failed at runtime instead of one file failing to compile. Each IPC fixture now
+carries `satisfies ServiceFixtures`, where
+`ServiceFixtures = { [Key in keyof Parameters<typeof registerIpc>[0]]: unknown } & Record<string, unknown>`
+(derived from `registerIpc`'s own parameter, so `Services` need not be exported). `satisfies` keeps the
+concrete inferred type — the tests still poke members — while requiring every key at construction.
+Never-exercised members are supplied by one `unrelatedServices()` spread, so a new required member
+cannot hide there either.
+
+Mutation proof (the standard the pin gate is held to): delete `inbox: inboxStub(),` from the fixtures →
+`tsc --noEmit -p tsconfig.tests.json` exits 1 with **one error per construction site** — 4 in
+`ipc-events.test.ts` (lines 84, 174, 247, 364), 1 in `ipc-verify.test.ts` (82), 1 in
+`omp-ipc.test.ts` (208) — every one reading `Property 'inbox' is missing in type … but required in
+type …`. Restore → exit 0.
+
 ---
 
 ## Build plan — agent-sdk ships pre-packaged (refined 2026-10-31)

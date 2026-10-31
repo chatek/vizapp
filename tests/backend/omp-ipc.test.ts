@@ -17,6 +17,8 @@ const electronMocks = vi.hoisted(() => ({
 vi.mock('electron', () => electronMocks)
 
 import { registerIpc, type IpcRegistration } from '../../electron/main/ipc'
+import type { VclawInboxService } from '../../electron/main/inbox-service'
+import type { VclawInboxSnapshot } from '../../src/types/api'
 import { OmpModelCatalogService, MAX_CATALOG_PROVIDERS } from '../../electron/main/providers-omp'
 
 const EXPECTED_URL = 'prime-work://app/'
@@ -24,6 +26,24 @@ const PRIME_SESSION = '/home/user/.prime/agent/sessions/session.jsonl'
 const OMP_SESSION = '/home/user/.omp/agent/sessions/bucket/session.jsonl'
 const PI_SESSION = '/home/user/.pi/agent/sessions/--home-user-project--/session.jsonl'
 const fixtureDirs: string[] = []
+
+
+/**
+ * Every member `registerIpc` requires, with stub values. Annotating a fixture with this is the
+ * point: adding a required member to `Services` then fails TYPECHECK here, at construction, in every
+ * suite — instead of a TypeError at the first call site (measured 2026-10-31: three suites went red
+ * with `services.inbox` undefined because the fixtures were `Record<string, unknown>`).
+ * Extra fixture-only keys stay legal through the index signature.
+ */
+type RegisterIpcServices = Parameters<typeof registerIpc>[0]
+type ServiceFixtures = { [Key in keyof RegisterIpcServices]: unknown } & Record<string, unknown>
+
+/** Members these suites never exercise. Spreading them lets a fixture satisfy `Services` completely
+ *  without listing a dozen spies, so a NEW required member still fails typecheck at construction. */
+type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets'>
+function unrelatedServices(): UnrelatedServices {
+  return serviceStub() as UnrelatedServices
+}
 
 function fakeOverflowCatalog(): OmpModelCatalogService {
   const directory = mkdtempSync(join(tmpdir(), 'vclaw-omp-ipc-catalog-'))
@@ -55,8 +75,10 @@ function serviceStub(): Record<string, unknown> {
 // `Services.inbox` is REQUIRED, and these suites exercise other channels. The stub provides
 // exactly what `registerIpc` touches: a snapshot, and a subscription that returns an
 // unsubscribe. Ownership rule: a required service arrives with the fixtures that construct it.
-function inboxStub(): Record<string, unknown> {
-  const snapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
+function inboxStub(): Pick<VclawInboxService, 'snapshot' | 'onSnapshot'> {
+  // Typed, not inferred: `state` widens to `string` otherwise, which is exactly the drift a
+  // narrowed view is meant to stop.
+  const snapshot: VclawInboxSnapshot = { state: 'unavailable', spoolPath: '', messages: [], lastSeq: 0, unread: 0, sessionOpen: false, observedAt: '1970-01-01T00:00:00.000Z' }
   return { snapshot: vi.fn(() => snapshot), onSnapshot: vi.fn(() => () => undefined) }
 }
 
@@ -94,6 +116,7 @@ function buildServices() {
     throw new TypeError('Session path is outside the Prime session directory')
   })
   return {
+    ...unrelatedServices(),
     meta: { version: '0.0.0-test' },
     refreshHarnesses: vi.fn(async () => ({ meta: { version: '0.0.0-refreshed' }, settings: settingsState })),
     projects: { ...serviceStub(), list: vi.fn(async () => ['prime-projects']), grantInferred: vi.fn(async () => 'prime-grant') },
@@ -183,7 +206,7 @@ function buildServices() {
         catalog: vi.fn(async (_force, disabled, disabledModels) => catalog('pi', disabled, disabledModels)),
       },
     },
-  }
+  } satisfies ServiceFixtures
 }
 
 describe('harness-aware IPC routing', () => {
