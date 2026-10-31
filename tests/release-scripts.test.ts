@@ -655,6 +655,10 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     const releaseSteps = parseWorkflowSteps(readFileSync('.github/workflows/release.yml', 'utf8'))
     const secretSteps = releaseSteps.filter((step) => step.secretLines.length > 0)
     expect(secretSteps.map((step) => `${step.job}: ${step.name}`).sort()).toEqual([
+      'package-member: Build, sign, notarize the member package',
+      'package-member: Fail closed on an incomplete member request',
+      'package-member: Fail closed unless every release credential is configured',
+      'package-member: Fetch the member repo at the pinned sha',
       'package-windows: Build, Authenticode-sign, and verify Windows packages',
       'package: Build, sign, notarize, and verify release packages',
       'package: Fail closed unless every release credential is configured',
@@ -783,7 +787,8 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     }
     // Release jobs skip the CI-duplicated verification suite and never upload
     // an unpacked application directory; every platform publishes its update feed.
-    expect(releaseWorkflow.match(/-- --skip-verify/g)).toHaveLength(2)
+    // package, package-windows (two legs) and package-member each skip the suite CI already ran.
+    expect(releaseWorkflow.match(/-- --skip-verify/g)).toHaveLength(3)
     expect(releaseWorkflow.match(/node scripts\/release\/package\.mjs --(?:public|qa) --platform win --skip-verify/g)).toHaveLength(2)
     expect(releaseWorkflow).toContain('release/mac/${{ matrix.arch }}/latest*.yml')
     expect(releaseWorkflow).toContain('release/linux/${{ matrix.arch }}/latest*.yml')
