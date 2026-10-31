@@ -51,7 +51,9 @@ describe('capability extension environment parity (OMP and pi)', () => {
     expect(environment.PRIME_WORK_ASK_USER_EXTENSION_PATH).toBe('/app/extensions/omp-work-ask-user.ts')
     expect(environment.VCLAW_AGENT_EXTENSION_PATH).toBe('/app/extensions/vclaw-agent.js')
     expect(environment.VCLAW_MANAGES_ASK_USER).toBe('1')
-    expect(environment.VCLAW_MANAGES_OPEN_URL).toBe('1')
+    // VCLAW_MANAGES_OPEN_URL is deliberately NOT set: with no host-side link
+    // router, precedence 1 would print a URL nothing opens. The extension's
+    // best-effort opener is the single opener (vendor .md records both names).
     // The Prime-only --skill inputs never reach an extension-based harness.
     expect(environment.PRIME_WORK_SCHEDULE_SKILL_PATH).toBeUndefined()
     expect(environment.PRIME_WORK_BROWSER_SKILL_PATH).toBeUndefined()

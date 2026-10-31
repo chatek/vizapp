@@ -505,9 +505,7 @@ export function extensionRuntimeEnvironment(
     PRIME_WORK_BROWSER_EXTENSION_PATH: browserEnabled ? extensionPaths.browser : undefined,
     PRIME_WORK_ASK_USER_EXTENSION_PATH: askUserEnabled ? extensionPaths.askUser : undefined,
     VCLAW_MANAGES_ASK_USER: '1',
-    // The host owns browser-opening for /vclaw signup: the extension must not
-    // spawn its own opener (agent-sdk precedence 1 — their commit 5bfc63e).
-    VCLAW_MANAGES_OPEN_URL: '1',
+
     // /vclaw verbs degrade themselves with no identity, so unlike the brokered
     // capabilities above this one is not settings-gated.
     VCLAW_AGENT_EXTENSION_PATH: extensionPaths.vclaw,
