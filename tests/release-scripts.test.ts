@@ -15,10 +15,7 @@ import { describe, expect, test } from 'vitest'
 // pass would claim coverage we do not have. So: SKIP with a reason that NAMES BOTH
 // numbers, and a meta-test below fails if the reason loses one.
 const requiredNode = readFileSync(new URL('../.nvmrc', import.meta.url), 'utf8').trim()
-const requiredNpm = String(
-  (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { engines?: { npm?: string } })
-    .engines?.npm ?? '',
-).replace(/^>=/, '')
+const requiredNpm = String((JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { engines?: { npm?: string } }).engines?.npm ?? '').replace(/^>=/, '')
 // Resolve npm the way the release scripts do — through npm_execpath when present —
 // so the gate measures the same npm the spawned script will.
 function detectNpmVersion(): string {
@@ -42,10 +39,8 @@ function atLeastVersion(actual: string, required: string): boolean {
   }
   return true
 }
-const toolchainReady =
-  atLeastVersion(process.versions.node, requiredNode) && atLeastVersion(currentNpmVersion, requiredNpm)
-const TOOLCHAIN_SKIP_REASON =
-  `requires Node >=${requiredNode} and npm >=${requiredNpm} (.nvmrc + package.json engines; supply them with npm run toolchain:bootstrap) — this shell has v${process.versions.node}/${currentNpmVersion}`
+const toolchainReady = atLeastVersion(process.versions.node, requiredNode) && atLeastVersion(currentNpmVersion, requiredNpm)
+const TOOLCHAIN_SKIP_REASON = `requires Node >=${requiredNode} and npm >=${requiredNpm} (.nvmrc + package.json engines; supply them with npm run toolchain:bootstrap) — this shell has v${process.versions.node}/${currentNpmVersion}`
 
 /**
  * Registers a test that EXECUTES the pinned toolchain (spawns a release script, runs
@@ -233,43 +228,78 @@ function createPinnedNpmArtifactFixture(contents = Buffer.from('verified npm arc
 }
 
 describe('release preflight', () => {
+  test('every test that executes the toolchain is registered through toolchainTest', () => {
+    // The class guarantee lives here, not in each author's memory: adding a test that
+    // REALLY runs the toolchain (spawns a release script or npm, or calls bootstrapNpm
+    // without an injected runner) and does not register through toolchainTest is a RED.
+    // Tests that inject a fake runner/readOutput call nothing and are correctly not gated.
+    //
+    // SCANNED BY OFFSET, NOT BY PHYSICAL LINE. The first version matched one line at a
+    // time, so it saw a call only when the formatter happened to keep the call on one
+    // line: reformatting this file hid four known executions from the scan (the "must
+    // find >= 4" assertion went red) while, in the other direction, calls that had been
+    // split across lines became visible. A gate whose verdict depends on line wrapping
+    // is not a gate, so both the detector and the self-exclusion work on the whole text.
+    const source = readFileSync(new URL('./release-scripts.test.ts', import.meta.url), 'utf8')
+    const lineOf = (offset: number) => source.slice(0, offset).split('\n').length
 
-test('every test that executes the toolchain is registered through toolchainTest', () => {
-  // The class guarantee lives here, not in each author's memory: adding a test that
-  // REALLY runs the toolchain (spawns a release script or npm, or calls bootstrapNpm
-  // without an injected runner) and does not register through toolchainTest is a RED.
-  // Tests that inject a fake runner/readOutput call nothing and are correctly not gated.
-  const source = readFileSync(new URL('./release-scripts.test.ts', import.meta.url), 'utf8')
-  const lines = source.split('\n')
-  const selfStart = lines.findIndex((line) => line.includes('every test that executes the toolchain'))
-  const selfEnd = lines.findIndex((line, index) => index > selfStart && /^\}\)$/.test(line))
-  const realExecutions: number[] = []
-  lines.forEach((line, index) => {
-    if (index >= selfStart && index <= selfEnd) return
-    const spawnsReleaseScript = line.includes("spawnSync(process.execPath, ['scripts/release/")
-    const spawnsNpm = line.includes("spawnSync('npm'")
-    const callsBootstrap = /\bbootstrapNpm\(/.test(line)
-    const callsInstall = /(^|\s)installAppDependencies\(/.test(line) && !/installAppDependencies\(run\b/.test(line)
-    if (spawnsReleaseScript || spawnsNpm) realExecutions.push(index)
-    else if (callsBootstrap || callsInstall) {
-      const window = lines.slice(index, index + 12).join('\n')
-      if (!/readOutput:/.test(window)) realExecutions.push(index)
+    // This test's own body: from its declaration to the NEXT top-level test. Offsets,
+    // so no closing-brace shape can move the window.
+    const selfStart = source.indexOf("test('every test that executes the toolchain")
+    const nextTest = source.indexOf('\n  test(', selfStart + 1)
+    const selfEnd = nextTest === -1 ? source.length : nextTest
+    const inSelf = (offset: number) => offset >= selfStart && offset <= selfEnd
+
+    const unguarded: string[] = []
+    const realExecutions: number[] = []
+
+    // Direct execution: a spawned release script, or a spawned npm. Whitespace between
+    // the call and its arguments is irrelevant — that is the point.
+    const direct = /spawnSync\(\s*(?:process\.execPath\s*,\s*\[\s*['"]scripts\/release\/|['"]npm['"])/g
+    for (const match of source.matchAll(direct)) {
+      const offset = match.index ?? 0
+      if (inSelf(offset)) continue
+      realExecutions.push(offset)
     }
+    // Indirect execution: a real bootstrap/install call WITHOUT an injected runner. The
+    // exclusion is whitespace-tolerant too, so `installAppDependencies(\n  run` counts as
+    // injected rather than slipping into the scan.
+    const indirect = /\b(?:bootstrapNpm|installAppDependencies)\(/g
+    for (const match of source.matchAll(indirect)) {
+      const offset = match.index ?? 0
+      if (inSelf(offset)) continue
+      if (/^installAppDependencies\(\s*run\b/.test(source.slice(offset))) continue
+      if (/readOutput:/.test(source.slice(offset, offset + 800))) continue
+      realExecutions.push(offset)
+    }
+
+    // Nearest preceding registration at the start of a line: toolchainTest(...) is the
+    // only registration that may execute the toolchain.
+    const openers = [...source.matchAll(/^[ \t]*(toolchainTest|test)(?:\.skipIf\([^)]*\))?\(/gm)].map((match) => ({
+      offset: match.index ?? 0,
+      name: match[1],
+    }))
+    for (const offset of realExecutions) {
+      const owner = openers.filter((opener) => opener.offset < offset).at(-1)
+      if (!owner) {
+        // MODULE-LEVEL SETUP has no registration to own it, and needs none: the one
+        // instance is detecting the npm version at import time, which is tolerant by
+        // construction (`(stdout ?? '') || 'unknown'`) — that tolerance is exactly what
+        // keeps this file loadable on the wrong toolchain, i.e. what makes the skip
+        // class work. The count assertion below still fails if the detector goes blind.
+        continue
+      }
+      if (owner.name !== 'toolchainTest') {
+        const near = source.slice(offset, offset + 90).split('\n')[0]
+        unguarded.push(`line ${lineOf(offset)} under: test — ${near.trim().slice(0, 70)}`)
+      }
+    }
+
+    expect(unguarded, 'toolchain-executing tests must register through toolchainTest').toEqual([])
+    expect(realExecutions.length, 'the scan must find the known toolchain-executing tests').toBeGreaterThanOrEqual(4)
   })
-  const unguarded: string[] = []
-  for (const index of realExecutions) {
-    for (let cursor = index; cursor >= 0; cursor -= 1) {
-      const match = lines[cursor].match(/^\s*(toolchainTest|test)(?:\.skipIf\([^)]*\))?\(/)
-      if (!match) continue
-      if (match[1] !== 'toolchainTest') unguarded.push(`line ${index + 1} under: ${lines[cursor].trim().slice(0, 90)}`)
-      break
-    }
-  }
-  expect(unguarded, 'toolchain-executing tests must register through toolchainTest').toEqual([])
-  expect(realExecutions.length, 'the scan must find the known toolchain-executing tests').toBeGreaterThanOrEqual(4)
-})
 
-test('the toolchain skip reason names both pinned numbers and the shell versions', () => {
+  test('the toolchain skip reason names both pinned numbers and the shell versions', () => {
     // If this fails, a skipped release test just became an unexplained hole.
     expect(TOOLCHAIN_SKIP_REASON).toContain(`Node >=${requiredNode}`)
     expect(TOOLCHAIN_SKIP_REASON).toContain(`npm >=${requiredNpm}`)
@@ -585,28 +615,32 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     }
   })
 
-  toolchainTest('installs the checked-in npm archive into a fresh prefix without network access', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'vclaw real npm bootstrap & '))
-    const prefix = join(directory, 'fresh global prefix')
-    const githubPath = join(directory, 'github-path')
-    const cache = join(directory, 'npm cache')
-    writeFileSync(githubPath, '')
-    try {
-      const result = bootstrapNpm({
-        env: {
-          ...process.env,
-          GITHUB_PATH: githubPath,
-          npm_config_cache: cache,
-          npm_config_prefix: prefix,
-        },
-      })
-      expect(result).toMatchObject({ installed: '12.0.2', prefix, githubPathUpdated: true })
-      expect(readFileSync(githubPath, 'utf8')).toBe(`${result.shimDirectory}\n`)
-      expect(readNpmOutput(['--version'], { npmCliPath: result.cliPath })).toBe('12.0.2')
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
-  }, 30_000)
+  toolchainTest(
+    'installs the checked-in npm archive into a fresh prefix without network access',
+    () => {
+      const directory = mkdtempSync(join(tmpdir(), 'vclaw real npm bootstrap & '))
+      const prefix = join(directory, 'fresh global prefix')
+      const githubPath = join(directory, 'github-path')
+      const cache = join(directory, 'npm cache')
+      writeFileSync(githubPath, '')
+      try {
+        const result = bootstrapNpm({
+          env: {
+            ...process.env,
+            GITHUB_PATH: githubPath,
+            npm_config_cache: cache,
+            npm_config_prefix: prefix,
+          },
+        })
+        expect(result).toMatchObject({ installed: '12.0.2', prefix, githubPathUpdated: true })
+        expect(readFileSync(githubPath, 'utf8')).toBe(`${result.shimDirectory}\n`)
+        expect(readNpmOutput(['--version'], { npmCliPath: result.cliPath })).toBe('12.0.2')
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    },
+    30_000,
+  )
 
   test('persists only a validated npm shim directory for the next GitHub Actions step', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-github-path-'))
