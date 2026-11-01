@@ -3004,9 +3004,9 @@ var require_nkeys = __commonJS({
     exports.createCluster = createCluster;
     exports.createServer = createServer;
     exports.createCurve = createCurve;
-    exports.fromPublic = fromPublic4;
+    exports.fromPublic = fromPublic5;
     exports.fromCurveSeed = fromCurveSeed;
-    exports.fromSeed = fromSeed4;
+    exports.fromSeed = fromSeed5;
     var kp_1 = require_kp();
     var public_1 = require_public();
     var codec_1 = require_codec();
@@ -3036,7 +3036,7 @@ var require_nkeys = __commonJS({
     function createCurve() {
       return createPair(Prefix.Curve);
     }
-    function fromPublic4(src) {
+    function fromPublic5(src) {
       const ba = new TextEncoder().encode(src);
       const raw = codec_1.Codec._decode(ba);
       const prefix = Prefixes.parsePrefix(raw[0]);
@@ -3055,7 +3055,7 @@ var require_nkeys = __commonJS({
       }
       return new curve_1.CurveKP(sd.buf);
     }
-    function fromSeed4(src) {
+    function fromSeed5(src) {
       const sd = codec_1.Codec.decodeSeed(src);
       if (sd.prefix === Prefix.Curve) {
         return fromCurveSeed(src);
@@ -14793,6 +14793,17 @@ async function saveCredentials(creds) {
   });
   enforceSecretMode(credentialsFile());
 }
+function credentialFileTiers() {
+  return [credentialsFile(), legacyConfigCredentialsFile(), legacyCredentialsFile()];
+}
+async function clearCredentials() {
+  for (const f of [credentialsFile(), legacyConfigCredentialsFile(), legacyCredentialsFile()]) {
+    try {
+      await unlink(f);
+    } catch {
+    }
+  }
+}
 async function backupCredentials() {
   const tiers = [
     [credentialsFile(), vclawConfigDir()],
@@ -14807,6 +14818,9 @@ async function backupCredentials() {
   enforceSecretMode(backupPath);
   return backupPath;
 }
+function credentialsPath() {
+  return credentialsFile();
+}
 
 // src/mcp/redact.ts
 var SEED_PATTERN = /\bS[A-Z2-7]{57}\b/g;
@@ -14819,9 +14833,9 @@ function redactError(text) {
 }
 
 // src/vclaw/state.ts
-import { readFileSync as readFileSync3, readdirSync as readdirSync2, statSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join2 } from "node:path";
+import { readFileSync as readFileSync4, readdirSync as readdirSync2, statSync } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join3 } from "node:path";
 
 // src/net/p2p/status.ts
 import { existsSync as existsSync3, readdirSync, readFileSync as readFileSync2 } from "node:fs";
@@ -15474,10 +15488,98 @@ async function pearsStatus(opts = {}) {
   };
 }
 
+// src/vclaw/inbox-store.ts
+import { appendFileSync, existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync3, renameSync, writeFileSync } from "node:fs";
+import { createHash as createHash3 } from "node:crypto";
+import { homedir as homedir2 } from "node:os";
+import { join as join2 } from "node:path";
+var MAX_LINES = 2e3;
+function inboxDir() {
+  return join2(homedir2(), ".vclaw", "inbox");
+}
+function spoolPath(tenant, self2) {
+  return join2(inboxDir(), `${tenant}__${self2.slice(0, 8)}.jsonl`);
+}
+function readSetPath(tenant, self2) {
+  return join2(inboxDir(), `${tenant}__${self2.slice(0, 8)}.read.json`);
+}
+function dedupeKey(r) {
+  return r.id && r.id.length > 0 ? `id:${r.id}` : `d:${r.digest}`;
+}
+function frameDigest(frame) {
+  return createHash3("sha256").update(frame).digest("hex");
+}
+function readSet(tenant, self2) {
+  try {
+    const raw = JSON.parse(readFileSync3(readSetPath(tenant, self2), "utf8"));
+    return new Set(Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : []);
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
+function writeSet(tenant, self2, set) {
+  mkdirSync2(inboxDir(), { recursive: true });
+  const tmp = `${readSetPath(tenant, self2)}.tmp-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify([...set]), { mode: 384 });
+  renameSync(tmp, readSetPath(tenant, self2));
+}
+function appendFor(tenant, self2, rec) {
+  mkdirSync2(inboxDir(), { recursive: true });
+  const existing = readAll(tenant, self2);
+  const key = dedupeKey(rec);
+  if (existing.some((r) => dedupeKey(r) === key)) return false;
+  const seq2 = existing.reduce((m, r) => Math.max(m, r.seq ?? 0), 0) + 1;
+  appendFileSync(spoolPath(tenant, self2), JSON.stringify({ ...rec, seq: seq2 }) + "\n", { mode: 384 });
+  return true;
+}
+function readAll(tenant, self2) {
+  if (!existsSync4(spoolPath(tenant, self2))) return [];
+  const out = [];
+  for (const line of readFileSync3(spoolPath(tenant, self2), "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  return out;
+}
+function rows(tenant, self2) {
+  const seen = readSet(tenant, self2);
+  return readAll(tenant, self2).map((r) => ({ ...r, read: seen.has(dedupeKey(r)) }));
+}
+function markRead(tenant, self2, keys) {
+  const all = readAll(tenant, self2);
+  const seen = readSet(tenant, self2);
+  let flipped = 0;
+  for (const r of all) {
+    const key = dedupeKey(r);
+    if (seen.has(key)) continue;
+    if (keys && !keys.includes(key)) continue;
+    seen.add(key);
+    flipped += 1;
+  }
+  if (flipped > 0) writeSet(tenant, self2, seen);
+  return flipped;
+}
+function prune(tenant, self2) {
+  const all = readAll(tenant, self2);
+  if (all.length <= MAX_LINES) return 0;
+  const seen = readSet(tenant, self2);
+  const unread = all.filter((r) => !seen.has(dedupeKey(r)));
+  const budget = MAX_LINES - unread.length;
+  if (budget <= 0) return 0;
+  const readKept = all.filter((r) => seen.has(dedupeKey(r))).slice(-budget);
+  const keep = new Set([...unread, ...readKept].map((r) => dedupeKey(r)));
+  const kept = all.filter((r) => keep.has(dedupeKey(r)));
+  if (kept.length === all.length) return 0;
+  writeFileSync(spoolPath(tenant, self2), kept.map((r) => JSON.stringify(r)).join("\n") + "\n", { mode: 384 });
+  return all.length - kept.length;
+}
+
 // src/vclaw/state.ts
-var SITE_CONF = () => join2(homedir2(), ".config", "pi-a2a", "nats-ipc.conf");
-var OMP_DIR = () => join2(homedir2(), ".omp", "agent");
-var PEARS_DIR = () => join2(homedir2(), ".vclaw", "pears");
+var SITE_CONF = () => join3(homedir3(), ".config", "pi-a2a", "nats-ipc.conf");
+var OMP_DIR = () => join3(homedir3(), ".omp", "agent");
 function safeStat(p) {
   try {
     const s = statSync(p);
@@ -15512,7 +15614,7 @@ function readSite() {
   let url = "nats://127.0.0.1:14222";
   if (st.exists) {
     try {
-      const text = readFileSync3(p, "utf8");
+      const text = readFileSync4(p, "utf8");
       tokenPresent = /^\s*token\s*:/m.test(text);
       const port = /^\s*port\s*:\s*(\d+)/m.exec(text)?.[1];
       const host = /^\s*host\s*:\s*"?([^"\s]+)"?/m.exec(text)?.[1];
@@ -15550,9 +15652,9 @@ function readPeers() {
   })();
   for (const f of files) {
     if (!f.startsWith("roster.") || !f.endsWith(".json")) continue;
-    const p = join2(dir, f);
+    const p = join3(dir, f);
     try {
-      const raw = JSON.parse(readFileSync3(p, "utf8"));
+      const raw = JSON.parse(readFileSync4(p, "utf8"));
       for (const [id, v] of Object.entries(raw)) {
         const e = v ?? {};
         rows2.set(id, {
@@ -15572,7 +15674,7 @@ function readPeers() {
   for (const f of files) {
     if (!f.startsWith("cross_buddies.") || !f.endsWith(".json")) continue;
     try {
-      const ids = JSON.parse(readFileSync3(join2(dir, f), "utf8"));
+      const ids = JSON.parse(readFileSync4(join3(dir, f), "utf8"));
       if (!Array.isArray(ids)) continue;
       for (const id of ids) {
         if (typeof id !== "string") continue;
@@ -15585,30 +15687,928 @@ function readPeers() {
   }
   return [...rows2.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
-function readInbox() {
-  const dir = join2(PEARS_DIR(), "inbox");
-  if (!safeStat(dir).exists) return { files: 0, messages: 0, bytes: 0 };
-  let files = 0;
-  let messages = 0;
-  let bytes = 0;
-  try {
-    for (const f of readdirSync2(dir)) {
-      if (!f.endsWith(".jsonl")) continue;
-      files += 1;
-      const p = join2(dir, f);
-      const size = statSync(p).size;
-      bytes += size;
-      if (size > 0) {
-        const lines = readFileSync3(p, "utf8").split("\n").filter((l) => l.trim().length > 0).length;
-        messages += lines;
+function readInbox(self2) {
+  const dir = inboxDir();
+  if (!safeStat(dir).exists) return { files: 0, unread: 0, total: 0, bytes: 0 };
+  let nkey = self2;
+  if (!nkey) {
+    for (const f of credentialFileTiers()) {
+      try {
+        const c = JSON.parse(readFileSync4(f, "utf8"));
+        if (typeof c.public_key === "string" && c.public_key.startsWith("U")) {
+          nkey = c.public_key;
+          break;
+        }
+      } catch {
       }
     }
-  } catch {
   }
-  return { files, messages, bytes };
+  const self8 = nkey && nkey.length >= 8 ? nkey.slice(0, 8) : void 0;
+  let files = 0;
+  let unread = 0;
+  let total = 0;
+  let bytes = 0;
+  let names;
+  try {
+    names = readdirSync2(dir);
+  } catch {
+    return { files: 0, unread: 0, total: 0, bytes: 0 };
+  }
+  for (const f of names) {
+    if (!f.endsWith(".jsonl")) continue;
+    if (self8 && !f.endsWith(`__${self8}.jsonl`)) continue;
+    files += 1;
+    try {
+      const p = join3(dir, f);
+      bytes += statSync(p).size;
+      const read = /* @__PURE__ */ new Set();
+      try {
+        const raw = JSON.parse(readFileSync4(join3(dir, f.replace(/\.jsonl$/, ".read.json")), "utf8"));
+        if (Array.isArray(raw)) {
+          for (const k of raw) if (typeof k === "string") read.add(k);
+        }
+      } catch {
+      }
+      for (const line of readFileSync4(p, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        let r;
+        try {
+          r = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        total += 1;
+        if (!read.has(dedupeKey({ id: typeof r.id === "string" ? r.id : "", digest: typeof r.digest === "string" ? r.digest : "" }))) {
+          unread += 1;
+        }
+      }
+    } catch {
+    }
+  }
+  return { files, unread, total, bytes };
+}
+
+// src/vclaw/verbs/provider.ts
+import { chmodSync as chmodSync2, existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync5, renameSync as renameSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { execFileSync as execFileSync2 } from "node:child_process";
+import { homedir as homedir4 } from "node:os";
+import { dirname, join as join4 } from "node:path";
+
+// src/vclaw/render.ts
+function kv(pairs) {
+  const rows2 = pairs.filter(([, v]) => v !== void 0);
+  if (rows2.length === 0) return "";
+  const width = Math.max(...rows2.map(([k]) => k.length));
+  return rows2.map(([k, v]) => `  ${k.padEnd(width)}  ${String(v)}`).join("\n");
+}
+function table(headers, rows2) {
+  if (rows2.length === 0) return "  (none)";
+  const cells = rows2.map((r) => r.map((c) => c === null || c === void 0 ? "\u2014" : String(c)));
+  const widths = headers.map((h2, i) => Math.max(h2.length, ...cells.map((r) => (r[i] ?? "").length)));
+  const line = (r) => `  ${r.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ")}`.trimEnd();
+  return [line(headers), line(widths.map((w) => "\u2500".repeat(w))), ...cells.map(line)].join("\n");
+}
+
+// src/vclaw/verbs/provider.ts
+function ompModelsPath() {
+  return join4(process.env.HOME || homedir4(), ".omp", "agent", "models.yml");
+}
+function ompConfigPath() {
+  return join4(process.env.HOME || homedir4(), ".omp", "agent", "config.yml");
+}
+function vclawProvidersPath() {
+  return join4(env("CREDS_DIR") || join4(process.env.HOME || homedir4(), ".config", "vclaw"), "providers.yml");
+}
+function stripComment(text) {
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "#" && (i === 0 || /\s/.test(text[i - 1]))) return text.slice(0, i);
+  }
+  return text;
+}
+function unquote(s) {
+  if (s.length >= 2) {
+    const first = s[0];
+    if ((first === '"' || first === "'") && s.endsWith(first)) return s.slice(1, -1);
+  }
+  return s;
+}
+function parseScalar(raw) {
+  const s = raw.trim();
+  if (s === "") return "";
+  if (s.startsWith("[") && s.endsWith("]")) {
+    const inner = s.slice(1, -1).trim();
+    if (inner === "") return [];
+    return inner.split(",").map((part) => unquote(part.trim()));
+  }
+  if (s === "true") return true;
+  if (s === "false") return false;
+  if (s === "null" || s === "~") return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s);
+  return unquote(s);
+}
+var PAIR = /^([A-Za-z0-9_.\-]+):(?:\s+(.*))?$/;
+function toLines(text) {
+  const out = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const withoutComment = stripComment(raw);
+    if (withoutComment.trim() === "") continue;
+    const indent = withoutComment.length - withoutComment.trimStart().length;
+    out.push({ indent, text: withoutComment.trim() });
+  }
+  return out;
+}
+function parseMap(lines, start, indent) {
+  const out = {};
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent < indent) break;
+    if (line.indent > indent) {
+      i++;
+      continue;
+    }
+    if (line.text === "-" || line.text.startsWith("- ")) break;
+    const pair = PAIR.exec(line.text);
+    if (!pair) {
+      i++;
+      continue;
+    }
+    const key = pair[1];
+    const rest = (pair[2] ?? "").trim();
+    i++;
+    if (rest === "") {
+      const next = lines[i];
+      if (next && next.indent > indent) {
+        const [child, after] = parseBlock(lines, i, next.indent);
+        out[key] = child;
+        i = after;
+      } else {
+        out[key] = "";
+      }
+    } else {
+      out[key] = parseScalar(rest);
+    }
+  }
+  return [out, i];
+}
+function parseList(lines, start, indent) {
+  const out = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent !== indent || !(line.text === "-" || line.text.startsWith("- "))) break;
+    const body = line.text.slice(1).trim();
+    i++;
+    if (body === "") {
+      const next = lines[i];
+      if (next && next.indent > indent) {
+        const [child, after] = parseBlock(lines, i, next.indent);
+        out.push(child);
+        i = after;
+      } else {
+        out.push(null);
+      }
+      continue;
+    }
+    const pair = PAIR.exec(body);
+    if (pair) {
+      const item = {};
+      const rest = (pair[2] ?? "").trim();
+      item[pair[1]] = rest === "" ? "" : parseScalar(rest);
+      const next = lines[i];
+      if (next && next.indent > indent) {
+        const [child, after] = parseMap(lines, i, next.indent);
+        Object.assign(item, child);
+        i = after;
+      }
+      out.push(item);
+      continue;
+    }
+    out.push(parseScalar(body));
+  }
+  return [out, i];
+}
+function parseBlock(lines, start, indent) {
+  if (start >= lines.length) return [{}, start];
+  const first = lines[start];
+  if (first.text === "-" || first.text.startsWith("- ")) return parseList(lines, start, indent);
+  return parseMap(lines, start, indent);
+}
+function parseYamlSubset(text) {
+  const lines = toLines(text);
+  if (lines.length === 0) return {};
+  const [value] = parseBlock(lines, 0, lines[0].indent);
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function asStr(value) {
+  return typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
+}
+function readOmpProviders() {
+  const path3 = ompModelsPath();
+  if (!existsSync5(path3)) return { path: path3, present: false, providers: [] };
+  let text = "";
+  try {
+    text = readFileSync5(path3, "utf8");
+  } catch {
+    return { path: path3, present: false, providers: [] };
+  }
+  const providers = asRecord(parseYamlSubset(text).providers);
+  const roles = readModelRoles();
+  const rows2 = Object.entries(providers).map(([id, raw]) => {
+    const p = asRecord(raw);
+    const keyText = asStr(p.apiKey).trim();
+    const models = Array.isArray(p.models) ? p.models.map((m) => typeof m === "string" ? m : asStr(asRecord(m).id)).filter((m) => m !== "") : [];
+    return {
+      id,
+      baseUrl: asStr(p.baseUrl),
+      api: asStr(p.api),
+      keyPresent: keyText !== "",
+      keySource: keyText === "" ? "none" : keyText.startsWith("!") ? "command" : "inline",
+      envNames: [],
+      models,
+      roles: roles.filter(([, model]) => model.startsWith(`${id}/`)).map(([role]) => role),
+      vclawDefault: false,
+      lastProbe: null
+    };
+  });
+  return { path: path3, present: true, providers: rows2 };
+}
+function readModelRoles() {
+  const path3 = ompConfigPath();
+  if (!existsSync5(path3)) return [];
+  try {
+    const roles = asRecord(parseYamlSubset(readFileSync5(path3, "utf8")).modelRoles);
+    return Object.entries(roles).map(([role, model]) => [role, asStr(model)]).filter(([, model]) => model !== "");
+  } catch {
+    return [];
+  }
+}
+var ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+function isValidProviderId(id) {
+  return ID_PATTERN.test(id) && id.length <= 32;
+}
+function readVclawProviders() {
+  const path3 = vclawProvidersPath();
+  const empty = { path: path3, present: false, default: null, providers: {}, probes: {} };
+  if (!existsSync5(path3)) return empty;
+  let parsed;
+  try {
+    parsed = parseYamlSubset(readFileSync5(path3, "utf8"));
+  } catch {
+    return empty;
+  }
+  const providers = {};
+  for (const [id, raw] of Object.entries(asRecord(parsed.providers))) {
+    const entry = asRecord(raw);
+    const names = Array.isArray(entry.env) ? entry.env.map((n) => asStr(n)).filter((n) => n !== "") : asStr(entry.env) !== "" ? [asStr(entry.env)] : [];
+    providers[id] = { env: names };
+  }
+  const probes = {};
+  for (const [id, raw] of Object.entries(asRecord(parsed.probes))) {
+    const p = asRecord(raw);
+    const ms = typeof p.ms === "number" ? p.ms : Number(asStr(p.ms)) || 0;
+    probes[id] = { ok: p.ok === true, ms, at: asStr(p.at) };
+  }
+  return { path: path3, present: true, default: asStr(parsed.default) || null, providers, probes };
+}
+function renderVclawProviders(state) {
+  const lines = [
+    "# ~/.config/vclaw/providers.yml \u2014 written by `vclaw provider use|rm|test`.",
+    "# Ids and ENV-VAR NAMES only. No key is ever stored here."
+  ];
+  if (state.default) lines.push(`default: ${state.default}`);
+  const ids = Object.keys(state.providers).sort();
+  if (ids.length === 0) {
+    lines.push("providers: {}", "");
+  } else {
+    lines.push("providers:");
+    for (const id of ids) {
+      const names = state.providers[id].env;
+      if (names.length === 0) {
+        lines.push(`  ${id}: {}`);
+        continue;
+      }
+      lines.push(`  ${id}:`, "    env:");
+      for (const name of names) lines.push(`      - ${name}`);
+    }
+    lines.push("");
+  }
+  const probed = Object.keys(state.probes).sort();
+  if (probed.length > 0) {
+    lines.push("probes:");
+    for (const id of probed) {
+      const p = state.probes[id];
+      lines.push(`  ${id}:`, `    ok: ${p.ok}`, `    ms: ${p.ms}`, `    at: "${p.at}"`);
+    }
+  }
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}
+`;
+}
+function writeAtomic(file, content) {
+  const mode = existsSync5(file) ? statSync2(file).mode & 511 : 384;
+  mkdirSync3(dirname(file), { recursive: true, mode: 448 });
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync2(tmp, content, { mode });
+  chmodSync2(tmp, mode);
+  renameSync2(tmp, file);
+  return mode;
+}
+function saveVclawProviders(state) {
+  return writeAtomic(state.path, renderVclawProviders(state));
+}
+function conventionalEnvNames(id) {
+  const upper = id.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return [`${upper}_API_KEY`, `${upper}_KEY`];
+}
+function resolveKey(id, ompKeyText2, envNames) {
+  const inline = ompKeyText2.trim();
+  if (inline.startsWith("!")) {
+    const command = inline.slice(1);
+    try {
+      const out = execFileSync2("/bin/sh", ["-c", command], {
+        encoding: "utf8",
+        timeout: 3e3,
+        stdio: ["ignore", "pipe", "ignore"]
+      }).trim();
+      if (out === "") return { ok: false, key: null, source: "missing", reason: "key command printed nothing" };
+      return { ok: true, key: out, source: "command" };
+    } catch {
+      return { ok: false, key: null, source: "missing", reason: "key command failed" };
+    }
+  }
+  if (inline !== "") return { ok: true, key: inline, source: "inline" };
+  for (const name of [...envNames, ...conventionalEnvNames(id)]) {
+    const value = process.env[name];
+    if (value) return { ok: true, key: value, source: "env", envName: name };
+  }
+  return { ok: false, key: null, source: "missing", reason: "no key: no apiKey in models.yml, and no env var set" };
+}
+function ompKeyText(id) {
+  const path3 = ompModelsPath();
+  if (!existsSync5(path3)) return "";
+  try {
+    return asStr(asRecord(asRecord(parseYamlSubset(readFileSync5(path3, "utf8")).providers)[id]).apiKey);
+  } catch {
+    return "";
+  }
+}
+async function probeProvider(opts) {
+  const started = Date.now();
+  const resolved = opts.keyOverride !== void 0 ? { ok: true, key: opts.keyOverride, source: "inline" } : resolveKey(opts.id, ompKeyText(opts.id), opts.envNames);
+  if (!resolved.ok || !resolved.key) {
+    return { id: opts.id, ok: false, ms: Date.now() - started, reason: resolved.reason ?? "no key" };
+  }
+  if (!/^https?:\/\//i.test(opts.baseUrl)) {
+    return { id: opts.id, ok: false, ms: Date.now() - started, reason: "baseUrl is not http(s)" };
+  }
+  const url = `${opts.baseUrl.replace(/\/+$/, "")}/models`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { authorization: `Bearer ${resolved.key}`, accept: "application/json" },
+      signal: controller.signal
+    });
+    const ms = Date.now() - started;
+    if (res.status >= 200 && res.status < 300) return { id: opts.id, ok: true, ms, status: res.status };
+    return {
+      id: opts.id,
+      ok: false,
+      ms,
+      status: res.status,
+      reason: res.status === 401 || res.status === 403 ? `auth rejected (${res.status})` : `HTTP ${res.status}`
+    };
+  } catch (e) {
+    const ms = Date.now() - started;
+    const name = e instanceof Error ? e.name : "";
+    const reason = name === "AbortError" || name === "TimeoutError" ? `timed out after ${opts.timeoutMs} ms` : "request failed";
+    return { id: opts.id, ok: false, ms, reason };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+var CATALOG = {
+  deepseek: { baseUrl: "https://api.deepseek.com", api: "openai-completions" },
+  glm: { baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4", api: "openai-completions" }
+};
+var PLACEHOLDER_MODEL = "REPLACE_WITH_MODEL_ID";
+function renderProviderStanza(plan) {
+  return [
+    `  ${plan.id}:`,
+    `    baseUrl: ${plan.baseUrl}`,
+    `    api: ${plan.api}`,
+    `    apiKey: "${plan.keyCmd}"`,
+    "    models:",
+    plan.model === PLACEHOLDER_MODEL ? `      - id: ${PLACEHOLDER_MODEL}   # edit: the model id this baseUrl serves` : `      - id: ${plan.model}`,
+    `        api: ${plan.api}`
+  ].join("\n");
+}
+function providerBlockSpan(text, id) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => l === `  ${id}:` || l.startsWith(`  ${id}: `) || l.startsWith(`  ${id}: #`));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    if (!/^\s{3,}/.test(line)) {
+      end = i;
+      break;
+    }
+  }
+  let last = end - 1;
+  while (last > start && lines[last].trim() === "") last--;
+  return { start: start + 1, end: last + 1 };
+}
+function usage() {
+  return [
+    "vclaw provider list",
+    "vclaw provider add <id> [--base-url <u>] [--api <a>] [--model <m>] [--key-cmd <!cmd>] [--write-omp]",
+    "vclaw provider test <id> [--url <u>] [--timeout <ms>] [--no-record]",
+    "vclaw provider use <id> [--env NAME[,NAME]]",
+    "vclaw provider rm <id>"
+  ].join("\n");
+}
+function flagStr(ctx, name) {
+  const v = ctx.flags[name];
+  return typeof v === "string" && v !== "" ? v : void 0;
+}
+function safeUrl(url) {
+  return url.replace(/\/\/[^/@]*@/, "//");
+}
+async function providerVerb(ctx) {
+  try {
+    return await dispatch(ctx);
+  } catch (e) {
+    const message = redactError(e instanceof Error ? e.message : String(e));
+    return {
+      state: "unavailable",
+      data: { reason: "unexpected_failure" },
+      text: `provider: ${message}`,
+      exit: 3,
+      reason: `provider: ${message}`
+    };
+  }
+}
+async function dispatch(ctx) {
+  const sub = ctx.args[0] ?? "list";
+  const id = ctx.args[1];
+  switch (sub) {
+    case "list":
+      return listVerb();
+    case "add":
+      return addVerb(ctx, id);
+    case "test":
+      return testVerb(ctx, id);
+    case "use":
+      return useVerb(ctx, id);
+    case "rm":
+      return rmVerb(ctx, id);
+    default:
+      return {
+        state: "unavailable",
+        data: { sub, usage: usage() },
+        text: `provider: unknown subcommand "${sub}"
+
+${usage()}`,
+        exit: 2,
+        reason: `provider: unknown subcommand "${sub}" (list, add, test, use, rm)`
+      };
+  }
+}
+function inventory() {
+  const omp = readOmpProviders();
+  const vclaw = readVclawProviders();
+  const rows2 = omp.providers.map((row) => {
+    const own = vclaw.providers[row.id];
+    const envNames = own?.env ?? [];
+    const envName = envNames.find((n) => Boolean(process.env[n]));
+    const keySource = row.keySource !== "none" ? row.keySource : envName ? "env" : "none";
+    return {
+      ...row,
+      keyPresent: row.keySource !== "none" || Boolean(envName),
+      keySource,
+      envNames,
+      vclawDefault: vclaw.default === row.id,
+      lastProbe: vclaw.probes[row.id] ?? null
+    };
+  });
+  return { ...omp, vclaw, rows: rows2 };
+}
+function keyLabel(row) {
+  if (!row.keyPresent) return "absent";
+  if (row.keySource === "command") return "present (command)";
+  if (row.keySource === "inline") return "present (inline)";
+  const named = row.envNames.find((n) => Boolean(process.env[n]));
+  return `present (env ${named ?? row.envNames[0] ?? "?"})`;
+}
+function roleLabel(row) {
+  const roles = [...row.roles];
+  if (row.vclawDefault) roles.push("vclaw-default");
+  return roles.length > 0 ? roles.join(",") : "\u2014";
+}
+async function listVerb() {
+  const inv = inventory();
+  const rows2 = inv.rows;
+  const data = {
+    path: inv.path,
+    present: inv.present,
+    default: inv.vclaw.default,
+    providers: rows2.map((r) => ({
+      id: r.id,
+      baseUrl: r.baseUrl,
+      api: r.api,
+      // Presence and provenance only: nothing here can leak a secret.
+      key: { present: r.keyPresent, source: r.keySource, env: r.envNames },
+      models: r.models,
+      roles: r.roles,
+      vclawDefault: r.vclawDefault,
+      lastProbe: r.lastProbe
+    })),
+    next: rows2.length === 0 ? "vclaw-agent vclaw provider add deepseek --write-omp" : "vclaw-agent vclaw provider test <id>"
+  };
+  const text = [
+    "vclaw provider \u2014 endpoints from OMP's models.yml (presence only; no key is shown)",
+    inv.present ? `  file: ${inv.path}` : `  file: ${inv.path}  (absent)`,
+    "",
+    rows2.length === 0 ? "  no providers configured \u2014 edit a stanza in:\n    vclaw-agent vclaw provider add deepseek --write-omp" : table(
+      ["id", "baseUrl", "key", "last probe", "role"],
+      rows2.map((r) => [
+        r.id,
+        r.baseUrl || "\u2014",
+        keyLabel(r),
+        r.lastProbe ? `${r.lastProbe.ok ? "ok" : "fail"} ${r.lastProbe.ms}ms ${r.lastProbe.at}` : "never",
+        roleLabel(r)
+      ])
+    ),
+    inv.vclaw.default ? `
+  vclaw default: ${inv.vclaw.default}` : "\n  vclaw default: none (`vclaw provider use <id>`)"
+  ].join("\n");
+  return { state: rows2.length === 0 ? "degraded" : "ok", data, text, exit: 0 };
+}
+async function addVerb(ctx, rawId) {
+  const write = ctx.flags["write-omp"] === true;
+  const id = rawId;
+  if (!id) {
+    return {
+      state: "unavailable",
+      data: { usage: usage() },
+      text: `provider add: an id is required
+
+${usage()}`,
+      exit: 2,
+      reason: "provider add: an id is required"
+    };
+  }
+  if (!isValidProviderId(id)) {
+    return {
+      state: "unavailable",
+      data: { id, reason: "malformed_id" },
+      text: `provider add: malformed id "${id}" \u2014 use lowercase letters, digits, "." "_" "-" (e.g. deepseek, my-gateway)`,
+      exit: 2,
+      reason: `provider add: malformed id "${id}"`
+    };
+  }
+  const catalog = CATALOG[id];
+  const baseUrl = flagStr(ctx, "base-url") ?? catalog?.baseUrl;
+  const api = flagStr(ctx, "api") ?? catalog?.api ?? "openai-completions";
+  const model = flagStr(ctx, "model") ?? PLACEHOLDER_MODEL;
+  const keyCmd = flagStr(ctx, "key-cmd") ?? `!jq -r .${id}.key ~/.pi/agent/auth.json`;
+  if (!baseUrl) {
+    return {
+      state: "unavailable",
+      data: { id, reason: "no_base_url" },
+      text: `provider add: "${id}" is not in the built-in catalog \u2014 pass --base-url <https://\u2026>`,
+      exit: 2,
+      reason: `provider add: "${id}" needs --base-url (not in the built-in catalog)`
+    };
+  }
+  const plan = { id, baseUrl, api, model, keyCmd };
+  const stanza = renderProviderStanza(plan);
+  const path3 = ompModelsPath();
+  if (!write) {
+    const data2 = { id, stanza, path: path3, written: false, next: `vclaw-agent vclaw provider add ${id} --write-omp` };
+    const text2 = [
+      `vclaw provider add ${id} \u2014 paste this under \`providers:\` in ${path3}`,
+      "",
+      stanza,
+      "",
+      `  or re-run with --write-omp to append it (the file stays mode 0600).`,
+      `  the apiKey line runs jq against Pi's key store; --key-cmd "<!cmd>" overrides it.`
+    ].join("\n");
+    return { state: "ok", data: data2, text: text2, exit: 0 };
+  }
+  if (!existsSync5(path3)) {
+    return {
+      state: "unavailable",
+      data: { id, path: path3, reason: "no_models_yml" },
+      text: `provider add: ${path3} does not exist \u2014 create it with a \`providers:\` block first, or paste:
+
+${stanza}`,
+      exit: 3,
+      reason: `provider add: ${path3} does not exist`
+    };
+  }
+  const before = readFileSync5(path3, "utf8");
+  if (!/^providers:\s*$/m.test(before)) {
+    return {
+      state: "unavailable",
+      data: { id, path: path3, reason: "no_providers_block" },
+      text: `provider add: ${path3} has no top-level \`providers:\` block \u2014 paste this by hand:
+
+${stanza}`,
+      exit: 3,
+      reason: `provider add: ${path3} has no top-level providers: block`
+    };
+  }
+  if (providerBlockSpan(before, id)) {
+    return {
+      state: "degraded",
+      data: { id, path: path3, reason: "already_present", written: false },
+      text: `provider add: "${id}" is already in ${path3} \u2014 left untouched (edit it by hand, or \`vclaw provider test ${id}\`)`,
+      exit: 2,
+      reason: `provider add: "${id}" is already in ${path3}`
+    };
+  }
+  const sep = before.endsWith("\n") ? "\n" : "\n\n";
+  const after = `${before}${sep}# added by \`vclaw provider add ${id}\` ${(/* @__PURE__ */ new Date()).toISOString()}
+${stanza}
+`;
+  const mode = writeAtomic(path3, after);
+  const data = {
+    id,
+    path: path3,
+    written: true,
+    mode: `0${mode.toString(8)}`,
+    stanza,
+    next: `vclaw-agent vclaw provider use ${id}`
+  };
+  const text = [
+    `vclaw provider add ${id} \u2014 appended to ${path3} (mode 0${mode.toString(8)})`,
+    "",
+    stanza,
+    "",
+    model === PLACEHOLDER_MODEL ? `  edit \`id: ${PLACEHOLDER_MODEL}\` to a model this endpoint serves before any call.` : `  models: ${model}`,
+    `  then: vclaw-agent vclaw provider test ${id}`
+  ].join("\n");
+  return { state: "ok", data, text, exit: 0 };
+}
+async function testVerb(ctx, id) {
+  if (!id) {
+    return {
+      state: "unavailable",
+      data: { usage: usage() },
+      text: `provider test: an id is required
+
+${usage()}`,
+      exit: 2,
+      reason: "provider test: an id is required"
+    };
+  }
+  const inv = inventory();
+  const row = inv.rows.find((r) => r.id === id);
+  const vclaw = inv.vclaw;
+  const baseUrl = flagStr(ctx, "url") ?? row?.baseUrl ?? "";
+  const envNames = vclaw.providers[id]?.env ?? [];
+  if (!row && envNames.length === 0 && flagStr(ctx, "url") === void 0) {
+    return {
+      state: "unavailable",
+      data: { id, known: inv.rows.map((r) => r.id) },
+      text: `provider test: unknown provider "${id}" (known: ${inv.rows.map((r) => r.id).join(", ") || "none"})`,
+      exit: 2,
+      reason: `provider test: unknown provider "${id}"`
+    };
+  }
+  const timeoutFlag = flagStr(ctx, "timeout") ?? "5000";
+  const timeoutMs = Number(timeoutFlag);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return {
+      state: "unavailable",
+      data: { id, timeout: timeoutFlag },
+      text: `provider test: --timeout expects milliseconds (got ${timeoutFlag})`,
+      exit: 2,
+      reason: `provider test: --timeout expects milliseconds (got ${timeoutFlag})`
+    };
+  }
+  if (!baseUrl) {
+    return {
+      state: "unavailable",
+      data: { id, reason: "no_base_url" },
+      text: `provider test: ${id} has no baseUrl in models.yml \u2014 pass --url <http://host/v1>`,
+      exit: 3,
+      reason: `provider test: ${id} has no baseUrl in models.yml`
+    };
+  }
+  const outcome = await probeProvider({ id, baseUrl, envNames, timeoutMs });
+  let recordedPath = null;
+  if (ctx.flags["no-record"] !== true) {
+    const next = {
+      ...vclaw,
+      providers: { ...vclaw.providers, [id]: vclaw.providers[id] ?? { env: [] } },
+      probes: { ...vclaw.probes, [id]: { ok: outcome.ok, ms: outcome.ms, at: (/* @__PURE__ */ new Date()).toISOString() } }
+    };
+    try {
+      saveVclawProviders(next);
+      recordedPath = next.path;
+    } catch {
+      recordedPath = null;
+    }
+  }
+  const data = {
+    id,
+    ok: outcome.ok,
+    ms: outcome.ms,
+    ...outcome.status !== void 0 ? { status: outcome.status } : {},
+    ...outcome.reason ? { reason: outcome.reason } : {},
+    url: safeUrl(baseUrl),
+    recorded: recordedPath
+  };
+  const url = safeUrl(baseUrl);
+  const reason = outcome.reason ?? "request failed";
+  const text = outcome.ok ? `vclaw provider test ${id} \u2014 ok in ${outcome.ms} ms (GET ${url}/models)${recordedPath ? `
+  recorded in ${recordedPath}` : ""}` : [
+    `vclaw provider test ${id} \u2014 FAILED after ${outcome.ms} ms`,
+    `  ${reason} \xB7 GET ${url}/models`,
+    "  the key is used but never printed; fix the endpoint or the key source, then re-run."
+  ].join("\n");
+  return {
+    state: outcome.ok ? "ok" : "unavailable",
+    data,
+    text,
+    exit: outcome.ok ? 0 : 3,
+    ...outcome.ok ? {} : { reason: `provider test ${id}: ${reason}` }
+  };
+}
+async function useVerb(ctx, id) {
+  if (!id) {
+    return {
+      state: "unavailable",
+      data: { usage: usage() },
+      text: `provider use: an id is required
+
+${usage()}`,
+      exit: 2,
+      reason: "provider use: an id is required"
+    };
+  }
+  if (!isValidProviderId(id)) {
+    return {
+      state: "unavailable",
+      data: { id, reason: "malformed_id" },
+      text: `provider use: malformed id "${id}"`,
+      exit: 2,
+      reason: `provider use: malformed id "${id}"`
+    };
+  }
+  const inv = inventory();
+  const known = inv.rows.some((r) => r.id === id) || Boolean(inv.vclaw.providers[id]);
+  if (!known) {
+    return {
+      state: "unavailable",
+      data: { id, known: inv.rows.map((r) => r.id) },
+      text: `provider use: unknown provider "${id}" (known: ${inv.rows.map((r) => r.id).join(", ") || "none"})`,
+      exit: 2,
+      reason: `provider use: unknown provider "${id}"`
+    };
+  }
+  const names = (flagStr(ctx, "env") ?? "").split(",").map((n) => n.trim()).filter((n) => n !== "");
+  for (const name of names) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
+      return {
+        state: "unavailable",
+        data: { id, env: "rejected", length: name.length },
+        text: `provider use: --env expects ENV VAR NAMES, never a key \u2014 refused a ${name.length}-character value`,
+        exit: 2,
+        reason: "provider use: --env expects ENV VAR NAMES, never a key"
+      };
+    }
+  }
+  const existing = inv.vclaw.providers[id]?.env ?? [];
+  const next = {
+    ...inv.vclaw,
+    default: id,
+    providers: { ...inv.vclaw.providers, [id]: { env: [.../* @__PURE__ */ new Set([...existing, ...names])] } }
+  };
+  const mode = saveVclawProviders(next);
+  const data = {
+    id,
+    path: next.path,
+    mode: `0${mode.toString(8)}`,
+    env: next.providers[id].env,
+    inOmp: inv.rows.some((r) => r.id === id),
+    next: `vclaw-agent vclaw provider test ${id}`
+  };
+  const text = [
+    `vclaw provider use ${id} \u2014 default recorded in ${next.path} (mode 0${mode.toString(8)})`,
+    kv([
+      ["default", id],
+      ["env names", next.providers[id].env.join(",") || "(none recorded)"],
+      ["in models.yml", inv.rows.some((r) => r.id === id) ? "yes" : "no \u2014 this is vclaw's bookmark only"]
+    ]),
+    "",
+    `  next: vclaw-agent vclaw provider test ${id}`
+  ].join("\n");
+  return { state: "ok", data, text, exit: 0 };
+}
+async function rmVerb(ctx, id) {
+  if (!id) {
+    return {
+      state: "unavailable",
+      data: { usage: usage() },
+      text: `provider rm: an id is required
+
+${usage()}`,
+      exit: 2,
+      reason: "provider rm: an id is required"
+    };
+  }
+  const inv = inventory();
+  if (!inv.vclaw.providers[id] && inv.vclaw.default !== id) {
+    return {
+      state: "unavailable",
+      data: { id, path: inv.vclaw.path },
+      text: `provider rm: "${id}" is not recorded in ${inv.vclaw.path} \u2014 nothing to remove`,
+      exit: 2,
+      reason: `provider rm: "${id}" is not recorded in ${inv.vclaw.path}`
+    };
+  }
+  const providers = { ...inv.vclaw.providers };
+  delete providers[id];
+  const probes = { ...inv.vclaw.probes };
+  delete probes[id];
+  const next = {
+    ...inv.vclaw,
+    providers,
+    probes,
+    default: inv.vclaw.default === id ? null : inv.vclaw.default
+  };
+  const mode = saveVclawProviders(next);
+  const path3 = ompModelsPath();
+  let span = null;
+  if (existsSync5(path3)) {
+    try {
+      span = providerBlockSpan(readFileSync5(path3, "utf8"), id);
+    } catch {
+      span = null;
+    }
+  }
+  const data = {
+    id,
+    path: next.path,
+    mode: `0${mode.toString(8)}`,
+    default: next.default,
+    ompPath: path3,
+    ompLines: span,
+    next: span ? `delete lines ${span.start}-${span.end} of ${path3} to remove it from OMP too` : null
+  };
+  const text = [
+    `vclaw provider rm ${id} \u2014 removed from ${next.path} (mode 0${mode.toString(8)})`,
+    span ? `  models.yml still has it: delete lines ${span.start}-${span.end} of ${path3} (id "${id}")` : `  ${path3} has no "${id}" block`,
+    next.default ? `  vclaw default is now ${next.default}` : "  vclaw default: none"
+  ].join("\n");
+  return { state: "ok", data, text, exit: 0 };
 }
 
 // src/vclaw/verbs/doctor.ts
+function providerChecks() {
+  const inv = inventory();
+  if (inv.rows.length === 0) {
+    return [
+      {
+        id: "provider",
+        ok: false,
+        detail: `no providers in ${inv.path}`,
+        fix: "vclaw-agent vclaw provider add deepseek --write-omp"
+      }
+    ];
+  }
+  return inv.rows.map((r) => {
+    const key = r.keyPresent ? `key present (${r.keySource})` : "no key \u2014 apiKey empty in models.yml and no env var set";
+    const probe = r.lastProbe === null ? "probe never run" : r.lastProbe.ok ? `probe ok ${r.lastProbe.ms}ms` : `probe FAILED ${r.lastProbe.ms}ms ${r.lastProbe.at}`;
+    const role = r.roles.length > 0 ? `role ${r.roles.join(",")}` : "role \u2014";
+    const probeFailed = r.lastProbe !== null && !r.lastProbe.ok;
+    return {
+      id: `provider:${r.id}`,
+      ok: r.keyPresent && !probeFailed,
+      detail: `${key} \xB7 ${probe} \xB7 ${role}`,
+      ...!r.keyPresent ? { fix: `vclaw-agent vclaw provider add ${r.id}` } : probeFailed ? { fix: `vclaw-agent vclaw provider test ${r.id}` } : {}
+    };
+  });
+}
 async function collectChecks() {
   const cloud = await readCloud();
   const site = readSite();
@@ -15618,7 +16618,7 @@ async function collectChecks() {
       id: "identity",
       ok: cloud.credentials.present,
       detail: cloud.credentials.present ? `credentials at ${cloud.credentials.path}` : "no credentials",
-      fix: "vclaw-agent claim"
+      fix: "vclaw-agent vclaw login"
     },
     {
       // Not a failure when there is no identity: nothing can fix a claim you
@@ -15634,6 +16634,7 @@ async function collectChecks() {
       detail: cloud.config.server ? `server ${cloud.config.server}` : "config has no server",
       fix: "set `server` in ~/.config/vclaw/config.json (vclaw connect lands in roadmap D)"
     },
+    ...providerChecks(),
     {
       id: "site-fabric",
       ok: site.present && site.tokenPresent,
@@ -15651,34 +16652,21 @@ async function collectChecks() {
 }
 async function doctorVerb(_ctx) {
   const checks = await collectChecks();
-  const identityFails = checks.some((c) => !c.ok && (c.id === "identity" || c.id === "claim"));
-  const anyFails = checks.some((c) => !c.ok);
+  const failing = checks.filter((c) => !c.ok);
+  const identityFails = failing.some((c) => c.id === "identity" || c.id === "claim");
+  const anyFails = failing.length > 0;
   const state = anyFails ? "degraded" : "ok";
   const exit = !anyFails ? 0 : identityFails ? 4 : 3;
-  const data = { state, checks, failures: checks.filter((c) => !c.ok).map((c) => c.id) };
+  const data = { state, checks, failures: failing.map((c) => c.id) };
   const lines = [
     "vclaw doctor",
     ...checks.map((c) => c.ok ? `  \u2713 ${c.id.padEnd(12)} ${c.detail}` : `  \u2717 ${c.id.padEnd(12)} ${c.detail}${c.fix ? `
       fix: ${c.fix}` : ""}`),
     anyFails ? `
-${checks.filter((c) => !c.ok).length} check(s) failing` : "\nall checks pass"
+${failing.length} check(s) failing` : "\nall checks pass"
   ];
-  return { state, data, text: lines.join("\n"), exit };
-}
-
-// src/vclaw/render.ts
-function kv(pairs) {
-  const rows2 = pairs.filter(([, v]) => v !== void 0);
-  if (rows2.length === 0) return "";
-  const width = Math.max(...rows2.map(([k]) => k.length));
-  return rows2.map(([k, v]) => `  ${k.padEnd(width)}  ${String(v)}`).join("\n");
-}
-function table(headers, rows2) {
-  if (rows2.length === 0) return "  (none)";
-  const cells = rows2.map((r) => r.map((c) => c === null || c === void 0 ? "\u2014" : String(c)));
-  const widths = headers.map((h2, i) => Math.max(h2.length, ...cells.map((r) => (r[i] ?? "").length)));
-  const line = (r) => `  ${r.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ")}`.trimEnd();
-  return [line(headers), line(widths.map((w) => "\u2500".repeat(w))), ...cells.map(line)].join("\n");
+  const reason = anyFails ? `${failing.length} check(s) failing: ${failing.map((c) => `${c.id} (${c.detail})`).join("; ")}` : void 0;
+  return { state, data, text: lines.join("\n"), exit, ...reason ? { reason } : {} };
 }
 
 // src/vclaw/verbs/peers.ts
@@ -15695,7 +16683,7 @@ async function peersVerb(ctx) {
     return {
       state: "unavailable",
       data: { tier, peers: [], reason: "no identity and no roster" },
-      text: "no identity and no cached roster \u2014 run `vclaw-agent claim` first",
+      text: "no identity and no cached roster \u2014 run `vclaw-agent vclaw login` first",
       exit: 4
     };
   }
@@ -15810,8 +16798,218 @@ function checkApproveProofLocally(proof, keyForms, expectedNonce, nowSec = Math.
   return ok ? null : "proof signature verification failed";
 }
 
+// src/lib/agent-assertion.ts
+var import_nkeys4 = __toESM(require_mod(), 1);
+var ASSERTION_HEADER = { alg: "ed25519-nkey", typ: "JWT" };
+var AGENT_ASSERTION_MAX_TTL_SECONDS = 300;
+function b64url2(data) {
+  return (typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data)).toString("base64url");
+}
+function b64urlText(part) {
+  return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+}
+function buildAgentAssertion(input) {
+  const { seed, publicKey } = input;
+  if (!publicKey || !publicKey.startsWith("U")) {
+    throw new Error(
+      `buildAgentAssertion: publicKey must be the NKey-pub U-form (got "${String(publicKey).slice(0, 4)}\u2026") \u2014 the verifier resolves the signature FROM iss`
+    );
+  }
+  const ttl = input.ttlSeconds ?? AGENT_ASSERTION_MAX_TTL_SECONDS;
+  if (!Number.isInteger(ttl) || ttl < 1 || ttl > AGENT_ASSERTION_MAX_TTL_SECONDS) {
+    throw new Error(
+      `buildAgentAssertion: exp-iat must be 1..${AGENT_ASSERTION_MAX_TTL_SECONDS} seconds (got ${ttl}) \u2014 the verifier refuses longer assertions`
+    );
+  }
+  const iat = input.now ?? Math.floor(Date.now() / 1e3);
+  const payload = { iss: publicKey, sub: publicKey };
+  if (input.audience) payload.aud = input.audience;
+  payload.iat = iat;
+  payload.exp = iat + ttl;
+  const signingInput = `${b64url2(JSON.stringify(ASSERTION_HEADER))}.${b64url2(JSON.stringify(payload))}`;
+  const kp = (0, import_nkeys4.fromSeed)(typeof seed === "string" ? new TextEncoder().encode(seed) : seed);
+  const sig = kp.sign(new TextEncoder().encode(signingInput));
+  return `${signingInput}.${b64url2(sig)}`;
+}
+async function postAgentJson(opts) {
+  const url = `${opts.baseUrl.replace(/\/+$/, "")}${opts.path}`;
+  const headers = { "Content-Type": "application/json" };
+  if (opts.bearer) headers.Authorization = `Bearer ${opts.bearer}`;
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(opts.body),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 1e4)
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    const timeout = name === "TimeoutError" || name === "AbortError";
+    return {
+      ok: false,
+      status: 0,
+      error: timeout ? "timeout" : "unreachable",
+      message: `${url}: ${e instanceof Error ? e.message : String(e)}`
+    };
+  }
+  const text = await resp.text().catch(() => "");
+  const contentType = (resp.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() || null;
+  let body = {};
+  let jsonBody = false;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+      jsonBody = true;
+    } catch {
+    }
+  }
+  if (resp.ok) return { ok: true, status: resp.status, body };
+  return {
+    ok: false,
+    status: resp.status,
+    // apierr envelope: {error: <code>, message} (+ the claim-error header family).
+    error: typeof body.error === "string" ? body.error : `http_${resp.status}`,
+    message: typeof body.message === "string" ? body.message : text.slice(0, 200),
+    contentType,
+    jsonBody,
+    rawBody: text.length > 1024 ? text.slice(0, 1024) : text
+  };
+}
+var MUX_ROUTE_ABSENT_BODY = "404 page not found";
+function lifecycleExitClass(endpoint, failure) {
+  const { status, error } = failure;
+  if (error === "assertion_unmintable") return 4;
+  if (status === 0) return 3;
+  if (status === 401) return 4;
+  if (status === 400) return 2;
+  switch (endpoint) {
+    case "claim-link":
+      if (status === 409) return 0;
+      if (status === 403) return 4;
+      if (status === 404) return 4;
+      return 3;
+    case "revoke-self":
+      if (status === 403) return 4;
+      if (status === 404) return 3;
+      return 3;
+    case "presence":
+      if (status === 403) return 4;
+      return 3;
+  }
+}
+function isMuxRouteAbsent404(r) {
+  if (r.ok || r.status !== 404) return false;
+  if (r.jsonBody !== false) return false;
+  if (typeof r.rawBody !== "string") return false;
+  if (r.rawBody.trim() !== MUX_ROUTE_ABSENT_BODY) return false;
+  return typeof r.contentType === "string" && r.contentType.startsWith("text/plain");
+}
+async function postAgentWithAssertion(opts) {
+  let assertion;
+  try {
+    assertion = buildAgentAssertion({ seed: opts.seed, publicKey: opts.publicKey, ...opts.now !== void 0 ? { now: opts.now } : {} });
+  } catch (e) {
+    return { ok: false, status: 0, error: "assertion_unmintable", message: e instanceof Error ? e.message : String(e) };
+  }
+  return postAgentJson({
+    baseUrl: opts.baseUrl,
+    path: opts.path,
+    body: { ...opts.body, client_assertion: assertion },
+    timeoutMs: opts.timeoutMs
+  });
+}
+function normalizeGrants(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const read = (v) => {
+    if (Array.isArray(v)) return v.filter((x) => typeof x === "string");
+    if (v && typeof v === "object" && "allow" in v && Array.isArray(v.allow)) {
+      return v.allow.filter((x) => typeof x === "string");
+    }
+    return [];
+  };
+  const pub = read("pub" in raw ? raw.pub : void 0);
+  const sub = read("sub" in raw ? raw.sub : void 0);
+  return pub.length === 0 && sub.length === 0 ? null : { pub, sub };
+}
+function decodeTokenClaims(jwt) {
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return null;
+  let payload;
+  try {
+    payload = JSON.parse(b64urlText(parts[1]));
+  } catch {
+    return null;
+  }
+  const num = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  return {
+    jti: typeof payload.jti === "string" && payload.jti.length > 0 ? payload.jti : null,
+    iat: num(payload.iat),
+    exp: num(payload.exp),
+    segment: typeof payload.segment === "string" ? payload.segment : null,
+    grants: normalizeGrants(payload.nats ?? payload.grants)
+  };
+}
+async function requestAgentToken(opts) {
+  const now = opts.now ?? Math.floor(Date.now() / 1e3);
+  let assertion;
+  try {
+    assertion = buildAgentAssertion({
+      seed: opts.seed,
+      publicKey: opts.publicKey,
+      now,
+      // See the file header: the token endpoint's shipped client sends `aud`.
+      audience: opts.baseUrl
+    });
+  } catch (e) {
+    return { ok: false, status: 0, error: "assertion_unmintable", message: e instanceof Error ? e.message : String(e) };
+  }
+  const r = await postAgentJson({
+    baseUrl: opts.baseUrl,
+    path: "/v1/agent/token",
+    body: { client_assertion: assertion, grant_type: "client_credentials" },
+    timeoutMs: opts.timeoutMs
+  });
+  if (!r.ok) return r;
+  const accessToken = typeof r.body.access_token === "string" ? r.body.access_token : "";
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: r.status,
+      error: "token_missing",
+      message: "the token endpoint answered 200 without an access_token"
+    };
+  }
+  const claims = decodeTokenClaims(accessToken);
+  const bodyJti = typeof r.body.jti === "string" && r.body.jti.length > 0 ? r.body.jti : null;
+  const bodyExp = typeof r.body.exp === "number" ? r.body.exp : null;
+  const bodyTtl = typeof r.body.ttl === "number" ? r.body.ttl : typeof r.body.expires_in === "number" ? r.body.expires_in : null;
+  const exp = bodyExp ?? claims?.exp ?? null;
+  return {
+    ok: true,
+    status: r.status,
+    body: {
+      accessToken,
+      jti: bodyJti ?? claims?.jti ?? null,
+      exp,
+      ttl: bodyTtl ?? (exp !== null ? exp - now : null),
+      segment: (typeof r.body.segment === "string" ? r.body.segment : null) ?? claims?.segment ?? null,
+      grants: normalizeGrants(r.body.grants) ?? claims?.grants ?? null,
+      mintedAt: now,
+      source: bodyJti !== null || bodyExp !== null ? "body" : claims?.jti || claims?.exp ? "claims" : "none"
+    }
+  };
+}
+
 // src/lib/vgate.ts
 var DEFAULT_API_URL = env("API_URL") || env("VGATE_URL") || "https://api.vclawhub.com";
+var VGATE_DEFAULT_URL = "https://api.vclawhub.com";
+function resolvedVgateUrl() {
+  return env("API_URL") || env("VGATE_URL") || VGATE_DEFAULT_URL;
+}
+function configuredVgateUrl() {
+  return readConfigSync()?.vgateUrl ?? resolvedVgateUrl();
+}
 var VgateClient = class {
   apiUrl;
   constructor(apiUrl) {
@@ -15995,27 +17193,101 @@ async function beginSignup(opts = {}) {
     created_at: existing?.created_at ?? (/* @__PURE__ */ new Date()).toISOString()
   });
   await writePendingFlag(keypair.publicKey);
-  const challenge = intro.approve_challenge ?? "";
-  let proofMinted = false;
-  let proof = "";
-  if (challenge) {
-    try {
-      const p = buildApproveProofForKeypair(keypair, challenge, { expiresInSeconds: 24 * 3600 });
-      checkApproveProofLocally(p, [keypair.publicKey, base64urlPub], challenge);
-      proof = p;
-      proofMinted = true;
-    } catch {
-    }
-  }
+  const proof = mintClaimProof(keypair, base64urlPub, intro.approve_challenge ?? "");
   return {
     claimUrl: claimUrlWithProof(CLAIM_BASE(), sessionId, proof || void 0),
     sessionId,
     nkey: keypair.publicKey,
     base64urlPub,
     name,
-    proofMinted,
+    proofMinted: proof !== "",
     resumed: intro.resumed === true,
     ...backupPath ? { backupPath } : {}
+  };
+}
+function mintClaimProof(keypair, base64urlPub, challenge) {
+  if (!challenge) return "";
+  try {
+    const proof = buildApproveProofForKeypair(keypair, challenge, { expiresInSeconds: 24 * 3600 });
+    checkApproveProofLocally(proof, [keypair.publicKey, base64urlPub], challenge);
+    return proof;
+  } catch {
+    return "";
+  }
+}
+async function resumeClaimLink() {
+  const existing = await loadCredentials().catch(() => null);
+  if (!existing?.seed || !existing.public_key) return { kind: "no_identity" };
+  if (!hasPendingFlag()) return { kind: "not_pending" };
+  const keypair = await keypairFromSeed(existing.seed);
+  const base64urlPub = Buffer.from(keypair.rawPublicKey).toString("base64url");
+  const nkey = existing.public_key;
+  const base = configuredVgateUrl();
+  const res = await postAgentWithAssertion({
+    baseUrl: base,
+    path: "/v1/agent/claim-link",
+    seed: existing.seed,
+    publicKey: nkey,
+    // `nkey_public` is the RAW form introduce stores the record under; the
+    // server canonicalises either form, so this is "the form the row was keyed by".
+    body: { nkey_public: base64urlPub }
+  });
+  if (!res.ok) {
+    if (res.status === 409) return { kind: "already_claimed", nkey };
+    if (isMuxRouteAbsent404(res)) return introduceAgain(base, existing.name, keypair, base64urlPub, nkey);
+    if (res.status === 404) return { kind: "no_pending_claim", nkey };
+    return { kind: "refused", nkey, status: res.status, error: res.error, message: res.message };
+  }
+  const sessionId = typeof res.body.session_id === "string" ? res.body.session_id : "";
+  if (!sessionId) {
+    return {
+      kind: "refused",
+      nkey,
+      status: res.status,
+      error: "protocol_error",
+      message: "claim-link answered 200 without a session_id"
+    };
+  }
+  const proof = mintClaimProof(keypair, base64urlPub, res.body.approve_challenge ?? "");
+  return {
+    claimUrl: claimUrlWithProof(CLAIM_BASE(), sessionId, proof || void 0),
+    sessionId,
+    nkey,
+    expiresAt: typeof res.body.expires_at === "string" ? res.body.expires_at : null,
+    linkExpiresAt: typeof res.body.link_expires_at === "string" ? res.body.link_expires_at : null,
+    resumed: res.body.resumed === true,
+    via: "claim-link"
+  };
+}
+async function introduceAgain(base, name, keypair, base64urlPub, nkey) {
+  const res = await postAgentJson({
+    baseUrl: base,
+    path: "/v1/agent/introduce",
+    body: { nkey_public: base64urlPub, name: name || `agent-${keypair.hexPublicKey.slice(0, 8)}` }
+  });
+  if (!res.ok) {
+    return { kind: "refused", nkey, status: res.status, error: res.error, message: res.message };
+  }
+  const sessionId = res.body.session_id || res.body.agent_id || "";
+  if (!sessionId) {
+    return {
+      kind: "refused",
+      nkey,
+      status: res.status,
+      error: "protocol_error",
+      message: "introduce answered 200 without a session_id"
+    };
+  }
+  const proof = mintClaimProof(keypair, base64urlPub, res.body.approve_challenge ?? "");
+  return {
+    claimUrl: claimUrlWithProof(CLAIM_BASE(), sessionId, proof || void 0),
+    sessionId,
+    nkey,
+    // introduce predates the two clocks; it never reported either.
+    expiresAt: null,
+    linkExpiresAt: null,
+    resumed: res.body.resumed === true,
+    via: "introduce"
   };
 }
 async function pollClaimOnce(client, base64urlPub) {
@@ -16036,6 +17308,10 @@ async function completeSignup(claim) {
 }
 
 // src/vclaw/verbs/status.ts
+function providerLine(rows2) {
+  if (rows2.length === 0) return "none configured \u2014 vclaw-agent vclaw provider add deepseek --write-omp";
+  return rows2.map((r) => `${r.id} ${r.configured ? "\u2713" : "\u2717"}`).join(" \xB7 ");
+}
 async function statusVerb(ctx) {
   const deep = ctx.flags.deep === true;
   const cloud = await readCloud();
@@ -16043,6 +17319,13 @@ async function statusVerb(ctx) {
   const pears = await readPears(deep);
   const inbox = readInbox();
   const peers = readPeers();
+  const providers = inventory().rows.map((r) => ({
+    id: r.id,
+    configured: r.keyPresent,
+    // A provider may serve several modelRoles; the row reports the first, and
+    // `null` says the router does not point at this provider at all.
+    role: r.roles[0] ?? null
+  }));
   let pendingClaim = cloud.pendingClaim;
   let steward = cloud.steward;
   let reconciled;
@@ -16070,7 +17353,7 @@ async function statusVerb(ctx) {
   };
   const state = !identityReady ? "unavailable" : siteOk && pears.available ? "ok" : "degraded";
   const exit = identityReady ? 0 : 4;
-  const next = !identityReady ? "vclaw-agent claim            # establish this host's identity" : !siteOk ? "start the site fabric, or ignore it (site-only features stay off)" : peers.length === 0 ? "vclaw-agent vclaw peers     # no peers recorded yet" : "vclaw-agent vclaw peers --tier all";
+  const next = !identityReady ? "vclaw-agent vclaw login      # print the auth link, then approve it" : !siteOk ? "start the site fabric, or ignore it (site-only features stay off)" : peers.length === 0 ? "vclaw-agent vclaw peers     # no peers recorded yet" : "vclaw-agent vclaw peers --tier all";
   const data = {
     state,
     deep,
@@ -16099,6 +17382,9 @@ async function statusVerb(ctx) {
     pears,
     inbox,
     peers: { total: peers.length, byTier },
+    // The mockup's dashboard answers "which providers are configured" (§5.2);
+    // without this row "no model configured" surfaced later as a harness error.
+    providers,
     next
   };
   const text = [
@@ -16109,12 +17395,14 @@ async function statusVerb(ctx) {
       ["cloud", cloud.config.server ? `${cloud.config.server}${cloud.config.runtime ? `  (runtime ${cloud.config.runtime})` : ""}` : "no config"],
       ["site", site.present ? `${site.url}  token:${site.tokenPresent ? "yes" : "no"}` : "absent (optional)"],
       ["tier P", pears.available ? `helper ${pears.helper ?? "?"}  node ${pears.node ?? "?"}  delegations ${pears.delegations ?? 0}${deep && pears.socketLive !== void 0 ? `  socket:${pears.socketLive}` : ""}` : `unavailable \u2014 ${pears.detail ?? "no reason given"}`],
-      ["inbox", `${inbox.messages} message(s) in ${inbox.files} file(s)`],
+      ["inbox", `${inbox.unread} unread / ${inbox.total} total in ${inbox.files} file(s)`],
+      ["providers", providerLine(providers)],
       ["peers", `${peers.length} cached  (cloud ${byTier.cloud} \xB7 site ${byTier.site} \xB7 unknown ${byTier.unknown})`],
       ["next", next]
     ])
   ].join("\n");
-  return { state, data, text, exit };
+  const reason = !identityReady ? `identity not ready \u2014 no credentials at ${cloud.credentials.path}; run \`vclaw-agent vclaw login\`` : void 0;
+  return { state, data, text, exit, ...reason ? { reason } : {} };
 }
 
 // src/agent/lifecycle.ts
@@ -23200,13 +24488,13 @@ function sanitizeToken(s) {
 }
 
 // src/version.ts
-import { readFileSync as readFileSync4 } from "node:fs";
+import { readFileSync as readFileSync6 } from "node:fs";
 function sdkVersion() {
   const stamped = "1.5.0";
   if (stamped) return stamped;
   try {
     const pkg = JSON.parse(
-      readFileSync4(new URL("../package.json", import.meta.url), "utf-8")
+      readFileSync6(new URL("../package.json", import.meta.url), "utf-8")
     );
     return pkg.version ?? "0.0.0";
   } catch {
@@ -23372,7 +24660,7 @@ function startPresence(nc, identity, options) {
 }
 
 // src/net/directory.ts
-var import_nkeys4 = __toESM(require_mod(), 1);
+var import_nkeys5 = __toESM(require_mod(), 1);
 var DEFAULT_TTL_MS = 9e4;
 var DEFAULT_MAX_FUTURE_MS = 5e3;
 var DEFAULT_SWEEP_MS = 3e4;
@@ -23422,7 +24710,7 @@ function verifyAnnouncement(subject, data, now, ttlMs = DEFAULT_TTL_MS, maxFutur
   }
   let kp;
   try {
-    kp = (0, import_nkeys4.fromPublic)(ann.nkey);
+    kp = (0, import_nkeys5.fromPublic)(ann.nkey);
   } catch {
     return { ok: false, reason: "bad_signature" };
   }
@@ -23714,9 +25002,9 @@ async function fetchNatsUserJWT(vgateUrl, nkeyPublic, seed) {
   return withRetry(() => fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed));
 }
 async function fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed) {
-  const header = b64url2(JSON.stringify({ alg: "ed25519-nkey", typ: "JWT" }));
+  const header = b64url3(JSON.stringify({ alg: "ed25519-nkey", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1e3);
-  const payload = b64url2(JSON.stringify({
+  const payload = b64url3(JSON.stringify({
     iss: nkeyPublic,
     sub: nkeyPublic,
     aud: vgateUrl,
@@ -23727,7 +25015,7 @@ async function fetchNatsUserJWTOnce(vgateUrl, nkeyPublic, seed) {
   const signingInput = `${header}.${payload}`;
   const kp = import_nats_core2.nkeys.fromSeed(new TextEncoder().encode(seed));
   const sig = kp.sign(new TextEncoder().encode(signingInput));
-  const assertion = `${signingInput}.${b64url2(sig)}`;
+  const assertion = `${signingInput}.${b64url3(sig)}`;
   const resp = await fetch(`${vgateUrl}/v1/agent/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -23774,7 +25062,7 @@ async function connectViaJWT(natsUrl, tokenProvider, seed, name) {
   });
   return conn;
 }
-function b64url2(data) {
+function b64url3(data) {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -23870,6 +25158,22 @@ function segmentFromJwt(jwt) {
   }
   return void 0;
 }
+function whoText(segment, waitMs, rows2, self2, rejected) {
+  const key = (nkey) => {
+    const shown = nkey.length > 56 ? `${nkey.slice(0, 56)}\u2026` : nkey;
+    return nkey === self2 ? `${shown} (you)` : shown;
+  };
+  return [
+    `vclaw who  (segment ${segment}, ${Math.round(waitMs / 1e3)}s window, read-only)`,
+    table(
+      ["peer", "name", "state", "seen"],
+      rows2.map((r) => [key(r.nkey), r.name ?? null, r.state ?? null, r.seen ?? null])
+    ),
+    rows2.length === 0 ? `
+no verified announcements in this window \u2014 nobody on this segment is online, they announce less often than the window${rejected > 0 ? `, or ${rejected} record(s) failed verification` : ""}` : `
+${rows2.filter((r) => r.nkey !== self2).length} other agent(s) around${rejected > 0 ? ` (${rejected} record(s) rejected)` : ""}`
+  ].join("\n");
+}
 async function whoVerb(ctx) {
   const requestedSegment = typeof ctx.flags.segment === "string" ? ctx.flags.segment : void 0;
   const waitMs = Number(ctx.flags.wait ?? 4e3) || 4e3;
@@ -23927,17 +25231,173 @@ async function whoVerb(ctx) {
   const rows2 = dir.snapshot().map(whoRowOf).sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
   const others = rows2.filter((r) => r.nkey !== self2);
   const data = { segment, server, windowMs: waitMs, self: self2, peers: rows2, others: others.length, accepted: dir.accepted, rejected: dir.rejected };
-  const text = [
-    `vclaw who  (segment ${segment}, ${Math.round(waitMs / 1e3)}s window, read-only)`,
-    table(
-      ["peer", "name", "state", "seen"],
-      rows2.map((r) => [r.nkey === self2 ? `${r.nkey.slice(0, 12)}\u2026 (you)` : `${r.nkey.slice(0, 12)}\u2026`, r.name ?? null, r.state ?? null, r.seen ?? null])
-    ),
-    rows2.length === 0 ? `
-no verified announcements in this window \u2014 nobody on this segment is online, they announce less often than the window${dir.rejected > 0 ? `, or ${dir.rejected} record(s) failed verification` : ""}` : `
-${others.length} other agent(s) around${dir.rejected > 0 ? ` (${dir.rejected} record(s) rejected)` : ""}`
-  ].join("\n");
+  const text = whoText(segment, waitMs, rows2, self2, dir.rejected);
   return { state: rows2.length > 0 ? "ok" : "degraded", data, text, exit: 0 };
+}
+
+// src/vclaw/verbs/login.ts
+async function loginVerb(ctx) {
+  const waitSec = Math.min(Math.max(Number(ctx.flags.wait ?? 0) || 0, 0), 900);
+  const creds = await loadCredentials().catch(() => null);
+  if (!creds?.public_key) {
+    return {
+      state: "unavailable",
+      exit: 4,
+      data: { needsSignup: true },
+      text: [
+        "vclaw login \u2014 no identity on this host",
+        "",
+        "  next: /vclaw signup      # mints the identity and prints the auth link"
+      ].join("\n")
+    };
+  }
+  if (!hasPendingFlag()) {
+    return {
+      state: "ok",
+      exit: 0,
+      data: { claim: "approved", nkey: creds.public_key, name: creds.name ?? null },
+      text: [
+        `vclaw login \u2014 already authenticated as ${creds.name || creds.public_key.slice(0, 12)}`,
+        kv([["nkey", creds.public_key]]),
+        "",
+        "  next: /vclaw status --deep      # reconcile the claim and the planes"
+      ].join("\n")
+    };
+  }
+  let link;
+  try {
+    link = await resumeClaimLink();
+  } catch (e) {
+    const err2 = classifyFabricError(e);
+    return { state: "unavailable", exit: err2.code, data: {}, text: `vclaw login \u2014 ${err2.message}`, reason: err2.message };
+  }
+  if ("kind" in link) {
+    if (link.kind === "already_claimed") {
+      return {
+        state: "ok",
+        exit: 0,
+        data: { claim: "approved", claimState: "already_claimed", nkey: link.nkey },
+        text: [
+          "vclaw login \u2014 this identity is already claimed",
+          kv([["nkey", link.nkey], ["claim", "APPROVED"]]),
+          "",
+          "  Nothing to approve, and no link is minted: the server refused a",
+          "  second pending claim for a key it already owns.",
+          "",
+          "  next: /vclaw status --deep      # reconcile the claim and the planes"
+        ].join("\n")
+      };
+    }
+    if (link.kind === "no_pending_claim") {
+      return {
+        state: "unavailable",
+        exit: 4,
+        data: { claim: "none", needsSignup: true, nkey: link.nkey },
+        text: [
+          `vclaw login \u2014 no pending claim for ${link.nkey.slice(0, 12)}\u2026`,
+          kv([["nkey", link.nkey], ["claim", "none"]]),
+          "",
+          "  There is no pending claim to re-issue, so there is no link to print.",
+          "  An identity must be introduced (vgate: `up`) before a link exists:",
+          "",
+          "  next: /vclaw signup      # introduce this identity and print its link"
+        ].join("\n")
+      };
+    }
+    if (link.kind === "refused") {
+      const exit = lifecycleExitClass("claim-link", link);
+      const target = configuredVgateUrl();
+      return {
+        state: exit === 2 ? "degraded" : "unavailable",
+        exit,
+        data: { nkey: link.nkey, status: link.status, error: link.error, target },
+        text: [
+          `vclaw login \u2014 the claim link was refused (${link.status || "transport"} ${link.error})`,
+          kv([["nkey", link.nkey], ["target", target], ["reason", link.message]]),
+          "",
+          exit === 2 ? "  The request was malformed \u2014 that is a client bug, not a server state; report it." : "  Nothing local changed: the pending claim and the seed are exactly as they were."
+        ].join("\n"),
+        reason: link.message
+      };
+    }
+    return {
+      state: "degraded",
+      exit: 4,
+      data: { needsSignup: true, reason: link.kind },
+      text: [
+        `vclaw login \u2014 the pending claim is not usable (${link.kind})`,
+        "",
+        "  next: /vclaw signup --force-discard   # or /vclaw signup to resume"
+      ].join("\n")
+    };
+  }
+  let claimed = null;
+  if (waitSec > 0) {
+    const client = new VgateClient(configuredVgateUrl());
+    const deadline = Date.now() + waitSec * 1e3;
+    try {
+      while (Date.now() < deadline) {
+        const tick = await pollClaimOnce(client, Buffer.from(creds.agent_nkey ?? "", "base64url").toString("base64url"));
+        if (tick.claimed) {
+          claimed = await completeSignup(tick);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 2e3));
+      }
+    } catch (e) {
+      const err2 = classifyFabricError(e);
+      return { state: "unavailable", exit: err2.code, data: {}, text: `vclaw login \u2014 ${err2.message}`, reason: err2.message };
+    }
+  }
+  if (claimed) {
+    return {
+      state: "ok",
+      exit: 0,
+      data: { claim: "approved", ...claimed.steward ? { steward: claimed.steward } : {}, nkey: link.nkey },
+      text: [
+        "vclaw login \u2014 claim APPROVED",
+        kv([["nkey", link.nkey], ...claimed.steward ? [["steward", claimed.steward]] : []]),
+        "",
+        "  next: /vclaw status --deep"
+      ].join("\n")
+    };
+  }
+  return {
+    state: "degraded",
+    exit: 0,
+    data: {
+      claim: "pending",
+      claimUrl: link.claimUrl,
+      sessionId: link.sessionId,
+      nkey: link.nkey,
+      expiresAt: link.expiresAt,
+      linkExpiresAt: link.linkExpiresAt,
+      via: link.via
+    },
+    text: [
+      "vclaw login \u2014 this host is waiting for approval",
+      kv([
+        ["nkey", link.nkey],
+        ["claim", "PENDING"],
+        ["record expires", link.expiresAt ?? "\u2014"],
+        ["link expires", link.linkExpiresAt ?? "\u2014"]
+      ]),
+      "",
+      ...link.via === "introduce" ? [
+        "  This vgate has no `claim-link` route, so the pending claim was re-introduced",
+        "  (legacy path). Nothing was duplicated: introduce is idempotent per nkey.",
+        ""
+      ] : [],
+      "  Open this link in a browser and approve:",
+      `  ${link.claimUrl}`,
+      "",
+      "  Those are two different clocks: the claim RECORD survives its own deadline, while this",
+      "  LINK was refreshed just now and dies at `link expires`. Re-run login for a fresh link.",
+      "",
+      "  Treat the link as a password: it carries a signed approve-proof.",
+      waitSec > 0 ? `  Waited ${waitSec}s \u2014 still pending. Re-run to keep waiting, or /vclaw status --deep.` : "  next: /vclaw login --wait 120      # poll until approved"
+    ].join("\n")
+  };
 }
 
 // src/vclaw/verbs/signup.ts
@@ -23945,7 +25405,13 @@ async function signupVerb(ctx) {
   const force = ctx.flags.force === true;
   const forceDiscard = ctx.flags["force-discard"] === true;
   const waitSec = Number(ctx.flags.wait ?? 0) || 0;
-  const started = await beginSignup({ force, forceDiscard });
+  let started;
+  try {
+    started = await beginSignup({ force, forceDiscard });
+  } catch (e) {
+    const err2 = classifyFabricError(e);
+    return { state: "unavailable", data: {}, text: `vclaw signup \u2014 ${err2.message}`, exit: err2.code, reason: err2.message };
+  }
   if ("kind" in started) {
     if (started.kind === "pending_claim") {
       return {
@@ -23981,7 +25447,8 @@ async function signupVerb(ctx) {
     ]),
     "",
     "open this link in a browser to approve this agent:",
-    `  ${started.claimUrl}`
+    `  ${started.claimUrl}`,
+    "the link carries a signed approve-proof \u2014 treat it as a bearer credential (never paste it into a log or ticket)."
   ];
   let claimed = false;
   let steward;
@@ -23991,9 +25458,20 @@ async function signupVerb(ctx) {
     while (Date.now() < deadline) {
       const tick = await pollClaimOnce(client, started.base64urlPub);
       if (tick.claimed) {
-        const done = await completeSignup(tick);
-        claimed = true;
-        steward = done.steward;
+        try {
+          const done = await completeSignup(tick);
+          claimed = true;
+          steward = done.steward;
+        } catch (e) {
+          const err2 = classifyFabricError(e);
+          return {
+            state: "unavailable",
+            data: { sessionId: started.sessionId, claimUrl: started.claimUrl },
+            text: `vclaw signup \u2014 the claim was approved but recording it locally failed: ${err2.message}`,
+            exit: err2.code,
+            reason: err2.message
+          };
+        }
         break;
       }
       await new Promise((r) => setTimeout(r, 2e3));
@@ -24004,21 +25482,217 @@ still waiting after ${waitSec}s \u2014 re-run \`vclaw signup --wait 60\``);
   } else {
     words.push("", "after approving, run `vclaw signup --wait 60` (or `vclaw status`) to pick it up.");
   }
-  const withProof = ctx.flags["with-proof"] === true;
-  const { claimUrl: _url, ...safe } = started;
   return {
     state: claimed ? "ok" : "degraded",
-    data: { ...withProof ? started : safe, claimed, steward: steward ?? null },
+    data: { ...started, claimed, steward: steward ?? null },
     text: words.join("\n"),
     exit: 0
   };
 }
 
+// src/vclaw/verbs/up.ts
+var PRESENCE_TTL_SECONDS = 120;
+var MAX_WAIT_SECONDS = 900;
+function composed(step, text) {
+  return text.replace(/^vclaw (?:signup|login)\b/, (m) => `${m} (step ${step})`);
+}
+async function upVerb(ctx) {
+  const waitSec = Math.min(Math.max(Number(ctx.flags.wait ?? 0) || 0, 0), MAX_WAIT_SECONDS);
+  const sub = { args: [], flags: { ...ctx.flags, wait: String(waitSec) } };
+  let creds = await loadCredentials().catch(() => null);
+  let approval = "reused";
+  if (!creds?.public_key) {
+    const r = await signupVerb(sub);
+    const d = r.data;
+    const exit = r.exit ?? 0;
+    if (exit !== 0) {
+      const target = configuredVgateUrl();
+      return {
+        state: r.state,
+        exit,
+        data: { step: "identity", target, ...r.data },
+        text: [
+          exit === 3 ? `vclaw up \u2014 1/3 identity: the vclaw fabric (vgate) at ${target} could not be reached` : "vclaw up \u2014 1/3 identity: signup was refused",
+          "",
+          composed("identity", r.text)
+        ].join("\n"),
+        reason: exit === 3 ? `the vclaw fabric could not be reached at ${target} \u2014 ${r.reason ?? r.text.split("\n")[0] ?? ""}`.trim() : r.reason ?? "signup was refused"
+      };
+    }
+    if (d.claimed === true) {
+      approval = "claimed-now";
+      creds = await loadCredentials().catch(() => null) ?? creds;
+    } else if (d.claimUrl) {
+      return {
+        state: "degraded",
+        exit: 4,
+        data: { step: "approval", claim: "pending", claimUrl: d.claimUrl },
+        text: [
+          "vclaw up \u2014 1/3 identity minted, 2/3 approval pending",
+          "",
+          composed("identity", r.text),
+          "",
+          `  next: vclaw up --wait ${Math.max(waitSec, 120)}      # after approving in the browser, this also announces presence`
+        ].join("\n"),
+        reason: "claim pending approval \u2014 open the link, then run `vclaw up --wait 120`"
+      };
+    } else {
+      return {
+        state: "degraded",
+        exit: 4,
+        data: { step: "identity", needsSignup: true, ...r.data },
+        text: [
+          "vclaw up \u2014 1/3 identity: this host is half-onboarded (a pending flag, no credentials)",
+          "",
+          composed("identity", r.text),
+          "",
+          "  next: vclaw signup --force-discard   # or `vclaw signup` to resume the same identity"
+        ].join("\n"),
+        reason: "half-onboarded host \u2014 run `vclaw signup` (or `--force-discard`)"
+      };
+    }
+  }
+  if (hasPendingFlag()) {
+    const r = await loginVerb(sub);
+    const d = r.data;
+    const exit = r.exit ?? 0;
+    if (d.claim === "approved") {
+      approval = "claimed-now";
+      creds = await loadCredentials().catch(() => null) ?? creds;
+    } else if (exit !== 0) {
+      const target = configuredVgateUrl();
+      return {
+        state: r.state,
+        exit,
+        data: { step: "approval", target, ...r.data },
+        text: [
+          exit === 3 ? `vclaw up \u2014 2/3 approval: the vclaw fabric (vgate) at ${target} could not be reached` : "vclaw up \u2014 2/3 approval: no link could be issued",
+          "",
+          composed("approval", r.text)
+        ].join("\n"),
+        reason: exit === 3 ? `the vclaw fabric could not be reached at ${target} \u2014 ${r.reason ?? ""}`.trim() : r.reason ?? "no claim link could be issued"
+      };
+    } else {
+      return {
+        state: "degraded",
+        exit: 4,
+        data: { step: "approval", claim: "pending", claimUrl: d.claimUrl ?? null },
+        text: [
+          "vclaw up \u2014 2/3 approval pending",
+          "",
+          composed("approval", r.text),
+          "",
+          `  next: vclaw up --wait ${Math.max(waitSec, 120)}      # after approving in the browser`
+        ].join("\n"),
+        reason: "claim pending approval \u2014 open the link, then run `vclaw up --wait 120`"
+      };
+    }
+  }
+  if (!creds?.seed) {
+    return {
+      state: "unavailable",
+      exit: 4,
+      data: { step: "connect", nkey: creds?.public_key ?? null },
+      text: [
+        "vclaw up \u2014 3/3 presence: this host's credentials carry no seed",
+        "",
+        "  Nothing was announced. Re-mint the identity, then approve its link:",
+        "  next: vclaw signup --force"
+      ].join("\n"),
+      reason: "credentials carry no seed \u2014 run `vclaw signup --force`"
+    };
+  }
+  const base = configuredVgateUrl();
+  const nkey = creds.public_key;
+  const minted = await requestAgentToken({ baseUrl: base, seed: creds.seed, publicKey: nkey });
+  if (!minted.ok) {
+    const notClaimed = minted.status === 403 && /not_claimed|not claimed|already issued/i.test(`${minted.error} ${minted.message}`);
+    const exit = notClaimed ? 4 : minted.status === 400 ? 2 : 3;
+    return {
+      state: exit === 3 ? "unavailable" : "degraded",
+      exit,
+      data: { step: "connect", nkey, claim: notClaimed ? "pending" : "approved", status: minted.status, error: minted.error, target: base },
+      text: [
+        exit === 3 ? `vclaw up \u2014 3/3 presence: the vclaw fabric did not answer the token exchange (${minted.status || "transport"} ${minted.error})` : exit === 4 ? "vclaw up \u2014 3/3 presence: the claim is not approved, so the fabric will not mint a token" : `vclaw up \u2014 3/3 presence: the fabric rejected the request (400 ${minted.error})`,
+        kv([
+          ["identity", creds.name || nkey.slice(0, 12)],
+          ["target", base],
+          ["reason", `${minted.status || "transport"} ${minted.error} \u2014 ${minted.message}`]
+        ]),
+        "",
+        exit === 3 ? "  Nothing local changed; the identity and the claim are intact. Safe to retry." : exit === 4 ? "  Approve the claim first: `vclaw login` prints the link, `vclaw up --wait 120` waits." : "  The request itself was malformed \u2014 that is a client bug, not a server state; report it."
+      ].join("\n"),
+      reason: exit === 3 ? `the vclaw fabric could not be reached (${minted.status || "transport"} ${minted.error})` : exit === 4 ? "claim not approved \u2014 the fabric mints no token for it" : `the fabric rejected the request (400 ${minted.error})`
+    };
+  }
+  const res = await postAgentWithAssertion({
+    baseUrl: base,
+    path: `/v1/agent/${encodeURIComponent(nkey)}/presence`,
+    seed: creds.seed,
+    publicKey: nkey,
+    body: { state: "live", ttl: PRESENCE_TTL_SECONDS }
+  });
+  if (!res.ok) {
+    const exit = lifecycleExitClass("presence", res);
+    return {
+      state: exit === 4 ? "degraded" : "unavailable",
+      exit,
+      data: { step: "presence", nkey, presence: "unknown", status: res.status, error: res.error, target: base },
+      text: [
+        `vclaw up \u2014 3/3 presence: the presence write was refused (${res.status || "transport"} ${res.error})`,
+        kv([
+          ["identity", creds.name || nkey.slice(0, 12)],
+          ["target", base],
+          ["reason", res.message]
+        ]),
+        "",
+        exit === 3 ? "  The vclaw fabric did not answer, so this agent is not live yet. Identity and mail are untouched \u2014 safe to retry." : exit === 4 ? "  The claim is not approved for this nkey, so the fabric will not list it as live. Approve the claim first." : "  The presence body was refused \u2014 that is a client bug, not a server state; report it."
+      ].join("\n"),
+      reason: exit === 3 ? `the vclaw fabric could not be reached (${res.status || "transport"} ${res.error})` : exit === 4 ? "claim not approved \u2014 the fabric refuses presence for an unclaimed nkey" : `the presence body was refused (${res.status} ${res.error})`
+    };
+  }
+  const t = minted.body;
+  const ttl = t.ttl !== null ? `${t.ttl}s` : "unknown";
+  const expIso = t.exp !== null ? new Date(t.exp * 1e3).toISOString().replace(/\.\d{3}Z$/, "Z") : "unknown";
+  const lastSeen = typeof res.body.last_seen === "string" && res.body.last_seen.length > 0 ? res.body.last_seen : null;
+  const expiresAt = typeof res.body.expires_at === "string" && res.body.expires_at.length > 0 ? res.body.expires_at : null;
+  const echoed = typeof res.body.nkey === "string" ? res.body.nkey : nkey;
+  return {
+    state: "ok",
+    exit: 0,
+    data: {
+      step: "presence",
+      identity: approval,
+      nkey: echoed,
+      cloud: { jti: t.jti, exp: t.exp, ttl: t.ttl, segment: t.segment },
+      presence: { state: "live", ttl: PRESENCE_TTL_SECONDS, lastSeen, expiresAt },
+      target: base
+    },
+    text: [
+      "vclaw up \u2014 ready",
+      kv([
+        [
+          "identity",
+          `${creds.name || nkey.slice(0, 12)}  ${approval === "claimed-now" ? "claim approved just now" : "claim approved (nothing minted \u2014 the existing claim is reused)"}`
+        ],
+        ["nkey", echoed],
+        ["cloud", `live  target ${base}  JWT ${ttl} (exp ${expIso})`],
+        ["presence", `live${lastSeen ? `  last seen ${lastSeen}` : ""}${expiresAt ? `  until ${expiresAt}` : ""}`],
+        ["next", "/vclaw who      # who is live on the fabric right now"]
+      ]),
+      "",
+      "  Presence is advisory: it is self-asserted and gates no access or delivery.",
+      "  `/vclaw down` withdraws only this live half \u2014 identity and mail stay."
+    ].join("\n")
+  };
+}
+
 // src/vclaw/verbs/send.ts
-import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
+import { createHash as createHash4, randomUUID as randomUUID2 } from "node:crypto";
 function assertPeerToken(peer) {
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(peer)) {
-    throw new Error(
+    throw new VclawError(
+      2,
       `invalid peer "${peer}" \u2014 pass a single NKey token (no dots, wildcards or spaces); see \`vclaw who\``
     );
   }
@@ -24046,7 +25720,7 @@ async function sendVerb(ctx) {
       ts
     };
     const bytes = new TextEncoder().encode(JSON.stringify(envelope));
-    const digest = createHash3("sha256").update(bytes).digest("hex");
+    const digest = createHash4("sha256").update(bytes).digest("hex");
     f.nc.publish(subject, bytes);
     await f.nc.flush();
     return {
@@ -24066,95 +25740,6 @@ async function sendVerb(ctx) {
   } finally {
     await f.close();
   }
-}
-
-// src/vclaw/inbox-store.ts
-import { appendFileSync, existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync5, renameSync, writeFileSync } from "node:fs";
-import { createHash as createHash4 } from "node:crypto";
-import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
-var MAX_LINES = 2e3;
-function inboxDir() {
-  return join3(homedir3(), ".vclaw", "inbox");
-}
-function spoolPath(tenant, self2) {
-  return join3(inboxDir(), `${tenant}__${self2.slice(0, 8)}.jsonl`);
-}
-function readSetPath(tenant, self2) {
-  return join3(inboxDir(), `${tenant}__${self2.slice(0, 8)}.read.json`);
-}
-function dedupeKey(r) {
-  return r.id && r.id.length > 0 ? `id:${r.id}` : `d:${r.digest}`;
-}
-function frameDigest(frame) {
-  return createHash4("sha256").update(frame).digest("hex");
-}
-function readSet(tenant, self2) {
-  try {
-    const raw = JSON.parse(readFileSync5(readSetPath(tenant, self2), "utf8"));
-    return new Set(Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : []);
-  } catch {
-    return /* @__PURE__ */ new Set();
-  }
-}
-function writeSet(tenant, self2, set) {
-  mkdirSync2(inboxDir(), { recursive: true });
-  const tmp = `${readSetPath(tenant, self2)}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify([...set]), { mode: 384 });
-  renameSync(tmp, readSetPath(tenant, self2));
-}
-function appendFor(tenant, self2, rec) {
-  mkdirSync2(inboxDir(), { recursive: true });
-  const existing = readAll(tenant, self2);
-  const key = dedupeKey(rec);
-  if (existing.some((r) => dedupeKey(r) === key)) return false;
-  const seq2 = existing.reduce((m, r) => Math.max(m, r.seq ?? 0), 0) + 1;
-  appendFileSync(spoolPath(tenant, self2), JSON.stringify({ ...rec, seq: seq2 }) + "\n", { mode: 384 });
-  return true;
-}
-function readAll(tenant, self2) {
-  if (!existsSync4(spoolPath(tenant, self2))) return [];
-  const out = [];
-  for (const line of readFileSync5(spoolPath(tenant, self2), "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      out.push(JSON.parse(line));
-    } catch {
-    }
-  }
-  return out;
-}
-function rows(tenant, self2) {
-  const seen = readSet(tenant, self2);
-  return readAll(tenant, self2).map((r) => ({ ...r, read: seen.has(dedupeKey(r)) }));
-}
-function markRead(tenant, self2, keys) {
-  const all = readAll(tenant, self2);
-  const seen = readSet(tenant, self2);
-  let flipped = 0;
-  for (const r of all) {
-    const key = dedupeKey(r);
-    if (seen.has(key)) continue;
-    if (keys && !keys.includes(key)) continue;
-    seen.add(key);
-    flipped += 1;
-  }
-  if (flipped > 0) writeSet(tenant, self2, seen);
-  return flipped;
-}
-function prune(tenant, self2) {
-  const all = readAll(tenant, self2);
-  if (all.length <= MAX_LINES) return 0;
-  const seen = readSet(tenant, self2);
-  const unread = all.filter((r) => !seen.has(dedupeKey(r)));
-  const budget = MAX_LINES - unread.length;
-  if (budget <= 0) return 0;
-  const readKept = all.filter((r) => seen.has(dedupeKey(r))).slice(-budget);
-  const keep = new Set([...unread, ...readKept].map((r) => dedupeKey(r)));
-  const kept = all.filter((r) => keep.has(dedupeKey(r)));
-  if (kept.length === all.length) return 0;
-  writeFileSync(spoolPath(tenant, self2), kept.map((r) => JSON.stringify(r)).join("\n") + "\n", { mode: 384 });
-  return all.length - kept.length;
 }
 
 // src/vclaw/mailbox.ts
@@ -24441,6 +26026,475 @@ ${syncText ?? ""}` : shown.length === 0 ? `vclaw inbox \u2014 nothing ${showAll 
   };
 }
 
+// src/vclaw/verbs/logout.ts
+import { existsSync as existsSync6, readdirSync as readdirSync3 } from "node:fs";
+import { unlink as unlink2 } from "node:fs/promises";
+import { join as join5 } from "node:path";
+function identitySpoolFiles(publicKey) {
+  const dir = inboxDir();
+  const tail = `__${publicKey.slice(0, 8)}`;
+  try {
+    return readdirSync3(dir).filter((f) => f.endsWith(`${tail}.jsonl`) || f.endsWith(`${tail}.read.json`)).map((f) => join5(dir, f));
+  } catch {
+    return [];
+  }
+}
+async function logoutVerb(ctx) {
+  const revoke = ctx.flags.revoke === true;
+  const purgeLocal = ctx.flags["purge-local"] === true;
+  const creds = await loadCredentials().catch(() => null);
+  const pending = hasPendingFlag();
+  const nkey = creds?.public_key ?? null;
+  const label = creds ? creds.name || creds.public_key.slice(0, 12) : nkey ? nkey.slice(0, 12) : null;
+  if (!creds && !pending) {
+    return {
+      state: "ok",
+      exit: 0,
+      data: {
+        logout: "already",
+        nkey: null,
+        revoked: null,
+        removed: [],
+        purged: [],
+        identityStaysOnFabric: false
+      },
+      text: [
+        "vclaw logout \u2014 already logged out",
+        "  no credentials and no pending claim on this host",
+        ...revoke ? ["", "  --revoke had no identity to revoke: nothing is held here to revoke with."] : [],
+        ...purgeLocal ? ["", "  --purge-local had no identity to scope the spool to \u2014 nothing deleted."] : []
+      ].join("\n")
+    };
+  }
+  let revoked = null;
+  if (revoke && creds) {
+    const base = configuredVgateUrl();
+    const res = await postAgentWithAssertion({
+      baseUrl: base,
+      path: `/v1/agent/${encodeURIComponent(creds.public_key)}/revoke-self`,
+      seed: creds.seed,
+      publicKey: creds.public_key,
+      body: { confirm: true, reason: "self_revoked" }
+    });
+    revoked = res.ok ? {
+      ok: true,
+      retired: typeof res.body.retired === "string" ? res.body.retired : creds.public_key,
+      // `self:true` is what distinguishes this from a steward's revocation
+      // (the same tombstone written by `retire --nkey`). Reported, not assumed.
+      self: res.body.self === true,
+      auditId: typeof res.body.audit_id === "string" ? res.body.audit_id : ""
+    } : { ok: false, status: res.status, error: res.error, message: res.message };
+  }
+  const removed = [.../* @__PURE__ */ new Set([...credentialFileTiers(), ...pendingFlagPaths()])].filter((p) => existsSync6(p));
+  await clearCredentials();
+  await clearPendingFlag();
+  const purged = [];
+  if (purgeLocal && nkey) {
+    for (const file of identitySpoolFiles(nkey)) {
+      try {
+        await unlink2(file);
+        purged.push(file);
+      } catch {
+      }
+    }
+  }
+  const exit = revoked && !revoked.ok ? lifecycleExitClass("revoke-self", revoked) : 0;
+  const mailLine = purgeLocal ? purged.length > 0 ? `purged ${purged.length} file(s)` : "nothing spooled" : "kept (--purge-local deletes it)";
+  const revokeLine = !creds ? "nothing to revoke \u2014 this host never held a claimed identity" : revoked ? revoked.ok ? `revoked ${revoked.retired} \xB7 ${revoked.self ? "self-revoked, audited" : "revoked by a steward"}${revoked.auditId ? ` (${revoked.auditId})` : ""}` : `FAILED ${revoked.status || "transport"} ${revoked.error} \u2014 ${revoked.message}` : "NOT revoked \u2014 this identity is still on the fabric and other agents can still see it";
+  const consequence = !creds ? [
+    "  The pending claim is gone locally. It was never claimed, so nothing was live on the fabric;",
+    "  the server-side pending row expires on its own."
+  ].join("\n") : revoked ? revoked.ok ? "  The identity left the fabric. The key was not tombstoned as compromised, so it can re-onboard." : [
+    "  The server did not revoke, so the identity is STILL on the fabric. The local seed is gone,",
+    `  so this host cannot retry \u2014 a steward must finish with: vclaw-agent retire --nkey ${nkey}`
+  ].join("\n") : [
+    "  Without --revoke the identity STAYS on the fabric: other agents still see it and the server",
+    "  still lists it. The local seed is now gone, so this host cannot revoke it later \u2014 a steward",
+    `  would have to run: vclaw-agent retire --nkey ${nkey}`
+  ].join("\n");
+  return {
+    state: revoked && !revoked.ok ? "degraded" : "ok",
+    exit,
+    data: {
+      logout: "done",
+      nkey,
+      pendingClaim: pending,
+      revoked,
+      removed,
+      purged,
+      identityStaysOnFabric: creds ? !(revoked?.ok === true) : false
+    },
+    text: [
+      `vclaw logout \u2014 ${revoked?.ok ? "logged out and revoked" : "logged out"}`,
+      kv([
+        ["identity", label ?? "\u2014"],
+        ["nkey", nkey ?? void 0],
+        ["local", removed.length > 0 ? `removed ${removed.length} file(s)` : "nothing on disk"],
+        ["server", revokeLine],
+        ["mail", mailLine]
+      ]),
+      "",
+      consequence
+    ].join("\n")
+  };
+}
+
+// src/vclaw/verbs/reauth.ts
+async function reauthVerb(_ctx) {
+  const creds = await loadCredentials().catch(() => null);
+  if (!creds?.public_key || !creds.seed) {
+    return {
+      state: "unavailable",
+      exit: 4,
+      data: { needsSignup: true },
+      text: [
+        "vclaw reauth \u2014 no identity on this host",
+        "",
+        "  next: /vclaw signup      # mints the identity, then approve the link"
+      ].join("\n")
+    };
+  }
+  const base = readConfigSync()?.vgateUrl ?? resolvedVgateUrl();
+  const minted = await requestAgentToken({ baseUrl: base, seed: creds.seed, publicKey: creds.public_key });
+  if (!minted.ok) {
+    const notClaimed = minted.status === 403 && /not_claimed|not claimed|already issued/i.test(`${minted.error} ${minted.message}`);
+    if (notClaimed) {
+      return {
+        state: "unavailable",
+        exit: 4,
+        data: { claim: "pending", status: minted.status, error: minted.error, target: base },
+        text: [
+          "vclaw reauth \u2014 the claim is not approved yet (403 agent_not_claimed)",
+          kv([["nkey", creds.public_key], ["target", base]]),
+          "",
+          "  A JWT is only minted for a CLAIMED identity. Approve the claim first:",
+          "  /vclaw login --wait 120      # prints the auth link and waits for the approval"
+        ].join("\n")
+      };
+    }
+    if (minted.status === 400) {
+      return {
+        state: "unavailable",
+        exit: 2,
+        data: { status: 400, error: minted.error, target: base },
+        text: `vclaw reauth \u2014 the gateway rejected the request (400 ${minted.error}): ${minted.message}`
+      };
+    }
+    return {
+      state: "unavailable",
+      exit: 3,
+      data: { status: minted.status, error: minted.error, target: base },
+      text: [
+        "vclaw reauth \u2014 the gateway could not mint a token",
+        kv([
+          ["identity", creds.name || creds.public_key.slice(0, 12)],
+          ["target", base],
+          ["reason", `${minted.status || "transport"} ${minted.error} \u2014 ${minted.message}`]
+        ]),
+        "",
+        "  Nothing local changed: credentials are intact, so this is safe to retry."
+      ].join("\n")
+    };
+  }
+  const t = minted.body;
+  const previousJti = creds.jwt ? decodeTokenClaims(creds.jwt)?.jti ?? null : null;
+  const changed = previousJti === null ? null : previousJti !== t.jti;
+  const expIso = t.exp !== null ? new Date(t.exp * 1e3).toISOString().replace(/\.\d{3}Z$/, "Z") : "unknown";
+  const ttl = t.ttl !== null ? `${t.ttl}s` : "unknown";
+  return {
+    state: "ok",
+    exit: 0,
+    data: {
+      jti: t.jti,
+      exp: t.exp,
+      ttl: t.ttl,
+      segment: t.segment,
+      grants: t.grants,
+      previousJti,
+      changed,
+      claim: "approved",
+      nkey: creds.public_key,
+      target: base,
+      source: t.source,
+      pendingFlagStale: hasPendingFlag()
+    },
+    text: [
+      "vclaw reauth \u2014 token minted",
+      kv([
+        ["identity", `${creds.name || creds.public_key.slice(0, 12)}`],
+        ["jti", t.jti ?? "(not disclosed by this server)"],
+        ["exp", `${expIso}  (ttl ${ttl})`],
+        ["grants", t.grants ? `pub ${t.grants.pub.length} \xB7 sub ${t.grants.sub.length}` : "(not disclosed)"],
+        ["segment", t.segment ?? void 0],
+        ["previous", previousJti === null ? "not held on this host" : changed ? `jti ${previousJti} \u2014 DIFFERENT from this mint` : `jti ${previousJti} \u2014 SAME as this mint`]
+      ]),
+      "",
+      "  Minting is not revocation: the previous token stays valid until its own exp, and no",
+      "  denylist exists \u2014 calling this verb does not invalidate an older token.",
+      ...hasPendingFlag() ? ["", "  Note: a pending flag is still on disk, but the server minted a token \u2014 the claim is live.", "  /vclaw status --deep reconciles the flag."] : []
+    ].join("\n")
+  };
+}
+
+// src/vclaw/verbs/down.ts
+var PRESENCE_TTL_SECONDS2 = 120;
+async function downVerb(_ctx) {
+  const creds = await loadCredentials().catch(() => null);
+  if (!creds?.public_key || !creds.seed) {
+    return {
+      state: "unavailable",
+      exit: 4,
+      data: { needsSignup: true, identity: false },
+      text: [
+        "vclaw down \u2014 no identity on this host, so there is no presence to withdraw",
+        "",
+        "  next: /vclaw signup      # an agent must exist before it can be taken down"
+      ].join("\n")
+    };
+  }
+  const base = configuredVgateUrl();
+  const res = await postAgentWithAssertion({
+    baseUrl: base,
+    path: `/v1/agent/${encodeURIComponent(creds.public_key)}/presence`,
+    seed: creds.seed,
+    publicKey: creds.public_key,
+    body: { state: "down", ttl: PRESENCE_TTL_SECONDS2 }
+  });
+  if (!res.ok) {
+    const exit = lifecycleExitClass("presence", res);
+    const notClaimed = res.status === 403 && res.error === "agent_not_claimed";
+    return {
+      state: "degraded",
+      exit,
+      data: {
+        nkey: creds.public_key,
+        state: "unknown",
+        status: res.status,
+        error: res.error,
+        target: base
+      },
+      text: [
+        `vclaw down \u2014 the presence write was refused (${res.status || "transport"} ${res.error})`,
+        kv([["nkey", creds.public_key], ["target", base], ["reason", res.message]]),
+        "",
+        notClaimed ? "  The claim is not approved yet, so this identity has no presence on the fabric." : "  Identity and mail are untouched; the agent may still be listed as live."
+      ].join("\n")
+    };
+  }
+  const lastSeen = typeof res.body.last_seen === "string" && res.body.last_seen.length > 0 ? res.body.last_seen : null;
+  const expiresAt = typeof res.body.expires_at === "string" && res.body.expires_at.length > 0 ? res.body.expires_at : null;
+  const wasLive = Boolean(lastSeen || expiresAt);
+  const nkey = typeof res.body.nkey === "string" ? res.body.nkey : creds.public_key;
+  return {
+    state: "ok",
+    exit: 0,
+    data: {
+      nkey,
+      state: "down",
+      presence: "down",
+      alreadyDown: !wasLive,
+      wasLive,
+      lastSeen,
+      expiresAt,
+      identity: "intact",
+      target: base
+    },
+    text: wasLive ? [
+      "vclaw down \u2014 presence withdrawn",
+      kv([
+        ["identity", creds.name || creds.public_key.slice(0, 12)],
+        ["nkey", nkey],
+        ["state", "down (row deleted)"],
+        ["last seen", `${lastSeen ?? "\u2014"}${expiresAt ? `  (until ${expiresAt})` : ""}`]
+      ]),
+      "",
+      "  Identity and mail are untouched: a later `/vclaw up` publishes presence again, and the",
+      "  spool keeps every message. Presence is advisory \u2014 it gates no access or delivery."
+    ].join("\n") : [
+      "vclaw down \u2014 already down",
+      kv([
+        ["identity", creds.name || creds.public_key.slice(0, 12)],
+        ["nkey", nkey],
+        ["state", "down (no live row to delete)"]
+      ]),
+      "",
+      "  Identity and mail are untouched. Presence is advisory \u2014 it gates no access or delivery."
+    ].join("\n")
+  };
+}
+
+// src/vclaw/verbs/init.ts
+import { existsSync as existsSync7 } from "node:fs";
+var REQUIRED_PROVIDERS = ["deepseek", "glm"];
+var SIGNUP_CMD = "vclaw-agent vclaw signup";
+var LOGIN_CMD = "vclaw-agent vclaw login --wait 60";
+var DOCTOR_CMD = "vclaw-agent vclaw doctor";
+var WHO_CMD = "vclaw-agent vclaw who --wait 1500";
+function addCmd(id) {
+  return `vclaw-agent vclaw provider add --write-omp ${id}`;
+}
+async function initVerb(ctx) {
+  try {
+    return await runInit(ctx);
+  } catch (e) {
+    const message = redactError(e instanceof Error ? e.message : String(e));
+    return {
+      state: "unavailable",
+      data: { reason: "unexpected_failure" },
+      text: `init: ${message}`,
+      exit: 3,
+      reason: `init: ${message}`
+    };
+  }
+}
+async function runInit(ctx) {
+  const skipRaw = typeof ctx.flags.skip === "string" ? ctx.flags.skip : "";
+  const skipIds = skipRaw.split(",").map((s) => s.trim()).filter((s) => s !== "");
+  const validIds = ["environment", "identity", "approval", "providers", "doctor", "who"];
+  const unknownSkip = skipIds.filter((id) => !validIds.includes(id));
+  if (unknownSkip.length > 0) {
+    return {
+      state: "unavailable",
+      data: { reason: "unknown_step", unknown: unknownSkip, steps: validIds },
+      text: `init: --skip names an unknown step ${unknownSkip.map((s) => `"${s}"`).join(", ")} (steps: ${validIds.join(", ")})`,
+      exit: 2,
+      reason: `init: unknown --skip step ${unknownSkip.map((s) => `"${s}"`).join(", ")}`
+    };
+  }
+  const cloud = await readCloud();
+  const inv = inventory();
+  const providerIds = inv.rows.map((r) => r.id);
+  const missing = REQUIRED_PROVIDERS.filter((id) => !providerIds.includes(id));
+  const credsPath = credentialsPath();
+  const identityReady = cloud.credentials.present;
+  const nodeMajor = Number(process.versions.node.split(".")[0] ?? 0);
+  const home = process.env.HOME ?? "";
+  const envProblems = [
+    ...nodeMajor >= 18 ? [] : [`node ${process.versions.node} is older than 18`],
+    ...home === "" ? ["HOME is unset"] : []
+  ];
+  const envDetail = [
+    `node ${process.versions.node}`,
+    `HOME ${home || "(unset)"}`,
+    `creds ${credsPath}`,
+    `models.yml ${existsSync7(ompModelsPath()) ? "present" : "absent"}`
+  ].join(" \xB7 ");
+  const candidates = [
+    {
+      id: "environment",
+      title: "environment",
+      status: envProblems.length === 0 ? "pass" : "stop",
+      detail: envProblems.length === 0 ? envDetail : `${envProblems.join("; ")} \xB7 ${envDetail}`,
+      ...envProblems.length === 0 ? {} : { next: "install node \u2265 18 and re-run in a shell with HOME set" }
+    },
+    // ── 2. identity ───────────────────────────────────────────────────────
+    {
+      id: "identity",
+      title: "identity (signup)",
+      status: identityReady ? "pass" : "stop",
+      detail: identityReady ? `${cloud.name ?? "?"}  ${(cloud.nkey ?? "").slice(0, 12)}\u2026  ${credsPath}` : `no credentials at ${credsPath} \u2014 this is where signing up starts`,
+      ...identityReady ? {} : { next: SIGNUP_CMD }
+    },
+    // ── 3. approval ───────────────────────────────────────────────────────
+    {
+      id: "approval",
+      title: "approval (login)",
+      status: identityReady && !cloud.pendingClaim ? "pass" : "stop",
+      detail: !identityReady ? "no identity to approve yet" : cloud.pendingClaim ? "claim is PENDING \u2014 approve the link in a browser, then this flips" : "approved",
+      ...identityReady && !cloud.pendingClaim ? {} : { next: cloud.pendingClaim ? LOGIN_CMD : SIGNUP_CMD }
+    },
+    // ── 4. providers ──────────────────────────────────────────────────────
+    {
+      id: "providers",
+      title: `providers (\u22652, incl. ${REQUIRED_PROVIDERS.join(" + ")})`,
+      status: providerIds.length >= 2 && missing.length === 0 ? "pass" : "stop",
+      detail: providerIds.length === 0 ? `${inv.path} lists none (or the file is absent)` : `${providerIds.length} in ${inv.path}${missing.length > 0 ? ` \xB7 missing ${missing.join(", ")}` : ""}`,
+      ...providerIds.length >= 2 && missing.length === 0 ? {} : { next: addCmd(missing[0] ?? "deepseek") }
+    }
+  ];
+  const blocked = () => candidates.some((c) => c.status === "stop" && !skipIds.includes(c.id));
+  const checks = blocked() ? [] : await collectChecks();
+  if (checks.length > 0) {
+    const failing = checks.filter((c) => !c.ok);
+    const hard = failing.filter((c) => c.id === "identity" || c.id === "claim");
+    candidates.push({
+      id: "doctor",
+      title: "doctor",
+      status: hard.length > 0 ? "stop" : failing.length > 0 ? "advisory" : "pass",
+      detail: failing.length === 0 ? `all ${checks.length} checks pass` : `${failing.length}/${checks.length} failing: ${failing.map((c) => c.id).join(", ")}`,
+      ...hard.length > 0 ? { next: DOCTOR_CMD } : {}
+    });
+  } else {
+    candidates.push({ id: "doctor", title: "doctor", status: "pass", detail: "not reached" });
+  }
+  const peers = blocked() ? [] : readPeers();
+  candidates.push({
+    id: "who",
+    title: "who",
+    status: "pass",
+    detail: checks.length === 0 ? "not reached" : peers.length === 0 ? "no peers in local rosters yet (empty is normal on a fresh host)" : `${peers.length} peer(s) in local rosters`,
+    next: WHO_CMD
+  });
+  const decided = candidates.map(
+    (c) => c.status === "stop" && skipIds.includes(c.id) ? { ...c, status: "skipped", detail: `skipped on request \u2014 ${c.detail}` } : c
+  );
+  const firstStop = decided.findIndex((c) => c.status === "stop");
+  const steps = decided.map(
+    (c, i) => firstStop >= 0 && i > firstStop ? { ...c, n: i + 1, status: "pending", detail: "not reached \u2014 run the step above first", next: void 0 } : { ...c, n: i + 1 }
+  );
+  const stop = firstStop >= 0 ? steps[firstStop] : null;
+  const exit = !stop ? 0 : stop.id === "identity" || stop.id === "approval" ? 4 : 3;
+  const state = !stop ? skipIds.length > 0 ? "degraded" : "ok" : exit === 4 ? "unavailable" : "degraded";
+  const next = stop?.next ?? WHO_CMD;
+  const data = {
+    steps,
+    stoppedAt: stop ? { n: stop.n, id: stop.id } : null,
+    next,
+    complete: !stop,
+    skipped: skipIds,
+    // Stated in the payload so a JSON consumer need not infer it: init wrote nothing.
+    mutated: false,
+    paths: { credentials: credsPath, models: ompModelsPath(), vclawProviders: vclawProvidersPath() }
+  };
+  const mark = (s) => s === "pass" ? "\u2713" : s === "stop" ? "\u2717" : s === "advisory" ? "!" : s === "skipped" ? "\u2013" : "\xB7";
+  const lines = [
+    "vclaw init \u2014 resumable; it writes nothing, it names the command that does",
+    "",
+    ...steps.map((s) => `  ${mark(s.status)} ${String(s.n)}. ${s.title.padEnd(38)} ${s.detail}`)
+  ];
+  const deferred = steps.filter((s) => s.status === "skipped" && s.next);
+  if (deferred.length > 0) {
+    lines.push("", "  skipped, with the command that would close the step:");
+    for (const s of deferred) lines.push(`    ${s.next}`);
+  }
+  if (stop) {
+    lines.push(
+      "",
+      `STOPPED at step ${stop.n}/${steps.length} \u2014 ${stop.title}`,
+      kv([
+        ["next", next],
+        ["then", "vclaw-agent vclaw init   # resumes at the step above"]
+      ])
+    );
+  } else {
+    lines.push(
+      "",
+      skipIds.length > 0 ? `all six steps pass or are skipped (${skipIds.join(", ")} skipped).` : "all six steps pass.",
+      kv([
+        ["invite", WHO_CMD],
+        ["re-run", "vclaw-agent vclaw init --json   # machine-readable, same steps"]
+      ])
+    );
+  }
+  return {
+    state,
+    data,
+    text: lines.join("\n"),
+    exit,
+    ...stop ? { reason: `${stop.id} not ready \u2014 ${stop.detail} \xB7 next: ${next}` } : {}
+  };
+}
+
 // src/vclaw/run.ts
 var VclawError = class extends Error {
   constructor(code, message) {
@@ -24449,7 +26503,19 @@ var VclawError = class extends Error {
     this.name = "VclawError";
   }
 };
-var BOOL_FLAGS = { json: true, deep: true, help: true, all: true, sync: true };
+var EXIT_USAGE = 2;
+var EXIT_INTERNAL_FAULT = 1;
+var BOOL_FLAGS = {
+  json: true,
+  deep: true,
+  help: true,
+  all: true,
+  sync: true,
+  revoke: true,
+  "purge-local": true,
+  "write-omp": true,
+  "no-record": true
+};
 var VERBS = {
   status: {
     name: "status",
@@ -24465,6 +26531,13 @@ var VERBS = {
     flags: ["--json"],
     run: doctorVerb
   },
+  init: {
+    name: "init",
+    summary: "the resumable setup wizard \u2014 reports each step and the ONE command that advances it",
+    usage: "init [--skip <step,step>] [--json]",
+    flags: ["--skip", "--json"],
+    run: initVerb
+  },
   send: {
     name: "send",
     summary: "send one DM to a peer on the vclaw fabric (at-most-once)",
@@ -24479,11 +26552,39 @@ var VERBS = {
     flags: ["--wait", "--all", "--prune", "--sync", "--json"],
     run: inboxVerb
   },
+  up: {
+    name: "up",
+    summary: "the composite \u2014 identity, approval and presence in one verb (no identity \u2192 signup, pending \u2192 the link, claimed \u2192 announce)",
+    usage: "up [--wait <s>] [--json]",
+    flags: ["--wait", "--json"],
+    run: upVerb
+  },
+  login: {
+    name: "login",
+    summary: "print the agent auth link for this host (and optionally wait for approval)",
+    usage: "login [--wait <s>] [--json]",
+    flags: ["--wait", "--json"],
+    run: loginVerb
+  },
+  logout: {
+    name: "logout",
+    summary: "forget this host's identity \u2014 local by default; --revoke takes it off the fabric",
+    usage: "logout [--revoke] [--purge-local] [--json]",
+    flags: ["--revoke", "--purge-local", "--json"],
+    run: logoutVerb
+  },
+  reauth: {
+    name: "reauth",
+    summary: "mint a fresh session JWT for an already-claimed identity (reports jti/exp/ttl)",
+    usage: "reauth [--json]",
+    flags: ["--json"],
+    run: reauthVerb
+  },
   signup: {
     name: "signup",
     summary: "start (or resume) signup \u2014 prints the vclaw auth link to approve in a browser",
     usage: "signup [--wait <s>] [--force] [--force-discard] [--json]",
-    flags: ["--wait", "--force", "--force-discard", "--with-proof", "--json"],
+    flags: ["--wait", "--force", "--force-discard", "--json"],
     run: signupVerb
   },
   who: {
@@ -24493,12 +26594,26 @@ var VERBS = {
     flags: ["--wait", "--segment", "--json"],
     run: whoVerb
   },
+  down: {
+    name: "down",
+    summary: "withdraw presence on the fabric \u2014 identity and mail stay",
+    usage: "down [--json]",
+    flags: ["--json"],
+    run: downVerb
+  },
   peers: {
     name: "peers",
     summary: "known peers from local rosters, with the tier each was seen on",
     usage: "peers [--tier cloud|site|all] [--json]",
     flags: ["--tier", "--json"],
     run: peersVerb
+  },
+  provider: {
+    name: "provider",
+    summary: "the model endpoint inventory \u2014 list/add/test/use/rm, without a model",
+    usage: "provider <list|add|test|use|rm> [args\u2026] [--json]",
+    flags: ["--base-url", "--api", "--model", "--key-cmd", "--write-omp", "--url", "--timeout", "--no-record", "--env", "--json"],
+    run: providerVerb
   }
 };
 function splitVerb(argv) {
@@ -24553,8 +26668,13 @@ function usageText() {
     "exit codes: 0 ok \xB7 2 usage \xB7 3 dependency unavailable \xB7 4 identity not ready"
   ].join("\n");
 }
-function firstLine(text) {
-  return text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "refused";
+function refusalReason(verb, text, reason) {
+  const given = reason?.trim();
+  if (given) return given;
+  const first = text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  const escaped = verb.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const line = first.replace(new RegExp(`^vclaw ${escaped}\\b\\s*(?:[\u2014\u2013:-]\\s*)?`, "i"), "").trim();
+  return line.length > 0 ? line : `${verb}: refused`;
 }
 function completions(prefix) {
   const p = prefix.trim();
@@ -24572,23 +26692,31 @@ async function runVclaw(argv) {
   const spec = VERBS[verb];
   if (!spec) {
     const message = `unknown verb "${verb}"`;
-    return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: `${message}
+    return {
+      result: { ok: false, verb, state: "unavailable", code: EXIT_USAGE, error: message },
+      exit: EXIT_USAGE,
+      text: `${message}
 
-${usageText()}` };
+${usageText()}`
+    };
   }
   const declared = new Set(spec.flags);
   const unknown = Object.keys(flags).filter((k) => !declared.has(`--${k}`) && k !== "help");
   if (unknown.length > 0) {
     const message = `${verb}: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown.map((k) => `--${k}`).join(", ")}`;
-    return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: `${message}
+    return {
+      result: { ok: false, verb, state: "unavailable", code: EXIT_USAGE, error: message },
+      exit: EXIT_USAGE,
+      text: `${message}
 
-${usageText()}` };
+${usageText()}`
+    };
   }
   if (flags.wait !== void 0) {
     const w = flags.wait;
     if (w === true || !/^\d+$/.test(String(w))) {
       const message = `${verb}: --wait expects milliseconds (got ${w === true ? "no value" : String(w)})`;
-      return { result: { ok: false, verb, state: "unavailable", code: 2, error: message }, exit: 2, text: message };
+      return { result: { ok: false, verb, state: "unavailable", code: EXIT_USAGE, error: message }, exit: EXIT_USAGE, text: message };
     }
   }
   try {
@@ -24603,13 +26731,13 @@ ${usageText()}` };
         data: r.data,
         // D5: a refusal must carry its reason in the machine envelope, not only
         // in the human text — a model-less JSON consumer had nothing to print.
-        ...exit !== 0 ? { error: firstLine(r.text) } : {}
+        ...exit !== 0 ? { error: refusalReason(verb, r.text, r.reason) } : {}
       },
       exit,
       text: r.text
     };
   } catch (e) {
-    const code = e instanceof VclawError ? e.code : 1;
+    const code = e instanceof VclawError ? e.code : EXIT_INTERNAL_FAULT;
     const message = redactError(e instanceof Error ? e.message : String(e));
     return { result: { ok: false, verb, state: "unavailable", code, error: message }, exit: code, text: `error: ${message}` };
   }
@@ -24661,9 +26789,9 @@ function openBrowser(url) {
 }
 
 // src/pi-extension/index.ts
-import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync3 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname2, join as join5 } from "node:path";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
+import { homedir as homedir6 } from "node:os";
+import { dirname as dirname3, join as join7 } from "node:path";
 
 // src/agent/runtime.ts
 var import_nats_core3 = __toESM(require_mod4(), 1);
@@ -24752,8 +26880,8 @@ function normalizeSegment(s) {
   const t = (s ?? "").trim();
   return t ? t : void 0;
 }
-function base64UrlToUtf8(b64url3) {
-  const b64 = b64url3.replace(/-/g, "+").replace(/_/g, "/");
+function base64UrlToUtf8(b64url4) {
+  const b64 = b64url4.replace(/-/g, "+").replace(/_/g, "/");
   const padded = b64 + "=".repeat((4 - b64.length % 4) % 4);
   if (typeof Buffer !== "undefined") return Buffer.from(padded, "base64").toString("utf8");
   return atob(padded);
@@ -25120,19 +27248,19 @@ function ack(ev, verb) {
 
 // src/daemon/paths.ts
 import { mkdir as mkdir2, readFile as readFile2, readdir, rename, writeFile as writeFile2 } from "node:fs/promises";
-import { existsSync as existsSync5 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { dirname, join as join4 } from "node:path";
+import { existsSync as existsSync8 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { dirname as dirname2, join as join6 } from "node:path";
 function xdgConfigHome() {
-  return process.env.XDG_CONFIG_HOME?.trim() || join4(homedir4(), ".config");
+  return process.env.XDG_CONFIG_HOME?.trim() || join6(homedir5(), ".config");
 }
 function familyRoot() {
   const override = env("FAMILY_DIR");
   if (override) return override;
-  return join4(xdgConfigHome(), "vclaw", "family");
+  return join6(xdgConfigHome(), "vclaw", "family");
 }
 function familyDir(lead) {
-  return join4(familyRoot(), lead);
+  return join6(familyRoot(), lead);
 }
 
 // src/daemon/panel.ts
@@ -25601,8 +27729,8 @@ function index_default(pi) {
       const argv = args.trim().length > 0 ? args.trim().split(/\s+/) : [];
       const { result, exit, text } = await runVclaw(argv);
       try {
-        const outFile = join5(homedir5(), ".vclaw", "vclaw-out.txt");
-        mkdirSync3(dirname2(outFile), { recursive: true });
+        const outFile = join7(homedir6(), ".vclaw", "vclaw-out.txt");
+        mkdirSync4(dirname3(outFile), { recursive: true });
         appendFileSync2(outFile, `=== ${(/* @__PURE__ */ new Date()).toISOString()} /vclaw ${argv.join(" ")} exit=${exit}
 ${text}
 
