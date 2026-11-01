@@ -65,6 +65,34 @@ Rules that are not obvious:
  copy → build/  →  sha256 on BOTH sides (source → destination)
 ```
 
+## 2b · The shared build host (measured 2026-11-01)
+
+Any lane that needs a macOS build uses this host; it is not owned by one lane, it is shared.
+
+| fact | value |
+|---|---|
+| ssh | `ssh _MAC_HOST_` → `BUILD_HOST_REDACTED`, user **`chance`**, tailnet IP `100.117.40.22` |
+| access | Tailscale; the alias is already in this workstation's `~/.ssh/config` with key auth. A lane on the same workstation has it; anyone else needs their key authorised on the host first |
+| hardware | Apple M4, **16 GiB**, macOS **26.3.1**, arm64 |
+| disk | **194 Gi free** — fine for one tree (≈2–4 GiB with `node_modules`), not for many |
+| node / npm | **v25.8.0 / 12.0.2** (npm is installed by `toolchain:bootstrap`; npm 12 warns about node 25 — known) |
+| Xcode | Command Line Tools only — enough for native modules |
+| signing | **0 valid identities** → only `--qa` builds are possible |
+
+**One writer per output directory.** Each lane uses its own checkout, e.g. `~/vclaw-desktop-build` (this lane) and
+`~/vclaw-vizmaster-build` (publisher). Two builds in one directory overwrite each other's `release/` and `node_modules`.
+
+Traps that cost real time here (all measured):
+
+1. **Anchored rsync excludes.** `--exclude='release'` also drops `scripts/release/`; use `--exclude='/release'`.
+2. **npm 12 blocks dependency install scripts.** `npm ci` exits **0** while skipping `node-pty`, `esbuild`, `zeromq`,
+   `koffi`, `protobufjs`, … — check that `node_modules/node-pty/build/Release/pty.node` exists, not the exit code.
+3. **`github.com` resolves to a fake-ip (`198.18.0.49`)** and electron-builder's downloader dies **late**, after the
+   `.app` is packaged. Pass `--config.electronDist=$PWD/node_modules/electron/dist`, and produce the `.zip` with
+   `ditto` if the downloader died.
+4. Verify with `verify-package --mode qa --arch arm64` and the packaged smoke (`--packaged-smoke` → rc=0 + marker);
+   compare digests **source → destination** before delivery.
+
 ## 3 · Release
 
 ```
