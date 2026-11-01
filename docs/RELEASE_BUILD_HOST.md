@@ -121,6 +121,32 @@ allowlist, architectures, Electron fuses, size budgets. It does not launch the a
 over headless ssh. `release:verify`'s other half, `test:e2e:hermetic`, does not: that is why
 step 4 uses `--skip-verify` and the verify suite must have run on the commit beforehand.
 
+### Runtime proof over ssh — the packaged smoke
+
+A GUI launch is impossible over ssh, but the app carries its own headless mode, and it is the
+only *runtime* evidence available on this host:
+
+```bash
+APP=release/mac/arm64/mac-arm64/VClaw.app
+"$APP/Contents/MacOS/VClaw" --packaged-smoke=/tmp/smoke-marker.json; echo "rc=$?"
+# rc=0 and the marker written:
+# {"event":"vclaw-packaged-smoke-ready","url":"prime-work://app/index.html","version":"1.1.17"}
+```
+
+The marker means the packaged app started, loaded its renderer and completed an authorized IPC
+round trip — none of which `verify-package` can see. Run it on every artefact before delivery;
+measured working on the 1.1.17 arm64 build (2026-11-01, rc=0).
+
+## Delivering the artefact
+
+`vclaw-desktop/build/` is both electron-builder's `buildResources` directory and the agreed drop
+point, so it holds tracked plists and large binaries at once. `.gitignore` ignores the artefact
+patterns but **not** the plists — never `git add build/` wholesale.
+
+Copy the DMG and ZIP back, then confirm the transfer with `shasum -a 256` on **both** sides
+before anyone opens the file. Report the triple with every delivery: source commit, pinned CLI
+digest, artefact digest.
+
 ## Signing
 
 `security find-identity -v -p codesigning` → **0 valid identities**. Only `--qa` builds are
