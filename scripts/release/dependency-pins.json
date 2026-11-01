@@ -47,8 +47,8 @@
       "version": "1.5.0",
       "path": "vendor/vclawhub-agent-1.5.0.tgz",
       "source": "agent-sdk npm pack of the pinned build (see vendor/vclawhub-agent-1.5.0.md)",
-      "sha256": "7fdd425a71eabcc8047cf18472b5aa1b364d8ade10e2f40ec3157ed876dfe02f",
-      "size": 1039973,
+      "sha256": "88a14d16a5c8ff2b03a879b91d3771a7a678888a671a1a0f11a2ebdc14d9c0cc",
+      "size": 1201433,
       "license": "MIT",
       "shipped": {
         "path": "assets/extensions/vclaw-agent.js",
