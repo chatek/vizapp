@@ -108,6 +108,22 @@ A release is a **triple**, and all three must be reported together:
 | pinned CLI | tarball `9c5fab7b…` (927,341 B) · extension `cc3869b9…` (1,004,559 B) |
 | output | dmg + zip sha256 and sizes |
 
+## 4b · Who publishes, and from where (settled 2026-11-01)
+
+```
+ build/  ──────────────►  vizmaster-lead  ──────────────►  assets.vizmaster.app/releases/<version>/
+ (desktop lane)            (publisher)                       (their own R2 bucket)
+   the ONLY source            copies, does not rebuild          linked from https://vizmaster.app/
+```
+
+- **`build/` is the single source of published bytes.** The publisher does not build, re-package, or rename: it takes
+  the latest pair from `vclaw-desktop/build/` and hosts it.
+- **Hosting is the publisher's own R2 bucket.** Deploying to it is their call and their credential.
+- **The publisher publishes a digest, not a filename.** A `.sha256` beside each artefact is part of the upload, because
+  the filename is stable across builds while the bytes are not.
+- A build is "delivered" when it is in `build/` with a reported triple (commit · pinned CLI · output digests);
+  it is "published" only when the publisher says it is live at a URL that serves those digests.
+
 ## 5 · What "release ready" requires
 
 1. `verify-package --mode qa` **PASSED with the current verifier**, on both archives.
