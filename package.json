@@ -228,6 +228,14 @@
       {
         "from": "assets/pets",
         "to": "pets"
+      },
+      {
+        "from": "product/payload",
+        "to": "product/payload"
+      },
+      {
+        "from": "product/profile.active.json",
+        "to": "product.json"
       }
     ],
     "electronLanguages": [

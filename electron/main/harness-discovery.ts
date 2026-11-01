@@ -85,11 +85,18 @@ export function detectedHarnesses(statuses: Record<HarnessId, HarnessStatus>): H
 export function reconcileActiveHarness(
   store: Pick<JsonStateStore, 'update'>,
   statuses: Record<HarnessId, HarnessStatus>,
+  allowed?: readonly HarnessId[],
 ): Promise<AppSettings> {
   const detected = detectedHarnesses(statuses)
   return store.update((state) => {
     if (detected.length && !detected.includes(state.settings.activeHarness)) {
       state.settings.activeHarness = detected[0]
+    } else if (allowed?.length && !allowed.includes(state.settings.activeHarness)) {
+      // Nothing detected, but the stored harness is not even offered by this product: a user
+      // upgrading from a generic build would otherwise start on a harness this build cannot
+      // show. Falls back to the product's first choice, which may be uninstalled — that state
+      // is already handled (NoHarnessPrompt), unlike an unreachable one.
+      state.settings.activeHarness = allowed[0]
     }
     return structuredClone(state.settings)
   })

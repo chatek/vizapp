@@ -19,10 +19,27 @@ export const PACKAGED_SMOKE_FLAG = '--packaged-smoke='
 export const PACKAGED_SMOKE_READY_EVENT = 'vclaw-packaged-smoke-ready'
 export const MAX_PACKAGED_SMOKE_MARKER_BYTES = 4 * 1024
 
+/**
+ * What this BUILD is, reported by the build itself.
+ *
+ * The smoke exists to prove readiness; without this, "the product offers one harness" and
+ * "the default project was seeded" are claims only a human reading the UI could check.
+ * `harnesses` is the profile's offered set, `detected` is what was actually found usable —
+ * both are needed, because an offered-but-absent harness is a different situation from one
+ * the product never offers.
+ */
+export interface PackagedSmokeProductEvidence {
+  id: string
+  harnesses: string[]
+  detected: string[]
+  defaultProject?: { status: string; path?: string }
+}
+
 export interface PackagedSmokeMarker {
   event: typeof PACKAGED_SMOKE_READY_EVENT
   url: string
   version: string
+  product?: PackagedSmokeProductEvidence
 }
 
 /**
@@ -41,9 +58,9 @@ export function packagedSmokeMarkerPath(argv: readonly string[]): string | null 
   return path
 }
 
-export function packagedSmokeMarker(url: string, version: string): PackagedSmokeMarker {
+export function packagedSmokeMarker(url: string, version: string, product?: PackagedSmokeProductEvidence): PackagedSmokeMarker {
   if (url !== PACKAGED_RENDERER_URL) throw new Error(`Packaged smoke mode reached an unexpected renderer URL: ${url}`)
-  return { event: PACKAGED_SMOKE_READY_EVENT, url, version }
+  return { event: PACKAGED_SMOKE_READY_EVENT, url, version, ...(product ? { product } : {}) }
 }
 
 export function serializePackagedSmokeMarker(marker: PackagedSmokeMarker): string {

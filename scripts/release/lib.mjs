@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { basename, dirname, join, posix, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SHIPPED_EXTENSION_FILENAMES } from '../../electron/main/extension-manifest.ts'
+import { validateProductProfile } from '../../electron/main/product-profile.ts'
 
 const localRequire = createRequire(import.meta.url)
 const packageJsonPath = fileURLToPath(new URL('../../package.json', import.meta.url))
@@ -400,4 +401,43 @@ export function assertUnpackedNativeLayout(unpackedDirectory, appArchitectures, 
     const architectures = readArchitectures(join(unpackedDirectory, relativePath))
     assertArchitectureCoverage(appArchitectures, architectures, relativePath)
   }
+}
+
+const ARTIFACT_ARCHITECTURES = new Set(['arm64', 'x64', 'universal'])
+
+/**
+ * The member segment an artifact name claims, or null for the generic product name.
+ *
+ * Parsed from the RIGHT: a member id may itself contain hyphens, the architecture may not.
+ * `VClaw-1.1.17-arm64.dmg` -> null; `VClaw-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
+ */
+export function artifactMemberSegment(filename) {
+  const match = /^VClaw-\d+\.\d+\.\d+-(.+)\.(?:dmg|zip|exe|AppImage)$/.exec(filename)
+  if (!match) throw new Error(`Unrecognised artifact name: ${filename}`)
+  const segments = match[1].split('-')
+  const architecture = segments.pop()
+  if (!ARTIFACT_ARCHITECTURES.has(architecture)) throw new Error(`Unrecognised architecture in artifact name: ${filename}`)
+  return segments.length ? segments.join('-') : null
+}
+
+/**
+ * Proves the packaged app IS the product its filename claims.
+ *
+ * Two independent facts, both required: the build ships a valid profile, and that profile's id
+ * matches the name. Without this a member-named artifact could carry the generic profile (users
+ * would get no seeded project and three harnesses) or a generic name could hide a branded build.
+ */
+export function assertPackagedProductProfile(resourcesDirectory, artifactName) {
+  const path = join(resourcesDirectory, 'product.json')
+  if (!existsSync(path)) throw new Error(`${artifactName ?? 'package'} must ship Resources/product.json; the build carries no product profile`)
+  const profile = validateProductProfile(JSON.parse(readFileSync(path, 'utf8')), 'packaged', path)
+  if (artifactName === null || artifactName === undefined) return profile
+  const claimed = artifactMemberSegment(artifactName)
+  if (claimed === null && profile.id !== 'vclaw') {
+    throw new Error(`${artifactName} is named as the generic product but carries profile id "${profile.id}"`)
+  }
+  if (claimed !== null && claimed !== profile.id) {
+    throw new Error(`${artifactName} is named for member "${claimed}" but carries profile id "${profile.id}"`)
+  }
+  return profile
 }

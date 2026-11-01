@@ -574,6 +574,60 @@ export class ProjectService {
    * owning persisted project, publishes the authorization, and returns the
    * enriched record. `knownSessions` reuses an already-loaded session list.
    */
+  /**
+   * Every string a stored record may use for this folder.
+   *
+   * Records are written with the REALPATH (captureFolderIdentity), while a caller naturally holds
+   * the path it asked for — on macOS `/tmp` is a symlink to `/private/tmp`, so comparing `resolve()`
+   * alone reports an existing project as absent. Measured by tests/backend/project-seeding.test.ts.
+   */
+  private async folderAliases(folder: string): Promise<ReadonlySet<string>> {
+    const aliases = new Set<string>([resolve(folder)])
+    try {
+      aliases.add(await this.identityFilesystem.realpath(folder))
+    } catch {
+      // The folder may not exist yet: seeding reports status BEFORE it copies the payload.
+    }
+    return aliases
+  }
+
+  /**
+   * Public, dialog-free grant used by build-time seeding (electron/main/default-project.ts).
+   *
+   * Seeding needs the same authorization path a user's folder picker takes — the identity
+   * capture and the broad-root refusal are the security boundary, not a formality. Writing a
+   * project record by hand from a seeder would be a second implementation of that boundary,
+   * and the two would drift.
+   */
+  async ensureProject(folder: string): Promise<ProjectRecord> {
+    const { path, identity } = await this.captureFolderIdentity(folder)
+    return this.grantProjectFolder(path, identity)
+  }
+
+  /**
+   * What seeding may do to this folder, decided by the service because only it sees state.
+   * 'dismissed' means the user deleted this project before: a seeder must NOT resurrect it.
+   */
+  async seedStatus(folder: string): Promise<'dismissed' | 'existing' | 'absent'> {
+    const aliases = await this.folderAliases(folder)
+    const matches = (value: string) => aliases.has(resolve(value))
+    return this.store.update((state) => {
+      if (state.dismissedProjectPaths.some(matches)) return 'dismissed' as const
+      const existing = this.ownProjects(state.projects).find((item) => matches(item.path) || item.folders.some(matches))
+      return existing ? ('existing' as const) : ('absent' as const)
+    })
+  }
+
+  /** Marks a seeded project as used without re-granting it (keeps it sorting first). */
+  async touchByFolder(folder: string): Promise<void> {
+    const aliases = await this.folderAliases(folder)
+    const matches = (value: string) => aliases.has(resolve(value))
+    await this.store.update((state) => {
+      const existing = this.ownProjects(state.projects).find((item) => matches(item.path) || item.folders.some(matches))
+      if (existing) existing.lastOpenedAt = new Date().toISOString()
+    })
+  }
+
   private async grantProjectFolder(path: string, identity: FolderIdentity, knownSessions?: readonly SessionRecord[]): Promise<ProjectRecord> {
     if (await this.isBroadRoot(path)) throw new TypeError('Broad filesystem roots cannot be added as projects')
     this.removalRoots.delete(path)

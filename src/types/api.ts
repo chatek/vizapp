@@ -83,11 +83,25 @@ export interface HarnessStatus {
   }
 }
 
+/**
+ * The product this build is. Deliberately small and serialisable: the renderer needs to
+ * NAME the product (onboarding, about) but must not branch on policy — `harnesses` above is
+ * already the offered set, filtered by main from this profile.
+ */
+export interface ProductProfileSummary {
+  readonly id: string
+  readonly source: 'packaged' | 'development' | 'built-in'
+  readonly harnesses: HarnessId[]
+  readonly defaultProject?: { readonly name: string; readonly version: string }
+}
+
 export interface AppMeta {
   version: string
   platform: NodeJS.Platform
   homeDir: string
   harnesses: Record<HarnessId, HarnessStatus>
+  /** Absent only in fixtures that predate product profiles; a real app always sets it. */
+  product?: ProductProfileSummary
 }
 
 export type ApplicationMenuName = 'file' | 'edit' | 'view' | 'window' | 'help'

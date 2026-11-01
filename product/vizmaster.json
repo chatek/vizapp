@@ -1,0 +1,17 @@
+{
+  "profileVersion": 1,
+  "id": "vizmaster",
+  "identity": {
+    "productName": "VizMaster",
+    "appId": "app.vizmaster.desktop"
+  },
+  "harnesses": [
+    "omp"
+  ],
+  "defaultProject": {
+    "name": "VizMaster",
+    "from": "product/payload",
+    "to": "~/VizMaster",
+    "version": "1.0.0+20261101"
+  }
+}

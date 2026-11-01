@@ -144,6 +144,48 @@ same commit. Members ride `main` as the dependency stream; release trains and up
 per-member. Escape hatch, unneeded today: a member need that outgrows anchored integration is cut as a
 branch-per-RELEASE from main (short-lived, merge-forward) — never branch-per-forever.
 
+## Member integration seam contract (v2) — product profiles
+
+v1 made a member build *edit code*: rewrite `reconcileActiveHarness`, wrap the project list with
+`singleProjectFilter`, append an `ensureDefaultProject` call. Two user-visible defects came from
+exactly those edits — a three-harness selector in a product that supports one, and no project on
+first launch — and none of the behaviour could be tested in this repo, because the patched code
+existed only inside a member snapshot.
+
+v2 replaces those three edits with **data**: a product profile the app reads at startup.
+
+| seam (v2) | file | anchor / expectation |
+|---|---|---|
+| `index-store-import` | `electron/main/index.ts` | the store import line — member module imports still insert here (new CODE still needs an anchor) |
+| `package-extra-resources` | `package.json` | `build.extraResources` is an array (member payload ships through it) |
+| `product-profile` | `product/profile.json` | the generic profile exists; a member passes its own with `--profile` |
+
+**Retired in v2** (v1 remains exported so a member pinning an older commit still verifies):
+
+| retired seam | replaced by |
+|---|---|
+| `index-harness-reconcile-call` | profile `harnesses` (offered set; discovery supplies what is installed) |
+| `projects-list-return` | profile `defaultProject` (seed one project; no filtered list, so user-added projects keep working) |
+| `index-state-store-call` | `electron/main/default-project.ts`, called by `bootstrap()` for every product |
+
+A product profile is:
+
+```json
+{ "profileVersion": 1, "id": "vizmaster",
+  "identity": { "productName": "VizMaster", "appId": "app.vizmaster.desktop" },
+  "harnesses": ["omp"],
+  "defaultProject": { "name": "VizMaster", "from": "product/payload", "to": "~/VizMaster", "version": "1.0.0+20261101" } }
+```
+
+Build with `node scripts/release/package.mjs --qa --platform mac --profile product/vizmaster.json`.
+The artifact name is derived from `id` (`VClaw-<version>-<id>-<arch>`), and **`verify-package` refuses
+an artifact whose name and profile disagree** — a member-named build carrying the generic profile, or
+the reverse. `--member <id>` is shorthand and must match the profile id.
+
+Why the payload lives at `product/payload`: it is the same convention v1 already used (payload
+integrated before packaging), and it keeps `extraResources` static. A member copies its payload there
+before running the packaging script; the generic product ships the directory with only its README.
+
 ## Open items
 
 1. **Apple Developer ID** + notarization secrets — blocks signed/notarized macOS distribution.

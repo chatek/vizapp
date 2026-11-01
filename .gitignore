@@ -24,3 +24,6 @@ __pycache__/
 /build/*.AppImage
 /build/*.blockmap
 /build/*.tar
+# Staged build input: package.mjs copies the --profile here so electron-builder ships it as
+# resources/product.json. Never committed — it is whichever profile this build selected.
+product/profile.active.json

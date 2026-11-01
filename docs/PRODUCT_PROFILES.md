@@ -1,6 +1,7 @@
 # Product profiles — one desktop app, several products
 
-Status: **proposal** (2026-11-01). Nothing here is implemented. Raised by the operator after
+Status: **implemented** (2026-11-01). Sections 1–3 are the analysis that produced it; section 11
+records what actually landed and where the implementation had to differ from the sketch. Raised by the operator after
 using the arm64 build: the shipped app offers three harnesses where the product wants one, and a
 member product (VizMaster) cannot ship its own project as the default.
 
@@ -235,3 +236,33 @@ contract-version bump and a `FORK.md` note in the same commit, per the existing 
    anchored `ensureDefaultProject` at all.
 4. Contract v2: retire the three seams, note it in `FORK.md`, tell `vizmaster-lead` their integrator
    loses three edits (they keep the module anchor).
+
+## 11. What landed (and the three places the sketch was wrong)
+
+Implemented on `feat/product-profiles`. The parts that matched the sketch: `product/profile.json` +
+`electron/main/product-profile.ts` (validate/load/describe, fail-closed), profile in `AppMeta`,
+harness offering through `offeredHarnesses()`, `ProjectService.seedStatus/touchByFolder/ensureProject`,
+`electron/main/default-project.ts`, `package.mjs --profile` deriving the artifact name from `id`,
+and `verify-package` asserting name ↔ profile agreement.
+
+**Wrong in the sketch, corrected during implementation:**
+
+1. **The payload did not need a new extraResources row per build.** The sketch implied the profile
+   would drive `build.extraResources`; electron-builder takes that statically, and its CLI cannot
+   append array entries sanely. The convention is instead `product/payload` — always shipped, empty
+   for the generic product — which is exactly the v1 rule ("payload integrated before packaging")
+   with a fixed path. The selected profile is staged as `product/profile.active.json` and shipped as
+   `resources/product.json`, because the extraResources entry is static too.
+2. **The seeder had to be non-destructive by construction.** An earlier subagent version read
+   `lessons/node_modules/.git` as text and then removed the target before restoring them — that
+   destroys the user's data on a real tree. The shipped version never deletes: user-owned top-level
+   directories are filtered out of `fs.cp`, so the worst case is stale files, not lost work.
+3. **`reconcileActiveHarness` needed one extra rule.** Nulling non-offered harnesses is enough when
+   something is installed, but with nothing detected a user upgrading from a generic build would keep
+   `activeHarness: 'prime'` in a product that cannot show it. The reconciler now falls back to the
+   product's first harness.
+4. **The harness vocabulary cannot be imported by the release scripts.** Node's ESM cannot resolve an
+   extensionless runtime import from `api.ts`, so `product-profile.ts` mirrors `HARNESS_IDS` and a test
+   pins the mirror — a duplicate guarded by a test rather than a silent second source.
+
+Acceptance evidence is in section 12.

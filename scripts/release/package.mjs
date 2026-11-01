@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { copyFileSync, readdirSync, rmSync } from 'node:fs'
+import { copyFileSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { assertSupportedToolchain, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
+import { validateProductProfile } from '../../electron/main/product-profile.ts'
 
 const args = new Set(process.argv.slice(2))
 const isPublic = args.has('--public')
@@ -23,6 +24,8 @@ if (member !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(member)) {
   console.error('Choose a member id matching [a-z0-9][a-z0-9-]* (for example: --member vizmaster)')
   process.exit(2)
 }
+const profileIndex = process.argv.indexOf('--profile')
+const profilePath = profileIndex === -1 ? 'product/profile.json' : process.argv[profileIndex + 1]
 const platformHosts = { mac: 'darwin', linux: 'linux', win: 'win32' }
 const nativeArchitectures = { arm64: 'arm64', x64: 'x64' }
 if (isPublic === isQa) {
@@ -54,14 +57,50 @@ try {
   if (process.platform !== platformHosts[platform]) throw new Error(`${platform} packaging must run natively on ${platformHosts[platform]}`)
   if (isPublic && platform === 'mac') validateReleaseCredentials(process.env)
   if (isPublic && platform === 'win') validateWindowsReleaseCredentials(process.env)
+  
+  // The profile decides the product, so validate it BEFORE any work: a profile that cannot
+  // start the app must never become an artefact. 'development' is the honest source here —
+  // the profile is a file in this checkout, not yet the packaged copy.
+  const profile = validateProductProfile(JSON.parse(readFileSync(profilePath, 'utf8')), 'development', profilePath)
+
+  // --member is shorthand for --profile, so the two must agree. Silently preferring one would
+  // let an artifact be named for a product whose profile is something else.
+  if (member !== undefined && member !== profile.id) {
+    console.error(`--member ${member} contradicts profile id "${profile.id}" (${profilePath})`)
+    process.exit(2)
+  }
+  
   const verifyScript = skipVerify ? 'build:bundle' : platform === 'mac' ? 'release:verify' : 'release:verify:package'
   run('npm', ['run', verifyScript], withoutReleaseCredentials(process.env))
   if (!dryRun) rmSync(resolve('release', platform, arch), { recursive: true, force: true })
 
   const builderArgs = [`--${platform}`, `--${arch}`, '--publish', 'never', `--config.directories.output=release/${platform}/${arch}`]
-  // Member artifacts are named VClaw-<version>-<member>-<arch>.<ext> so a member
-  // build can never be mistaken for the generic product build (and vice versa).
-  if (member) builderArgs.push(`--config.artifactName=VClaw-\${version}-${member}-\${arch}.\${ext}`)
+  // Ship THIS profile as resources/product.json: electron-builder reads a static extraResources
+  // entry, so the selection is applied by staging the chosen file. Removed in the finally below,
+  // so a failed build does not leave a stale product identity behind for the next one.
+  const stagedProfile = resolve('product', 'profile.active.json')
+  writeFileSync(stagedProfile, `${JSON.stringify(profile, null, 2)}\n`)
+
+  // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
+  // asserts the two agree, and this is the one place that makes them agree by construction.
+  const artifactName = profile.id === 'vclaw'
+    ? 'VClaw-${version}-${arch}.${ext}'
+    : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
+  // Per-platform key, not the top-level one: package.json sets build.mac.artifactName, and a
+  // platform artifactName WINS over the generic one — so `--config.artifactName` was silently
+  // ignored and every member build kept the plain ${productName}-${version}-${arch} name.
+  builderArgs.push(`--config.${platform}.artifactName=${artifactName}`)
+  // Identity travels with the profile: a member build that inherited appId com.vclaw.desktop
+  // would share the generic product's userData directory and updater channel.
+  // Offline / airgapped builds: this host resolves github.com to a fake-ip, so electron-builder's
+  // ELECTRON download dies with EADDRNOTAVAIL *after* the .app is packaged. Pointing it at the
+  // Electron that npm already unpacked removes the fetch entirely.
+  if (process.env.VCLAW_ELECTRON_DIST) {
+    builderArgs.push(`--config.electronDist=${resolve(process.env.VCLAW_ELECTRON_DIST)}`)
+  }
+  if (profile.identity) {
+    builderArgs.push(`--config.productName=${profile.identity.productName}`, `--config.appId=${profile.identity.appId}`)
+  }
   if (isPublic && platform === 'win') builderArgs.push('--config.forceCodeSigning=true')
   const builderEnv = isQa ? { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } : process.env
   if (isQa && platform === 'mac') builderArgs.push('--config.mac.identity=null', '--config.mac.notarize=false')
@@ -86,4 +125,6 @@ try {
 } catch (error) {
   console.error(`\nPackaging failed: ${error instanceof Error ? error.message : String(error)}`)
   process.exitCode = 1
+} finally {
+  rmSync(resolve('product', 'profile.active.json'), { force: true })
 }

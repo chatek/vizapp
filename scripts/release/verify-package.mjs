@@ -12,6 +12,7 @@ import {
   assertExactArchitectures,
   assertPackagedExtensionContent,
   assertPackagedExtensions,
+  assertPackagedProductProfile,
   assertUnpackedNativeLayout,
   parseArchitectures,
   parseTeamIdentifier,
@@ -182,6 +183,9 @@ export async function verifyPackage({ mode, releaseDirectory = resolve('release'
   const artifactFiles = findFiles(releaseDirectory, (path, stat) => stat.isFile() && (path.endsWith('.dmg') || path.endsWith('.zip')))
   const artifacts = requireReleaseArtifacts(artifactFiles)
   assertRequestedArchitecture(artifacts, arch)
+
+  assertPackagedProductProfile(join(findSingleApp(releaseDirectory, 'release'), 'Contents', 'Resources'), basename(artifacts.dmg))
+
   const dmgMetrics = await verifyDmg(artifacts.dmg, { mode, expectedTeam }, artifacts)
   const zipMetrics = await verifyZip(artifacts.zip, { mode, expectedTeam }, artifacts)
 

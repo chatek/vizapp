@@ -1,0 +1,5 @@
+{
+  "profileVersion": 1,
+  "id": "vclaw",
+  "harnesses": ["omp", "prime", "pi"]
+}

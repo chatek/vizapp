@@ -65,16 +65,19 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    `out`, `release`). Never integrate into the canonical checkout; keep it clean — a dirty
    tracked tree must fail the build, not be stamped silently.
 3. **Payload.** Bundle your member app (your `dist/`, your payload `package.json`) in your repo.
-4. **Integrate** (in the snapshot, idempotently): copy payload → `vendor/<member>/`; append
-   `{ "from": "vendor/<member>", "to": "<member>" }` to `build.extraResources`; copy overlay
-   modules into `electron/main/`; apply the anchored insertions/rewrites from the contract;
-   then run your integrator's `--check` — must be `ok: true`.
+4. **Integrate** (in the snapshot, idempotently): copy payload → `product/payload/`; write your
+   product profile → `product/<member>.json` (id, identity, harnesses, defaultProject); copy overlay
+   modules into `electron/main/`; apply the remaining anchored insertion from the contract
+   (`index-store-import`); then run your integrator's `--check` — must be `ok: true`.
+   **Contract v2 retired the three behavioural edits** (harness rewrite, project-list wrapper,
+   `ensureDefaultProject` call): the profile expresses those as data. See `FORK.md`.
 5. **Typecheck** the integrated snapshot: `npm ci && npm run typecheck` (toolchain pins:
    node 24.15.0 / npm 12.0.2 — `npm run toolchain:bootstrap`, see `FORK.md`).
-6. **Identity.** Override `productName` / `appId` / `publish` for YOUR product at build time
-   (electron-builder config override or your overlay). **Never leave the inherited publish
-   target on a member build** — the auto-updater would offer someone else's builds.
-7. **Package.** `npx electron-builder --mac dmg --<arch> --publish never` per arch
+6. **Identity.** `productName` / `appId` now come from the profile's `identity`, applied by
+   `package.mjs`; a member build must still never inherit the generic publish target — the
+   auto-updater would offer someone else's builds.
+7. **Package.** `node scripts/release/package.mjs --qa --platform mac --arch <arch> --profile product/<member>.json`
+   (the script derives the artifact name from the profile id and refuses a name/profile mismatch)
    (Windows: Windows-only runner; Linux targets per `FORK.md`). Verify the artifact
    (layout, identity, your release stamp `<memberVersion>+<date>.<shortSha>`), write
    `SHA256SUMS`, publish to **your** updater channel.

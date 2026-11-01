@@ -174,6 +174,19 @@ Copy the DMG and ZIP back, then confirm the transfer with `shasum -a 256` on **b
 before anyone opens the file. Report the triple with every delivery: source commit, pinned CLI
 digest, artefact digest.
 
+## Trap 5 — a platform `artifactName` silently beats the generic one
+
+`package.json` sets `build.mac.artifactName` (`${productName}-${version}-${arch}.${ext}`). electron-builder
+resolves **platform-specific config before the generic key**, so `--config.artifactName=…` and a top-level
+`build.artifactName` are both ignored on macOS. The build looks correct — the file that appears matches the
+product name — which is why this survived: a member build therefore shipped as
+`VizMaster-1.1.17-arm64.dmg` instead of `VClaw-1.1.17-vizmaster-arm64.dmg`, and nothing failed, because the
+only checker compared the artifact to itself.
+
+Set the **per-platform** key: `--config.<platform>.artifactName=…`. And assert the name against the product
+identity at verification time (`assertPackagedProductProfile`), which is what turned this from a silent
+mismatch into a failing gate.
+
 ## Signing
 
 `security find-identity -v -p codesigning` → **0 valid identities**. Only `--qa` builds are

@@ -21,9 +21,28 @@
  *   - Members pin main commits; this verifier is the gate that keeps pinned
  *     builds integrable across upstream merges.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+/**
+ * @typedef {object} MemberSeam
+ * @property {string} id
+ * @property {string} file
+ * @property {string} [anchor]
+ * @property {readonly string[]} [anyOf]
+ * @property {string} [jsonPath]
+ * @property {string} [expect]
+ * @property {string} [why]
+ *
+ * @typedef {object} MemberContract
+ * @property {number} version
+ * @property {string} [date]
+ * @property {readonly string[]} [consumers]
+ * @property {readonly MemberSeam[]} seams
+ * @property {readonly object[]} [retired]
+ * @property {readonly object[]} [documentedNotPatched]
+ */
 
 export const MEMBER_SEAMS_V1 = {
   version: 1,
@@ -90,15 +109,77 @@ export const MEMBER_SEAMS_V1 = {
   ],
 }
 
-export function verifyMemberSeams(root) {
+/**
+ * Contract v2 — the three behavioural seams became DATA.
+ *
+ * v1 made a member build rewrite `reconcileActiveHarness`, wrap the project list, and append an
+ * `ensureDefaultProject` call. Those three edits were the source of two user-visible defects
+ * (a three-harness selector in a product that supports one; no project seeded on first launch),
+ * were untestable here, and re-bet on every upstream merge. A product profile expresses the same
+ * decisions as data the app reads, so v2 retires them.
+ *
+ * Retired, not lost: v1 stays exported above so a member pinning an older commit still verifies
+ * against what that commit promised.
+ */
+export const MEMBER_SEAMS_V2 = {
+  version: 2,
+  date: '2026-11-01',
+  consumers: ['VizMaster scripts/integrate-vcclaw.mjs (drop the three behavioural edits)'],
+  seams: [
+    {
+      id: 'index-store-import',
+      file: 'electron/main/index.ts',
+      anchor: "import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'",
+      why: 'integration inserts member module imports (e.g. vizshare) immediately after this line — genuinely new CODE still needs an anchor',
+    },
+    {
+      id: 'package-extra-resources',
+      file: 'package.json',
+      jsonPath: 'build.extraResources',
+      expect: 'array',
+      why: 'a member payload ships through this array; the product payload also uses it (product/payload)',
+    },
+    {
+      id: 'product-profile',
+      file: 'product/profile.json',
+      expect: 'file',
+      why: 'the build-time product decision (harness set, identity, default project); a member keeps its own profile file and passes --profile',
+    },
+  ],
+  retired: [
+    { id: 'index-harness-reconcile-call', replacedBy: 'product profile `harnesses`', was: 'rewrote reconcileActiveHarness into ensureHarness for the OMP-only build' },
+    { id: 'projects-list-return', replacedBy: 'product profile `defaultProject` (seed one project; no filtered list)', was: 'wrapped sortProjects in singleProjectFilter' },
+    { id: 'index-state-store-call', replacedBy: 'electron/main/default-project.ts called by bootstrap for every product', was: 'appended an ensureDefaultProject call' },
+  ],
+  documentedNotPatched: [
+    {
+      id: 'harness-ids',
+      file: 'src/types/api.ts',
+      what: "HARNESS_IDS = ['omp', 'prime', 'pi']",
+      note: 'the full vocabulary; a product narrows the OFFERED set through its profile, never by editing this constant',
+    },
+    {
+      id: 'third-party-manifest-key',
+      file: 'electron/main/plugins/catalog.ts',
+      what: 'manifest key `vclaw` with legacy `gooeypi` fallback',
+      note: 'member plugin packages identify themselves through this key',
+    },
+  ],
+}
+
+/** @param {MemberContract} contract */
+export function verifyMemberSeams(root, contract = MEMBER_SEAMS_V2) {
   const results = []
   let ok = true
-  for (const seam of MEMBER_SEAMS_V1.seams) {
+  for (const seam of contract.seams) {
     const path = resolve(root, seam.file)
     let passed = false
     let detail = ''
     try {
-      if (seam.jsonPath) {
+      if (seam.expect === 'file') {
+        passed = existsSync(path)
+        detail = passed ? 'file present' : 'file missing'
+      } else if (seam.jsonPath) {
         const parsed = JSON.parse(readFileSync(path, 'utf8'))
         const value = seam.jsonPath.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), parsed)
         passed = Array.isArray(value)
@@ -116,11 +197,12 @@ export function verifyMemberSeams(root) {
     ok = ok && passed
     results.push({ id: seam.id, file: seam.file, ok: passed, detail })
   }
-  return { version: MEMBER_SEAMS_V1.version, ok, results }
+  return { version: contract.version, ok, results }
 }
 
-export function reportMemberSeams(root) {
-  const report = verifyMemberSeams(root)
+/** @param {MemberContract} contract */
+export function reportMemberSeams(root, contract = MEMBER_SEAMS_V2) {
+  const report = verifyMemberSeams(root, contract)
   for (const row of report.results) {
     console.error(`${row.ok ? 'ok  ' : 'FAIL'} ${row.id} (${row.file}) — ${row.detail}`)
   }
@@ -131,6 +213,9 @@ export function reportMemberSeams(root) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const rootIndex = process.argv.indexOf('--root')
   const root = rootIndex >= 0 && process.argv[rootIndex + 1] ? resolve(process.argv[rootIndex + 1]) : resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-  const report = reportMemberSeams(root)
+  const contractIndex = process.argv.indexOf('--contract')
+  const requested = contractIndex >= 0 ? Number(process.argv[contractIndex + 1]) : 2
+  const contract = requested === 1 ? MEMBER_SEAMS_V1 : MEMBER_SEAMS_V2
+  const report = reportMemberSeams(root, contract)
   process.exit(report.ok ? 0 : 1)
 }

@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { assertNoMcpAuthenticationCommand } from '../../src/lib/mcp-policy'
-import { BROWSER_PARTITION, type ApplicationMenuName, type AppMeta, type AppUpdateState, type HarnessId, type PrimeEventEnvelope, type ProviderAuthEvent, type RuntimeInfo, type ThemeMode } from '../../src/types/api'
+import { BROWSER_PARTITION, HARNESS_IDS, type ApplicationMenuName, type AppMeta, type AppUpdateState, type HarnessId, type PrimeEventEnvelope, type ProviderAuthEvent, type RuntimeInfo, type ThemeMode } from '../../src/types/api'
 import { AgentRpcManager, OMP_RPC_ADAPTER, PI_RPC_ADAPTER } from './agent-rpc'
 import { installApplicationMenu } from './application-menu'
 import { MacBackgroundController, shouldStartInBackground } from './background'
@@ -16,14 +16,17 @@ import { GitService } from './git'
 import { CheckoutService } from './checkouts'
 import { isTrustedRendererUrl, registerIpc, type IpcRegistration } from './ipc'
 import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'
+import { offeredHarnesses } from './harness-offering'
 import { beginProcessShutdown, runProcess, stopChildProcesses } from './process-utils'
 import { PluginService, beginPluginDiscoveryShutdown } from './plugins'
 import { PrimeProviderService } from './providers'
 import { OmpModelCatalogService } from './providers-omp'
 import { PiModelCatalogService } from './providers-pi'
-import { PACKAGED_RENDERER_URL, PACKAGED_SMOKE_READY_EVENT, packagedSmokeMarker, packagedSmokeMarkerPath, serializePackagedSmokeMarker } from './packaged-smoke'
+import { PACKAGED_RENDERER_URL, PACKAGED_SMOKE_READY_EVENT, packagedSmokeMarker, packagedSmokeMarkerPath, serializePackagedSmokeMarker, type PackagedSmokeProductEvidence } from './packaged-smoke'
 import { PetService } from './pets'
+import { seedDefaultProject } from './default-project'
 import { ProjectService } from './projects'
+import { BUILT_IN_PROFILE, describeProductProfile, loadProductProfile, type ProductProfile } from './product-profile'
 import { SettingsService } from './settings-schedules'
 import { ScheduledRunExecutor } from './schedules/executor'
 import { HeartbeatService } from './schedules/heartbeats'
@@ -57,6 +60,11 @@ let downloads: BrowserDownloadGuard | null = null
 let providerService: PrimeProviderService | null = null
 let updateService: UpdateService | null = null
 let store: JsonStateStore | null = null
+// Product identity for this build. Set in bootstrap(); BUILT_IN_PROFILE until then so any
+// early reader sees the generic product rather than an undefined.
+let productProfile: ProductProfile = BUILT_IN_PROFILE
+let smokeProductEvidence: PackagedSmokeProductEvidence | undefined
+let seededOutcome: Awaited<ReturnType<typeof seedDefaultProject>> | undefined
 let automation: AutomationService | null = null
 let agentScheduleBridges: AgentScheduleBridge[] = []
 let agentBrowser: AgentBrowserService | null = null
@@ -568,6 +576,19 @@ export function routeAllWindowsClosed(
 }
 
 async function bootstrap(): Promise<void> {
+  // The profile decides where this product's state lives, so it must be read before anything
+  // touches userData. Electron derives userData from package.json `name` (always "vclaw"), NOT
+  // from productName or appId — so without this a VizMaster build and the generic build would
+  // share one state file and fight over projects. Measured on macOS 2026-11-01.
+  const productProfileContext = {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  }
+  productProfile = loadProductProfile(productProfileContext)
+  if (productProfile.id !== 'vclaw') {
+    app.setPath('userData', join(app.getPath('appData'), productProfile.id))
+  }
   const userDataPath = app.getPath('userData')
   configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)
@@ -583,8 +604,10 @@ async function bootstrap(): Promise<void> {
     startInBackground,
   })
   const discovery = new HarnessDiscoveryService(() => stateStore.getSettings().runtimePaths)
-  const initialHarnesses = await discovery.refresh()
-  await reconcileActiveHarness(stateStore, initialHarnesses)
+  // Discovery says what is installed; the product says what it offers. Nulling the rest here is
+  // what makes an OMP-only product show one harness without touching the selector.
+  const initialHarnesses = offeredHarnesses(await discovery.refresh(), productProfile.harnesses)
+  await reconcileActiveHarness(stateStore, initialHarnesses, productProfile.harnesses)
   if (shutdownStarted) return
   const primeExecutable = () => discovery.executable('prime')
   const ompExecutable = () => discovery.executable('omp')
@@ -598,6 +621,20 @@ async function bootstrap(): Promise<void> {
   const projects = new ProjectService(stateStore, () => mainWindow)
   const ompProjects = new ProjectService(stateStore, () => mainWindow, 'omp')
   const piProjects = new ProjectService(stateStore, () => mainWindow, 'pi')
+  // A product build seeds its own project once, through the same grant path a folder picker
+  // takes. Records are harness-scoped, so the service must be the one for the profile's first
+  // harness — seeding through another instance would create a project this product cannot show.
+  if (productProfile.defaultProject) {
+    const productHarness = productProfile.harnesses[0]
+    const productProjects = productHarness === 'prime' ? projects : productHarness === 'pi' ? piProjects : ompProjects
+    const seeded = await seedDefaultProject({ profile: productProfile, context: productProfileContext, homeDir: homedir(), projects: productProjects })
+    seededOutcome = seeded
+    // payload-absent is legitimate in a build that ships no payload; a product that intends to
+    // seed but cannot find its bytes is a packaging defect, so say so rather than start silent.
+    if (seeded.status === 'skipped' && seeded.reason === 'payload-absent') {
+      console.warn(`default project payload missing for product ${productProfile.id}; starting without it`)
+    }
+  }
   const repositoryUseGate = new RepositoryUseGate()
   const checkouts: Record<HarnessId, CheckoutService> = {
     prime: new CheckoutService(() => stateStore.getSettings().checkoutStrategy, projects, repositoryUseGate),
@@ -1033,12 +1070,19 @@ async function bootstrap(): Promise<void> {
     platform: process.platform,
     homeDir: homedir(),
     harnesses: initialHarnesses,
+    product: describeProductProfile(productProfile),
+  }
+  smokeProductEvidence = {
+    id: productProfile.id,
+    harnesses: [...productProfile.harnesses],
+    detected: HARNESS_IDS.filter((harness) => meta.harnesses[harness].path !== null),
+    ...(seededOutcome ? { defaultProject: { status: seededOutcome.status, path: productProfile.defaultProject?.to } } : {}),
   }
   const updates = new UpdateService(getAutoUpdater(), { enabled: app.isPackaged })
   updateService = updates
   const refreshHarnesses = async () => {
-    const harnesses = await discovery.refresh()
-    const currentSettings = await reconcileActiveHarness(stateStore, harnesses)
+    const harnesses = offeredHarnesses(await discovery.refresh(), productProfile.harnesses)
+    const currentSettings = await reconcileActiveHarness(stateStore, harnesses, productProfile.harnesses)
     meta.harnesses = harnesses
     return { meta: structuredClone(meta), settings: currentSettings }
   }
@@ -1119,7 +1163,7 @@ async function runPackagedSmoke(window: BrowserWindow | null, markerPath: string
   if (!window || window.isDestroyed()) throw new Error('Packaged smoke mode could not open the renderer window')
   if (!ipc) throw new Error('Packaged smoke mode has no registered IPC surface to observe')
   await ipc.whenRendererReady
-  const marker = serializePackagedSmokeMarker(packagedSmokeMarker(trustedRendererUrl, app.getVersion()))
+  const marker = serializePackagedSmokeMarker(packagedSmokeMarker(trustedRendererUrl, app.getVersion(), smokeProductEvidence))
   await writeFile(markerPath, marker, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
   console.log(`${PACKAGED_SMOKE_READY_EVENT} ${trustedRendererUrl}`)
   shutdownApproved = true
