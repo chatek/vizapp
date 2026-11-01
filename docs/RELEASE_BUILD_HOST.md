@@ -69,6 +69,17 @@ A fresh `npm ci` therefore exits **0** while skipping nine scripts — including
 `node_modules/node-pty/build/Release/pty.node` will be **missing**, and the failure surfaces
 later as a bundling or terminal error.
 
+**Which entrypoint forces this, measured rather than assumed — it matters, because the two
+answers differ:**
+
+| entrypoint | npm floor enforced? | consequence |
+|---|---|---|
+| `npm run package:mac` / `package.mjs` | **yes**, hard | npm 11 is refused before anything runs: `Packaging failed: npm >=12.0.2 is required (found 11.17.0)` (node 24.19.0, npm 11.17.0, 2026-11-01). So bootstrap npm 12 — and then approve + rebuild, because npm 12 blocks the scripts. |
+| member driver (`app/scripts/build-local.sh` in `chatek/vizmaster`) | **no** — it never calls `package.mjs` | homebrew npm 11 works fine and runs the install scripts normally. This is why the VizMaster rehearsal never hit either half of this trap. |
+
+So "the pinned toolchain is not required" is true for the member driver and **false** for the
+generic entrypoint. If you use the generic one, you need both steps, in this order:
+
 ```bash
 npm install-scripts approve --all && npm rebuild
 ```
