@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { copyFileSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { assertSupportedToolchain, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
-import { validateProductProfile } from '../../electron/main/product-profile.ts'
 
 const args = new Set(process.argv.slice(2))
 const isPublic = args.has('--public')
@@ -61,7 +61,21 @@ try {
   // The profile decides the product, so validate it BEFORE any work: a profile that cannot
   // start the app must never become an artefact. 'development' is the honest source here —
   // the profile is a file in this checkout, not yet the packaged copy.
-  const profile = validateProductProfile(JSON.parse(readFileSync(profilePath, 'utf8')), 'development', profilePath)
+  // A checkout without product/ is the pre-profile layout (older pins): fall back to the generic
+  // product instead of failing, so a member pinning an older commit still packages. The vocabulary
+  // is restated here for the same reason product-profile.ts mirrors it — this runs under plain Node.
+  // IMPORTED LAZILY: a member pinning a commit from before product profiles has neither
+  // product/ nor product-profile.ts, and must still be able to package. A static import here
+  // made every such pin fail with ERR_MODULE_NOT_FOUND.
+  const GENERIC_FALLBACK_PROFILE = { profileVersion: 1, id: 'vclaw', harnesses: ['omp', 'prime', 'pi'] }
+  let profile = GENERIC_FALLBACK_PROFILE
+  if (existsSync(profilePath)) {
+    const profileModule = resolve('electron/main/product-profile.ts')
+    const { validateProductProfile } = await import(pathToFileURL(profileModule).href)
+    profile = validateProductProfile(JSON.parse(readFileSync(profilePath, 'utf8')), 'development', profilePath)
+  } else {
+    console.warn(`No product profile at ${profilePath}; packaging the generic product`)
+  }
 
   // --member is shorthand for --profile, so the two must agree. Silently preferring one would
   // let an artifact be named for a product whose profile is something else.
@@ -79,6 +93,7 @@ try {
   // entry, so the selection is applied by staging the chosen file. Removed in the finally below,
   // so a failed build does not leave a stale product identity behind for the next one.
   const stagedProfile = resolve('product', 'profile.active.json')
+  mkdirSync(resolve('product'), { recursive: true })
   writeFileSync(stagedProfile, `${JSON.stringify(profile, null, 2)}\n`)
 
   // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
