@@ -108,21 +108,29 @@ A release is a **triple**, and all three must be reported together:
 | pinned CLI | tarball `9c5fab7b…` (927,341 B) · extension `cc3869b9…` (1,004,559 B) |
 | output | dmg + zip sha256 and sizes |
 
-## 4b · Who publishes, and from where (settled 2026-11-01)
+## 4b · Who builds and who publishes (corrected 2026-11-01)
 
 ```
- build/  ──────────────►  vizmaster-lead  ──────────────►  assets.vizmaster.app/releases/<version>/
- (desktop lane)            (publisher)                       (their own R2 bucket)
-   the ONLY source            copies, does not rebuild          linked from https://vizmaster.app/
+ shared upstream repo                vizmaster-lead                         end users
+ vclaw-desktop (GitHub + Forgejo)  ──► builds the VizMaster top build ──► assets.vizmaster.app/releases/<version>/
+   branch feat/product-profiles          from that upstream                   (their own R2 bucket)
+   = generic upstream                     publishes + owns the bucket         linked from https://vizmaster.app/
+         │
+         └──► vclaw-desktop/build/   = the desktop lane's REFERENCE artefacts (the bytes this lane verified)
 ```
 
-- **`build/` is the single source of published bytes.** The publisher does not build, re-package, or rename: it takes
-  the latest pair from `vclaw-desktop/build/` and hosts it.
-- **Hosting is the publisher's own R2 bucket.** Deploying to it is their call and their credential.
-- **The publisher publishes a digest, not a filename.** A `.sha256` beside each artefact is part of the upload, because
-  the filename is stable across builds while the bytes are not.
-- A build is "delivered" when it is in `build/` with a reported triple (commit · pinned CLI · output digests);
-  it is "published" only when the publisher says it is live at a URL that serves those digests.
+- **`vclaw-desktop` (GitHub + Forgejo) is the upstream generic product.** The product is delivered by a **build-time
+  profile**, not by a patched fork: `feat/product-profiles` carries the profile mechanism, and a VizMaster build passes
+  `"id": "vizmaster"` with `"harnesses": ["omp"]` and `"projects": "single"`.
+- **`vizmaster-lead` builds their own VizMaster top build off that upstream repo** and hosts it in **their own R2
+  bucket**. They own design of the release page at `https://vizmaster.app/`, the upload, and the version they publish.
+- **`vclaw-desktop/build/` holds this lane's verified reference pair.** It is what the desktop lane built and verified
+  (commit · pinned CLI · digests); it is a comparison point and a fallback, **not a gate on the publisher**. If their
+  build differs, the comparison is the digest and the marker, not a filename.
+- **Both sides publish a digest.** The filename is stable across builds while the bytes are not — four pairs already
+  shared a `VClaw-1.1.17-*` name in one day.
+- **Unsigned today:** the build host has 0 signing identities, so any build from it (this lane or the publisher's) is a
+  `--qa` artefact and needs a Gatekeeper override. Signing is a prerequisite for a frictionless public download.
 
 ## 5 · What "release ready" requires
 
