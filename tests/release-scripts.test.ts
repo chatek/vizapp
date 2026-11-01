@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
@@ -73,6 +73,7 @@ import {
   assertArchitectureCoverage,
   assertAsarLayout,
   assertExactArchitectures,
+  assertPackagedExtensionContent,
   assertPackagedExtensions,
   assertSupportedNpm,
   assertSupportedNode,
@@ -85,6 +86,7 @@ import {
   readNpmOutput,
   readNpmVersion,
   readRepositoryToolchain,
+  readShippedAgentPin,
   requireReleaseArtifacts,
   resolveCommandInvocation,
   validateReleaseCredentials,
@@ -2047,6 +2049,61 @@ describe('packaged extension resources', () => {
       expect(() => assertPackagedExtensions(nonFile.resources)).toThrow(/non-file:/)
     } finally {
       for (const fixture of [exact, missing, extra, nonFile]) rmSync(fixture.directory, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('shipped extension pin', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const shipped = readShippedAgentPin()
+  const realBytes = readFileSync(join(root, shipped.path))
+
+  // The layout check demands every shipped extension, so the fixture is the real
+  // directory with only the pinned bundle swapped. That keeps this test about CONTENT.
+  const realExtensions = join(root, 'assets', 'extensions')
+  function resourcesWith(content: Buffer | null): string {
+    const directory = mkdtempSync(join(tmpdir(), 'vclaw-ext-pin-'))
+    const extensions = join(directory, 'extensions')
+    mkdirSync(extensions, { recursive: true })
+    for (const name of readdirSync(realExtensions)) {
+      if (name !== basename(shipped.path)) writeFileSync(join(extensions, name), readFileSync(join(realExtensions, name)))
+    }
+    if (content) writeFileSync(join(extensions, basename(shipped.path)), content)
+    return directory
+  }
+
+  test('accepts the extension byte-identical to the pin', () => {
+    const directory = resourcesWith(realBytes)
+    try {
+      expect(() => assertPackagedExtensionContent(directory, shipped)).not.toThrow()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a stale bundle under the correct filename, which the layout check cannot see', () => {
+    // Same length, one flipped byte: assertPackagedExtensions passes this file, because
+    // it only inspects names. That was the gap until the digest check existed.
+    const tampered = Buffer.from(realBytes)
+    tampered[tampered.length - 1] ^= 0xff
+    const directory = resourcesWith(tampered)
+    try {
+      expect(() => assertPackagedExtensions(directory)).not.toThrow()
+      expect(() => assertPackagedExtensionContent(directory, shipped)).toThrow(/does not match pinned/)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a wrong byte count and an absent extension', () => {
+    const shortDirectory = resourcesWith(realBytes.subarray(0, 8))
+    const emptyDirectory = resourcesWith(null)
+    try {
+      expect(() => assertPackagedExtensionContent(shortDirectory, shipped)).toThrow(/bytes; pinned/)
+      expect(() => assertPackagedExtensionContent(emptyDirectory, shipped)).toThrow(/missing the pinned extension/)
+    } finally {
+      rmSync(shortDirectory, { recursive: true, force: true })
+      rmSync(emptyDirectory, { recursive: true, force: true })
     }
   })
 })

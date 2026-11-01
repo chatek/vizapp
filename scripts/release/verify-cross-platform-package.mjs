@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { listPackage } from '@electron/asar'
-import { assertAsarLayout, assertPackagedExtensions } from './lib.mjs'
+import { assertAsarLayout, assertPackagedExtensionContent, assertPackagedExtensions, readShippedAgentPin } from './lib.mjs'
 
 function requireOption(value, label, allowed) {
   if (!value || !allowed.includes(value)) throw new Error(`${label} must be one of: ${allowed.join(', ')}`)
@@ -161,6 +161,7 @@ export function verifyPackage(target, architecture, { unpackedOnly = false, mode
   const asar = join(resources, 'app.asar')
   const unpacked = join(resources, 'app.asar.unpacked')
   assertPackagedExtensions(resources)
+  assertPackagedExtensionContent(resources, readShippedAgentPin())
   if (!existsSync(asar) || !lstatSync(asar).isFile()) throw new Error('Packaged application must contain resources/app.asar')
   if (existsSync(join(resources, 'app'))) throw new Error('Packaged application contains forbidden loose resources/app')
   if (!existsSync(unpacked)) throw new Error('Packaged application must contain resources/app.asar.unpacked')

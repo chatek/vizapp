@@ -10,10 +10,12 @@ import {
   artifactArchitectures,
   assertAsarLayout,
   assertExactArchitectures,
+  assertPackagedExtensionContent,
   assertPackagedExtensions,
   assertUnpackedNativeLayout,
   parseArchitectures,
   parseTeamIdentifier,
+  readShippedAgentPin,
   requireReleaseArtifacts,
 } from './lib.mjs'
 import { assertPackageSizeBudgets, collectPackageSizeMetrics, describeSizeMetrics } from './size-budgets.mjs'
@@ -89,6 +91,7 @@ async function verifyApp({ app, artifact, mode, expectedTeam }) {
   const asar = join(resources, 'app.asar')
   const looseApp = join(resources, 'app')
   assertPackagedExtensions(resources)
+  assertPackagedExtensionContent(resources, readShippedAgentPin())
   if (!existsSync(asar)) throw new Error(`${basename(artifact)} application must contain Resources/app.asar`)
   if (existsSync(looseApp)) throw new Error(`${basename(artifact)} contains forbidden loose Resources/app`)
   assertAsarLayout(listPackage(asar, { isPack: false }))

@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, posix, win32 } from 'node:path'
+import { basename, dirname, join, posix, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SHIPPED_EXTENSION_FILENAMES } from '../../electron/main/extension-manifest.ts'
 
@@ -295,6 +296,41 @@ export function assertPackagedExtensions(resourcesDirectory) {
   if (missing.length || extra.length || nonFiles.length) {
     throw new Error(`Unexpected packaged extension layout (missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'}; non-file: ${nonFiles.join(', ') || 'none'})`)
   }
+}
+
+const pinsPath = fileURLToPath(new URL('./dependency-pins.json', import.meta.url))
+
+export function readShippedAgentPin(path = pinsPath) {
+  const shipped = JSON.parse(readFileSync(path, 'utf8'))?.artifacts?.['vclawhub-agent']?.shipped
+  if (!shipped || typeof shipped.path !== 'string' || !/^[0-9a-f]{64}$/.test(shipped.sha256 ?? '') || !Number.isSafeInteger(shipped.size) || shipped.size <= 0) {
+    throw new Error('dependency-pins.json is missing artifacts.vclawhub-agent.shipped {path, sha256, size}')
+  }
+  return shipped
+}
+
+/**
+ * Verifies the extension the app will actually inject against the pinned digest.
+ *
+ * assertPackagedExtensions above proves the LAYOUT (every expected filename present, no
+ * extras); it cannot see content. A stale or wrong bundle under the right filename passed
+ * every gate until this existed — the pin gate compares repo bytes to the archive, and the
+ * package verifier never opened the shipped file.
+ */
+export function assertPackagedExtensionContent(resourcesDirectory, shipped, readFile = readFileSync) {
+  const name = basename(shipped.path)
+  const packagedPath = join(resourcesDirectory, 'extensions', name)
+  if (!existsSync(packagedPath)) {
+    throw new Error(`Packaged application is missing the pinned extension ${name}: ${packagedPath}`)
+  }
+  const bytes = readFile(packagedPath)
+  const digest = createHash('sha256').update(bytes).digest('hex')
+  if (bytes.length !== shipped.size) {
+    throw new Error(`Packaged extension ${name} is ${bytes.length} bytes; pinned ${shipped.size}`)
+  }
+  if (digest !== shipped.sha256) {
+    throw new Error(`Packaged extension ${name} digest ${digest} does not match pinned ${shipped.sha256}`)
+  }
+  return { name, size: bytes.length, sha256: digest }
 }
 
 const NODE_PTY_UNPACKED_FILES = ['node_modules/node-pty/build/Release/pty.node', 'node_modules/node-pty/build/Release/spawn-helper']
