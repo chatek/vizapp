@@ -13,3 +13,14 @@ test-results
 .claude/worktrees/
 __pycache__/
 .claude/settings.local.json
+
+# Build artefacts land in build/ (electron-builder's buildResources dir also lives
+# there). Never commit a packaged app: build/ holds 290 MB of binaries after a
+# release build, and the entitlements plists beside them ARE tracked.
+/build/*.dmg
+/build/*.zip
+/build/*.app
+/build/*.exe
+/build/*.AppImage
+/build/*.blockmap
+/build/*.tar
