@@ -47,14 +47,14 @@
       "version": "1.5.0",
       "path": "vendor/vclawhub-agent-1.5.0.tgz",
       "source": "agent-sdk npm pack of the pinned build (see vendor/vclawhub-agent-1.5.0.md)",
-      "sha256": "07ff87a52a88dd98c56ce79d126b16481794694886df58b121cbd5697635cc7f",
-      "size": 921619,
+      "sha256": "9c5fab7b1c4a09f936b1fa5789467d0935d382f2e3c0e894e3a95521e8a62fda",
+      "size": 927341,
       "license": "MIT",
       "shipped": {
         "path": "assets/extensions/vclaw-agent.js",
         "from": "package/dist/pi-extension/index.bundled.js",
-        "sha256": "699f45271116419836af514414f1b7fa1cb79dc2082a26d881f459f0f031909e",
-        "size": 1002518,
+        "sha256": "cc3869b9e41a50826ad9bfb784410f7cb1e695eda40f8d541572cc27eede23f3",
+        "size": 1004559,
         "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Rebuilt from pin 5d93703 after the published tarball was found stale (it lacked the 'up' verb)."
       }
     }

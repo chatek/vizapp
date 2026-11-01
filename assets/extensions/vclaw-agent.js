@@ -15611,7 +15611,7 @@ function readSite() {
   const p = SITE_CONF();
   const st = safeStat(p);
   let tokenPresent = false;
-  let url = "nats://127.0.0.1:14222";
+  let url;
   if (st.exists) {
     try {
       const text = readFileSync4(p, "utf8");
@@ -15622,7 +15622,7 @@ function readSite() {
     } catch {
     }
   }
-  return { configPath: p, present: st.exists, tokenPresent, url };
+  return { configPath: p, present: st.exists, tokenPresent, ...url ? { url } : {} };
 }
 async function readPears(deep = false) {
   try {
@@ -17376,7 +17376,8 @@ async function statusVerb(ctx) {
     site: {
       present: site.present,
       tokenPresent: site.tokenPresent,
-      url: site.url,
+      // null = no address was configured. Never a default (see readSite).
+      url: site.url ?? null,
       configPath: site.configPath
     },
     pears,
@@ -17393,7 +17394,7 @@ async function statusVerb(ctx) {
       ["identity", identityReady ? `${cloud.name ?? "?"}  ${(cloud.nkey ?? "").slice(0, 12)}\u2026` : "not onboarded"],
       ["claim", claim === "pending" ? "PENDING \u2014 approve in the browser, then `vclaw status --deep`" : claim === "approved" ? reconciled ? "approved (reconciled with the server)" : stewardKnown ? `approved \xB7 steward ${stewardKnown}` : "approved (steward not disclosed by the anonymous status call)" : "\u2014"],
       ["cloud", cloud.config.server ? `${cloud.config.server}${cloud.config.runtime ? `  (runtime ${cloud.config.runtime})` : ""}` : "no config"],
-      ["site", site.present ? `${site.url}  token:${site.tokenPresent ? "yes" : "no"}` : "absent (optional)"],
+      ["site", site.present ? `${site.url ?? "no address in config"}  token:${site.tokenPresent ? "yes" : "no"}` : "absent (optional)"],
       ["tier P", pears.available ? `helper ${pears.helper ?? "?"}  node ${pears.node ?? "?"}  delegations ${pears.delegations ?? 0}${deep && pears.socketLive !== void 0 ? `  socket:${pears.socketLive}` : ""}` : `unavailable \u2014 ${pears.detail ?? "no reason given"}`],
       ["inbox", `${inbox.unread} unread / ${inbox.total} total in ${inbox.files} file(s)`],
       ["providers", providerLine(providers)],
@@ -24505,8 +24506,30 @@ var SDK_VERSION = sdkVersion();
 
 // src/net/heartbeat.ts
 var DEFAULT_INTERVAL_MS = 3e4;
-function hbSubjectV2(nkey) {
-  return `${SUBJECT_ROOT}.user.${nkey}.agent.${nkey}.hb`;
+function tenantFromJwt(jwt) {
+  if (!jwt) return void 0;
+  const payload64 = jwt.split(".")[1];
+  if (!payload64) return void 0;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(payload64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
+  } catch {
+    return void 0;
+  }
+  for (const grant of [payload?.nats?.pub, payload?.nats?.sub]) {
+    const allow = grant?.allow;
+    if (!Array.isArray(allow)) continue;
+    for (const subject of allow) {
+      if (typeof subject !== "string") continue;
+      const m = /^tenant\.([^.>*\s]+)\./.exec(subject);
+      if (m) return m[1];
+    }
+  }
+  return void 0;
+}
+function hbSubjectV2(nkey, jwt) {
+  const tenant = tenantFromJwt(jwt) ?? SUBJECT_ROOT.slice("tenant.".length);
+  return `tenant.${tenant}.user.${nkey}.agent.${nkey}.hb`;
 }
 async function buildHeartbeatPayload(identity, options, intervalMs) {
   const online = typeof options.online === "function" ? await options.online() : options.online === true;
@@ -24531,7 +24554,7 @@ async function buildHeartbeatPayload(identity, options, intervalMs) {
   return hb;
 }
 function startHeartbeat(nc, identity, options = {}) {
-  const subject = hbSubjectV2(identity.nkey);
+  const subject = hbSubjectV2(identity.nkey, options.jwt);
   const intervalMs = options.intervalMs || DEFAULT_INTERVAL_MS;
   const enc2 = new TextEncoder();
   async function publish() {
@@ -25119,7 +25142,8 @@ async function openFabric() {
   try {
     jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
   } catch (e) {
-    throw classifyFabricError(e);
+    const err2 = classifyFabricError(e);
+    throw err2.code === 4 ? err2 : new VclawError(3, `cannot reach the gateway at ${vgate} \u2014 ${err2.message}`);
   }
   const scope = scopeFromJwt(jwt);
   if (!scope.self) throw new VclawError(4, "this identity's JWT grants no a2a mailbox \u2014 the claim may not be active yet");
@@ -25190,17 +25214,35 @@ async function whoVerb(ctx) {
   const cfg = readConfigSync();
   const vgate = cfg?.vgateUrl ?? process.env.VCLAW_API_URL ?? "https://api.vclawhub.com";
   const server = cfg?.server ?? process.env.VCLAW_NATS_URL ?? "nats://vchat3:4223";
+  const windowMs = Math.max(500, Math.min(waitMs, 6e4));
+  const notGranted = (reason) => ({
+    state: "unavailable",
+    data: { segment, server, reason },
+    text: `this identity is not granted \`$SRV.INFO.agents.${segment}.>\` (segment scope) \u2014 pass --segment with the granted one`,
+    exit: 3
+  });
+  let jwt;
+  try {
+    jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
+  } catch (e) {
+    const err2 = classifyFabricError(e);
+    return {
+      state: "unavailable",
+      data: { segment, server, reason: err2.message },
+      text: err2.code === 4 ? `error: ${err2.message}` : `cannot reach the gateway at ${vgate} \u2014 ${err2.message}`,
+      exit: err2.code
+    };
+  }
+  if (requestedSegment === void 0) segment = segmentFromJwt(jwt) ?? "default";
   let nc;
   try {
-    const jwt = await fetchNatsUserJWT(vgate, creds.public_key, creds.seed);
-    if (requestedSegment === void 0) segment = segmentFromJwt(jwt) ?? "default";
     nc = await connectViaJWT(server, () => jwt, creds.seed, "vclaw-who");
   } catch (e) {
     const err2 = classifyFabricError(e);
     return {
       state: "unavailable",
       data: { segment, server, reason: err2.message },
-      text: err2.code === 4 ? `error: ${err2.message}` : `cannot reach the fabric (${server}) \u2014 ${err2.message}`,
+      text: err2.code === 4 ? `error: ${err2.message}` : `cannot reach the fabric at ${server} \u2014 ${err2.message}`,
       exit: err2.code
     };
   }
@@ -25210,23 +25252,40 @@ async function whoVerb(ctx) {
     sub = nc.subscribe(`$SRV.INFO.agents.${segment}.>`);
   } catch (e) {
     await nc.close().catch(() => void 0);
-    return {
-      state: "unavailable",
-      data: { segment, server, reason: e instanceof Error ? e.message : String(e) },
-      text: `this identity is not granted \`$SRV.INFO.agents.${segment}.>\` (segment scope) \u2014 pass --segment with the granted one`,
-      exit: 3
-    };
+    return notGranted(e instanceof Error ? e.message : String(e));
   }
+  let violation;
   const drain = (async () => {
-    for await (const m of sub) {
-      dir.ingest(m.subject, m.data);
+    try {
+      for await (const m of sub) {
+        dir.ingest(m.subject, m.data);
+      }
+    } catch (e) {
+      violation = e;
     }
   })();
-  await nc.flush();
-  await new Promise((r) => setTimeout(r, Math.max(500, Math.min(waitMs, 6e4))));
-  sub.unsubscribe();
+  let timer;
+  const windowElapsed = new Promise((resolve) => {
+    timer = setTimeout(resolve, windowMs);
+  });
+  try {
+    await nc.flush();
+  } catch (e) {
+    violation ??= e;
+  }
+  await Promise.race([drain, windowElapsed]);
+  clearTimeout(timer);
+  try {
+    sub.unsubscribe();
+  } catch {
+  }
   await nc.close().catch(() => void 0);
-  void drain;
+  await drain;
+  if (violation !== void 0) {
+    const reason = violation instanceof Error ? violation.message : String(violation);
+    const permission = /permission/i.test(violation instanceof Error ? `${violation.name} ${violation.message}` : reason);
+    return permission ? notGranted(reason) : { state: "unavailable", data: { segment, server, reason }, text: `cannot reach the fabric at ${server} \u2014 ${reason}`, exit: 3 };
+  }
   const self2 = creds.public_key;
   const rows2 = dir.snapshot().map(whoRowOf).sort((a, b) => (a.name ?? a.nkey).localeCompare(b.name ?? b.nkey));
   const others = rows2.filter((r) => r.nkey !== self2);
