@@ -49,6 +49,24 @@ describe('ProjectService seeding API', () => {
     expect(await service.seedStatus(root)).toBe('dismissed')
   })
 
+  test('restrictTo presents ONE project, without deleting the others', async () => {
+    const { dir, root, service } = setup('omp')
+    const other = join(dir, 'Another')
+    mkdirSync(other)
+    await service.ensureProject(root)
+    await service.ensureProject(other)
+    expect((await service.list()).length).toBe(2)
+
+    await service.restrictTo(root)
+    const presented = await service.list()
+    expect(presented.map((project) => project.name)).toEqual(['VizMaster'])
+
+    // The other grant survives: restoring multi-project mode shows it again, so a product filter
+    // never costs the user data or the session history attached to it.
+    await service.restrictTo(null)
+    expect((await service.list()).length).toBe(2)
+  })
+
   test('touchByFolder refreshes lastOpenedAt without creating a second record', async () => {
     const { root, service } = setup('omp')
     const record = await service.ensureProject(root)

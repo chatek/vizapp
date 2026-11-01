@@ -49,11 +49,15 @@ export interface DefaultProjectSpec {
   readonly version: string
 }
 
+export type ProductProjectsMode = 'single' | 'multiple'
+
 export interface ProductProfile {
   readonly profileVersion: 1
   readonly id: string
   readonly identity?: ProductIdentity
   readonly harnesses: readonly HarnessId[]
+  /** 'single' = this product presents ONE project (the seeded default) and no other. */
+  readonly projects?: ProductProjectsMode
   readonly defaultProject?: DefaultProjectSpec
   /** Where this profile came from — surfaced so a packaging mistake is visible, not silent. */
   readonly source: 'packaged' | 'development' | 'built-in'
@@ -177,6 +181,13 @@ export function validateProductProfile(raw: unknown, source: ProductProfile['sou
   if (!PROFILE_ID.test(id)) throw new ProductProfileError('id', `must match ${PROFILE_ID}, got ${id}`)
   const harnesses = validateHarnesses(parsed.harnesses)
   const identity = parsed.identity === undefined ? undefined : validateIdentity(parsed.identity)
+  if (parsed.projects !== undefined && parsed.projects !== 'single' && parsed.projects !== 'multiple') {
+    throw new ProductProfileError('projects', `expected "single" or "multiple", got ${JSON.stringify(parsed.projects)}`)
+  }
+  // A single-project product with nothing to seed would present an empty app forever.
+  if (parsed.projects === 'single' && parsed.defaultProject === undefined) {
+    throw new ProductProfileError('projects', '"single" requires a defaultProject')
+  }
   const defaultProject = parsed.defaultProject === undefined ? undefined : validateDefaultProject(parsed.defaultProject, harnesses)
 
   // A seeded project in a product that offers no harness for it would be created and then
@@ -185,7 +196,16 @@ export function validateProductProfile(raw: unknown, source: ProductProfile['sou
     throw new ProductProfileError('defaultProject', 'requires at least one harness')
   }
 
-  return Object.freeze({ profileVersion: 1 as const, id, ...(identity ? { identity } : {}), harnesses, ...(defaultProject ? { defaultProject } : {}), source, ...(path ? { path } : {}) })
+  return Object.freeze({
+    profileVersion: 1 as const,
+    id,
+    ...(identity ? { identity } : {}),
+    harnesses,
+    ...(parsed.projects ? { projects: parsed.projects as ProductProjectsMode } : {}),
+    ...(defaultProject ? { defaultProject } : {}),
+    source,
+    ...(path ? { path } : {}),
+  })
 }
 
 /**

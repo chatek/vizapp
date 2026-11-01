@@ -165,7 +165,7 @@ v2 replaces those three edits with **data**: a product profile the app reads at 
 | retired seam | replaced by |
 |---|---|
 | `index-harness-reconcile-call` | profile `harnesses` (offered set; discovery supplies what is installed) |
-| `projects-list-return` | profile `defaultProject` (seed one project; no filtered list, so user-added projects keep working) |
+| `projects-list-return` | profile `defaultProject` + `projects: "single"` — the list boundary, not a code wrapper |
 | `index-state-store-call` | `electron/main/default-project.ts`, called by `bootstrap()` for every product |
 
 A product profile is:
@@ -174,8 +174,14 @@ A product profile is:
 { "profileVersion": 1, "id": "vizmaster",
   "identity": { "productName": "VizMaster", "appId": "app.vizmaster.desktop" },
   "harnesses": ["omp"],
+  "projects": "single",
   "defaultProject": { "name": "VizMaster", "from": "product/payload", "to": "~/VizMaster", "version": "1.0.0+20261101" } }
 ```
+
+`projects` is `"multiple"` (default) or `"single"`. A single-project product presents ONLY its
+seeded project — the sidebar shows one entry, not a list where the seeded project happens to sort
+first. Filtering happens at the listing boundary, so other grants are not deleted: switching the
+profile back restores them with their session history.
 
 Build with `node scripts/release/package.mjs --qa --platform mac --profile product/vizmaster.json`.
 The artifact name is derived from `id` (`VClaw-<version>-<id>-<arch>`), and **`verify-package` refuses

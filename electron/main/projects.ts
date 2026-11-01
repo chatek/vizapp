@@ -141,6 +141,10 @@ function isSameFolderIdentity(expected: FolderIdentity, current: FolderIdentity,
 export class ProjectService {
   // Reassigned wholesale (build-new-map-then-swap) so authorization reads are
   // never served from a partially repopulated map.
+  // Set by a product whose profile says 'single' (see product-profile.ts). A product that ships
+  // ONE project must not present a list where that project is merely first: the operator's model
+  // is "this app is the VizMaster app", not "this app happens to start on VizMaster".
+  private restrictedToPaths: ReadonlySet<string> | null = null
   private authorizedRoots = new Map<string, FolderIdentity>()
   private readOnlyRoots = new Map<string, FolderIdentity>()
   private quarantinedBroadRoots = new Set<string>()
@@ -524,7 +528,10 @@ export class ProjectService {
       }
       return target
     })
-    return sortProjects(records, 'recent')
+    const sorted = sortProjects(records, 'recent')
+    if (this.restrictedToPaths === null) return sorted
+    const allowed = this.restrictedToPaths
+    return sorted.filter((record) => allowed.has(resolve(record.path)))
   }
 
   async resolveCheckoutProject(idValue: unknown): Promise<ProjectRecord> {
@@ -574,6 +581,17 @@ export class ProjectService {
    * owning persisted project, publishes the authorization, and returns the
    * enriched record. `knownSessions` reuses an already-loaded session list.
    */
+  /**
+   * Restricts what this product presents to one project (profile `projects: 'single'`).
+   *
+   * Filtering at the listing boundary rather than deleting records keeps removal, pinning and
+   * session history intact — the other grants still exist, this product simply does not offer
+   * them. `null` restores the multi-project behaviour.
+   */
+  async restrictTo(path: string | null): Promise<void> {
+    this.restrictedToPaths = path === null ? null : await this.folderAliases(path)
+  }
+
   /**
    * Every string a stored record may use for this folder.
    *

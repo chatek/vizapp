@@ -86,6 +86,13 @@ describe('product profile validation', () => {
     }
   })
 
+  test('a single-project product must name the project it presents', () => {
+    // 'single' with nothing to seed would present an empty app forever.
+    expect(() => validateProductProfile({ profileVersion: 1, id: 'x', harnesses: ['omp'], projects: 'single' }, 'packaged')).toThrow(/single.*requires a defaultProject/)
+    expect(() => validateProductProfile({ ...memberProfile, projects: 'one' }, 'packaged')).toThrow(/expected "single" or "multiple"/)
+    expect(validateProductProfile({ ...memberProfile, projects: 'single' }, 'packaged').projects).toBe('single')
+  })
+
   test('refuses a default project harness the profile does not offer', () => {
     expect(() =>
       validateProductProfile({ ...memberProfile, defaultProject: { ...memberProfile.defaultProject, harness: 'pi' } }, 'packaged'),

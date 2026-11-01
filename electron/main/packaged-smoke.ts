@@ -33,6 +33,12 @@ export interface PackagedSmokeProductEvidence {
   harnesses: string[]
   detected: string[]
   defaultProject?: { status: string; path?: string }
+  /**
+   * What the product PRESENTS after startup: how many projects the list offers and which one is
+   * active. Seeding a project is not the same claim as showing only that project, and the operator's
+   * report was about the second one.
+   */
+  projects?: { count: number; active?: string }
 }
 
 export interface PackagedSmokeMarker {

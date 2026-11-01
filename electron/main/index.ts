@@ -26,7 +26,7 @@ import { PACKAGED_RENDERER_URL, PACKAGED_SMOKE_READY_EVENT, packagedSmokeMarker,
 import { PetService } from './pets'
 import { seedDefaultProject } from './default-project'
 import { ProjectService } from './projects'
-import { BUILT_IN_PROFILE, describeProductProfile, loadProductProfile, type ProductProfile } from './product-profile'
+import { BUILT_IN_PROFILE, describeProductProfile, expandDefaultProjectTarget, loadProductProfile, type ProductProfile } from './product-profile'
 import { SettingsService } from './settings-schedules'
 import { ScheduledRunExecutor } from './schedules/executor'
 import { HeartbeatService } from './schedules/heartbeats'
@@ -64,6 +64,7 @@ let store: JsonStateStore | null = null
 // early reader sees the generic product rather than an undefined.
 let productProfile: ProductProfile = BUILT_IN_PROFILE
 let smokeProductEvidence: PackagedSmokeProductEvidence | undefined
+let smokeProjectEvidence: { count: number; active?: string } | undefined
 let seededOutcome: Awaited<ReturnType<typeof seedDefaultProject>> | undefined
 let automation: AutomationService | null = null
 let agentScheduleBridges: AgentScheduleBridge[] = []
@@ -634,6 +635,13 @@ async function bootstrap(): Promise<void> {
     if (seeded.status === 'skipped' && seeded.reason === 'payload-absent') {
       console.warn(`default project payload missing for product ${productProfile.id}; starting without it`)
     }
+    // A product that ships ONE project must not present a list where it is merely first.
+    if (productProfile.projects === 'single' && productProfile.defaultProject) {
+      await productProjects.restrictTo(expandDefaultProjectTarget(productProfile, homedir()))
+    }
+    // What the product actually PRESENTS — the claim the operator checks, not the seeding result.
+    const presented = await productProjects.list()
+    smokeProjectEvidence = { count: presented.length, ...(presented[0] ? { active: presented[0].name } : {}) }
   }
   const repositoryUseGate = new RepositoryUseGate()
   const checkouts: Record<HarnessId, CheckoutService> = {
@@ -1077,6 +1085,9 @@ async function bootstrap(): Promise<void> {
     harnesses: [...productProfile.harnesses],
     detected: HARNESS_IDS.filter((harness) => meta.harnesses[harness].path !== null),
     ...(seededOutcome ? { defaultProject: { status: seededOutcome.status, path: productProfile.defaultProject?.to } } : {}),
+    // Only for products: the generic build's list is the user's own, and reporting it would put
+    // their project names into a diagnostic marker.
+    ...(productProfile.id === 'vclaw' || !smokeProjectEvidence ? {} : { projects: smokeProjectEvidence }),
   }
   const updates = new UpdateService(getAutoUpdater(), { enabled: app.isPackaged })
   updateService = updates
