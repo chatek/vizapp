@@ -26114,6 +26114,9 @@ async function logoutVerb(ctx) {
   ].join("\n");
   return {
     state: revoked && !revoked.ok ? "degraded" : "ok",
+    // D5: a refusal's `error` must be the REASON, not the verb's banner. Without this, a caller reading
+    // only the envelope sees "logged out" while the revoke actually failed (the detail sat in data.revoked).
+    ...revoked && !revoked.ok ? { reason: `revoke failed: ${revoked.error}${revoked.message ? ` \u2014 ${revoked.message}` : ""}` } : {},
     exit,
     data: {
       logout: "done",

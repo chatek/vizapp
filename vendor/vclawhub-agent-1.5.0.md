@@ -5,7 +5,7 @@ doctor · signup · who · peers · send · inbox`). Vendored from the `npm pack
 agent-sdk lane; this is the artefact their installed-state E2E and their real-TUI
 acceptance ran against.
 
-- Tarball SHA-256: `b184fd93c034cf8403dfaa944f4da07581d1f768ae39d1e8cee7585b53cc72ea` (1,486,806 B, 407 files — the MVP round: 14 verbs incl. `up`, login aligned to the claim-link contract. REBUILT FROM PIN 5d93703 BY THIS LANE: the tarball the SDK lane published for this pin (`e428d795…`, 1,460,408 B) was STALE — its bundle lacked `up`, which the SDK's own `verify:pack` catches ('verb missing from dist/vclaw/run.js: up'). The committed bundle at 5d93703 is stale too (`ff955f32…`); a rebuild yields `32a6a94f…`, which this pin carries.)
+- Tarball SHA-256: `ab038e067cd66a73b165de0bb6ae0ec941883c957303ff2d604ae702797670ee` (1,529,733 B, 408 files — MVP e2e round: 14 verbs, the refusal-reason fix (`logout --revoke` with the gateway down now says `revoke failed: <status> - <message>` instead of 'logged out'), matrix/docs commits). Built from agent-sdk d54819f (6e5c1cd + d54819f: matrix/refusal fix and docs). NOTE: the tarball PUBLISHED for 5d93703 (`e428d795…`) was stale — no `up` — which the SDK's own verify:pack caught; this pin is rebuilt from source.
   *(Corrections 2026-10-31, both measured on the shipped file. (1) This line twice lagged its own table — first carrying `0f39a164…`/1,373,351 B while the archive was `0cfa1a68…`, then `bf1e237f…` while it was `0cfa1a68…`. (2) The table below carried **stale byte counts with correct digests** on two rows — ext-synadia 363,605 → 364,074 and cli.js 29,412 → 30,280 — which no gate could see because only the shipped bundle's row was checked. `tests/release-vendor-agent.test.ts` now verifies every pinned row's size and digest against the archive, so both classes fail loudly.)*
 - Unpatched: base == patched, no `.patch` — but this archive is **not** skipped by the vendor gate:
   `npm run vendor:verify-patches` pins its digest and size and proves by extraction that
@@ -18,7 +18,7 @@ acceptance ran against.
 ## Pinned contents
 
 | file | bytes | SHA-256 |
-| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 1,002,165 | `32a6a94fc0eddcbe826478014a6b66a4accf42f46e6a6070f4479dc5ba9cb483` — 14 verbs incl. `up`; rebuilt from 5d93703 (the published pin's bundle was stale, see above) |
+| `dist/pi-extension/index.bundled.js` → shipped as `assets/extensions/vclaw-agent.js` | 1,002,518 | `699f45271116419836af514414f1b7fa1cb79dc2082a26d881f459f0f031909e` — 14 verbs incl. `up`; the refusal reason is fixed (was: 'logged out' while exiting 3) |
 | `dist/ext-synadia/index.bundled.js` | 364,074 | `dee4e7232546f94e83f111d0cb4abda4423cc0fd510cd924e65fce84589206c6` — stable across five builds (canary). *This row said 363,605 until 2026-10-31: the digest was right and the count was not.* |
 | `dist/cli.js` | 30,280 | `8561399b3ee0174b3d91ef4bff798d5684c85a6f5245f2d3052193f77cb16c7c` — the wrapper maps commander's unknown-option exit(1) into the usage class (2), help/version stay 0: **exit 1 exists nowhere in the binary** (desktop-lane D4 finding). *This row said 29,412 until 2026-10-31: same defect, right digest and wrong count.* |
 
