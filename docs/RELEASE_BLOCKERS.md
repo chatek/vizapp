@@ -294,12 +294,28 @@ An SDK build is accepted by digest only. Accept it when all four hold, and recor
    match the source build is rejected by the pin test.
 4. Re-vendor as a **rename, never a rebuild**: copy the tarball, set `shipped.sha256` from the
    archive member, then run `npm run vendor:verify-patches`.
+5. **The tarball must contain no credential-shaped file**, and must have been packed from a CLEAN
+   worktree. Measured 2026-11-01: a published agent-sdk tarball shipped a `.env` carrying publish
+   tokens (the lane's `fix(vendor): re-vendor from a CLEAN worktree … the published tarball ships a
+   `.env` with publish tokens`). Gate it here, because this repo is what ships the bytes:
+
+   ```
+   tar tzf vendor/vclawhub-agent-<version>.tgz | grep -iE '(^|/)\.env|token|secret|credential|\.pem$|id_rsa'
+   ```
+
+   Empty output is the pass. A non-empty result is a refusal, not a review item: a tarball built on a
+   dirty tree can carry whatever that tree had, and we cannot tell a stale token from a live one.
 
 Bump checklist (each step has a check, so a partial bump fails rather than ships):
 `npm pack` in agent-sdk → copy tarball into `vendor/` → update `dependency-pins.json`
 (`sha256`, `size`, `shipped.sha256`, `shipped.size`) → update the note → `npm run vendor:verify-patches`
-→ `npx vitest run tests/backend/shipped-extension-contracts.test.ts` (fails if the surface changed;
-re-measure the registrations, don't widen them) → `npm run check`.
+→ the secret scan above → `npx vitest run tests/backend/shipped-extension-contracts.test.ts` (fails if
+the surface changed; re-measure the registrations, don't widen them) → `npm run check`.
+
+**A file-count or byte delta is NOT evidence of a surface change, and its absence is not evidence of
+sameness — measure.** Measured 2026-11-01: the 07ff87a5 bump cut the tarball by 80 files and grew the
+bundle by ~81 KB, yet the surface still registered exactly seven commands and three events. Both
+directions of that mistake are cheap to make from a size field.
 
 ### P2 — drive `/vclaw` through a real harness (the E2E this decision actually needs)
 
