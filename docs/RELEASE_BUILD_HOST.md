@@ -90,10 +90,26 @@ prime-agent tarball it records a **host-absolute path**
 after the rebuild — the approval is an install-time action, not a source change, and an
 artefact must come from the commit, not from a host-mutated tree.
 
-> **Open defect (recorded, not fixed):** the repo cannot be installed reproducibly under the
-> npm it pins. A committed `allowScripts` list would fix it, but the prime-agent entry needs a
-> spec that is not host-absolute, so it must be verified rather than typed. Until then, step 3
-> is mandatory on every fresh install.
+> **FIXED — `package.json` now carries an `allowScripts` allowlist** (ten registry entries,
+> version-pinned). Verified by a genuine clean install on the host, with no `approve` step:
+> `rm -rf node_modules && npm ci` → `node_modules/.bin/esbuild`,
+> `node_modules/node-pty/build/Release/pty.node`, `node_modules/fsevents/fsevents.node`,
+> `node_modules/zeromq/build/darwin/arm64/…/addon.node`,
+> `node_modules/koffi/build/koffi/darwin_arm64/koffi.node` and Electron's dist all present.
+>
+> **The one entry that cannot be expressed — and why it does not matter.** `prime-agent` is a
+> `file:` dependency, and npm keys install scripts for those by the **resolved absolute path**:
+> measured on this host, `allowScripts` entries `prime-agent@0.7.0-gooeypi.1`, `dep` and
+> `file:./dep-1.0.0.tgz` were **all blocked** for a local tarball dep, and only
+> `dangerously-allow-all-scripts=true` ran it. That is why `npm install-scripts approve` writes
+> `file:/Users/<builder>/…` — an entry no commit can carry. Leaving it blocked is safe here:
+> prime-agent's `postinstall.cjs` delegates to `dist/postinstall.js`, which exits 0 unless
+> `PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL=1` or `PRIME_AGENT_BOOTSTRAP_TOOLS_ON_INSTALL=1`
+> (read from the vendored tarball; neither is set by this repo or its workflows).
+>
+> Consequence: a clean install warns about exactly one blocked script — `prime-agent` — and that
+> warning is expected. Anything else appearing in `npm install-scripts ls` is a new dependency
+> that needs an entry.
 
 ## Trap 3 — the host's DNS cannot reach GitHub, so electron-builder stalls on downloads
 
