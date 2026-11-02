@@ -206,11 +206,13 @@
     "directories": {
       "output": "release"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "chatek",
-      "repo": "vclaw-desktop"
-    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://assets.vclawhub.com/vclaw-desktop/",
+        "channel": "latest"
+      }
+    ],
     "afterPack": "scripts/release/after-pack.cjs",
     "extraResources": [
       {
