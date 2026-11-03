@@ -21,6 +21,7 @@ vi.mock('electron', () => electron)
 
 import { activeShutdownWork, confirmAppClose, hardenRenderer, isMacWindowCloseShortcut, loadInitialRenderer, mainWindowChromeOptions, resolveRendererAssetPath, routeAllWindowsClosed, settleShutdown, shutdownPrompt, startupFailureDialog } from '../../electron/main/index'
 import { StateMigrationError, UnsupportedStateVersionError } from '../../electron/main/store'
+import { ProductProfileError } from '../../electron/main/product-profile'
 import type { RuntimeInfo } from '../../src/types/api'
 import type { BrowserWindow } from 'electron'
 
@@ -40,6 +41,13 @@ describe('application window lifecycle', () => {
       detail: expect.stringMatching(/startup stopped.*retry.*prime-work-state-v4\.json.*prime-work-state\.json.*migrated-v4-backup.*do not delete/i),
     })
     expect(startupFailureDialog(new UnsupportedStateVersionError(99, '/tmp/state.json'))?.title).toBe('VClaw update required')
+    // A packaged profile that fails validation quits the app (fail-closed), so this dialog
+    // is the ONLY place the reason is named — assert it names the failing field.
+    const profileError = new ProductProfileError('defaultProject.to', 'must stay inside the home directory')
+    expect(startupFailureDialog(profileError)).toMatchObject({
+      title: 'VClaw product profile invalid',
+      detail: expect.stringContaining('defaultProject.to'),
+    })
     expect(startupFailureDialog(new Error('ordinary startup failure'))).toBeNull()
   })
 
