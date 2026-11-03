@@ -26,7 +26,7 @@ import { PACKAGED_RENDERER_URL, PACKAGED_SMOKE_READY_EVENT, packagedSmokeMarker,
 import { PetService } from './pets'
 import { seedDefaultProject } from './default-project'
 import { ProjectService } from './projects'
-import { BUILT_IN_PROFILE, describeProductProfile, expandDefaultProjectTarget, loadProductProfile, type ProductProfile } from './product-profile'
+import { BUILT_IN_PROFILE, describeProductProfile, expandDefaultProjectTarget, loadProductProfile, ProductProfileError, type ProductProfile } from './product-profile'
 import { SettingsService } from './settings-schedules'
 import { ScheduledRunExecutor } from './schedules/executor'
 import { HeartbeatService } from './schedules/heartbeats'
@@ -474,6 +474,12 @@ export interface StartupFailureDialog {
 }
 
 export function startupFailureDialog(error: unknown): StartupFailureDialog | null {
+  if (error instanceof ProductProfileError) {
+    // The build's variant identity failed validation: the app refuses to start rather
+    // than degrade into the generic product, so this dialog is the only place the
+    // reason is named. Without it a packaged profile error quits silently.
+    return { title: 'VClaw product profile invalid', detail: boundedErrorMessage(error, 2_048) }
+  }
   if (error instanceof StateMigrationError) {
     return { title: 'VClaw state migration failed', detail: boundedErrorMessage(error, 2_048) }
   }
