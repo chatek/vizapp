@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, rmdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { ProductProfile, ProductProfileContext } from './product-profile'
 import { defaultProjectPayloadPath, expandDefaultProjectTarget } from './product-profile'
@@ -31,7 +31,8 @@ export interface DefaultProjectFilesystem {
   cp(source: string, target: string, options: { recursive: boolean; force: boolean; filter(source: string): boolean }): Promise<void>
   readFile(path: string, encoding: 'utf8'): Promise<string>
   writeFile(path: string, contents: string, encoding: 'utf8'): Promise<void>
-  rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>
+  /** NON-RECURSIVE by contract: fails ENOTEMPTY/EEXIST if anything else is inside. */
+  rmdir(path: string): Promise<void>
 }
 
 export type DefaultProjectResult =
@@ -39,6 +40,27 @@ export type DefaultProjectResult =
   | { status: 'suppressed'; reason: 'dismissed' }
   | { status: 'existing' }
   | { status: 'seeded' }
+
+/**
+ * The project RECORD exists but the payload did not fully land. Thrown, never silently
+ * swallowed, and NEVER unwound by deleting the record: removing a registered project is a
+ * second write path with its own failure modes, so the caller surfaces this instead.
+ */
+export class SeedIncompleteError extends Error {
+  readonly target: string
+  readonly stage: 'payload-copy' | 'build-json'
+
+  constructor(target: string, stage: 'payload-copy' | 'build-json', cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    super(
+      `seed incomplete for ${target} at ${stage}: ${detail} — the project record exists; ` +
+        're-run the seed to finish the payload, or copy it manually',
+    )
+    this.name = 'SeedIncompleteError'
+    this.target = target
+    this.stage = stage
+  }
+}
 
 export interface DefaultProjectOptions {
   profile: ProductProfile
@@ -54,7 +76,7 @@ const defaultFilesystem: DefaultProjectFilesystem = {
   cp: (source, target, options) => cp(source, target, options),
   readFile: (path, encoding) => readFile(path, encoding),
   writeFile: (path, contents, encoding) => writeFile(path, contents, encoding),
-  rm: (path, options) => rm(path, options),
+  rmdir: (path) => rmdir(path),
 }
 
 async function exists(path: string, filesystem: DefaultProjectFilesystem): Promise<boolean> {
@@ -112,24 +134,43 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
     // holds no record of it.
     await projects.ensureProject(target)
   } catch (error) {
-    // We created this directory and nothing has been written into it yet, so
-    // removing it cannot lose user data. A pre-existing directory is left alone.
-    await filesystem.rm(target, { recursive: true, force: true })
+    // We created this directory seconds ago, so the ONLY safe cleanup is a
+    // NON-RECURSIVE rmdir: if another process wrote into it between our mkdir and
+    // the refusal, rmdir fails ENOTEMPTY/EEXIST and their bytes stay — the leftover
+    // path is named in the rethrown error. Recursive deletion here would be the
+    // same data-loss class this verb exists to prevent, just on the refusal path.
+    try {
+      await filesystem.rmdir(target)
+    } catch (cleanupError) {
+      const reason = cleanupError instanceof Error ? `${cleanupError.name}: ${cleanupError.message}` : String(cleanupError)
+      const leftover = /ENOTEMPTY|EEXIST/i.test(reason)
+        ? ` — a directory was left behind at ${target}: something else wrote into it during the seed; inspect before removing`
+        : ` — cleanup also failed (${reason}); the directory may still exist at ${target}`
+      if (error instanceof Error) error.message = `${error.message}${leftover}`
+    }
     throw error
   }
 
-  await filesystem.cp(payloadPath, target, {
-    recursive: true,
-    // A collision would mean the target gained files between the exists check and
-    // now; erroring beats overwriting.
-    force: false,
-    filter: (source) => {
-      const entry = relative(payloadPath, source)
-      if (entry === '') return true
-      return USER_OWNED_SUBTREES[entry.split(sep)[0]] !== true
-    },
-  })
-  await writeBuildJson(target, spec, filesystem)
+  try {
+    await filesystem.cp(payloadPath, target, {
+      recursive: true,
+      // A collision would mean the target gained files between the exists check and
+      // now; erroring beats overwriting.
+      force: false,
+      filter: (source) => {
+        const entry = relative(payloadPath, source)
+        if (entry === '') return true
+        return USER_OWNED_SUBTREES[entry.split(sep)[0]] !== true
+      },
+    })
+  } catch (error) {
+    throw new SeedIncompleteError(target, 'payload-copy', error)
+  }
+  try {
+    await writeBuildJson(target, spec, filesystem)
+  } catch (error) {
+    throw new SeedIncompleteError(target, 'build-json', error)
+  }
   return { status: 'seeded' }
 }
 

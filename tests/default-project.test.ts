@@ -52,7 +52,16 @@ interface FakeFs extends DefaultProjectFilesystem {
   cpForces: boolean[]
 }
 
-function fakeFs(options: { directories?: string[]; files?: Record<string, string>; payloadEntries?: string[] } = {}): FakeFs {
+function fakeFs(
+  options: {
+    directories?: string[]
+    files?: Record<string, string>
+    payloadEntries?: string[]
+    rmdirError?: Error
+    cpThrows?: Error
+    writeThrows?: Error
+  } = {},
+): FakeFs {
   const directories = new Set(options.directories ?? [payloadPath])
   const files = new Map(Object.entries(options.files ?? {}))
   const copied: string[] = []
@@ -75,6 +84,7 @@ function fakeFs(options: { directories?: string[]; files?: Record<string, string
       directories.add(path)
     },
     cp: async (source, destination, cpOptions) => {
+      if (options.cpThrows) throw options.cpThrows
       expect(source).toBe(payloadPath)
       expect(destination).toBe(target)
       cpForces.push(Boolean(cpOptions.force))
@@ -89,10 +99,12 @@ function fakeFs(options: { directories?: string[]; files?: Record<string, string
       return contents
     },
     writeFile: async (path, contents) => {
+      if (options.writeThrows) throw options.writeThrows
       writes.push([path, contents])
       files.set(path, contents)
     },
-    rm: async (path) => {
+    rmdir: async (path) => {
+      if (options.rmdirError) throw options.rmdirError
       removed.push(path)
       directories.delete(path)
     },
@@ -216,5 +228,59 @@ describe('seedDefaultProject', () => {
     const filesystem = fakeFs()
     await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem })
     expect(filesystem.cpForces).toEqual([false])
+  })
+
+  test('a refusal leaves the directory and names the leftover when rmdir hits ENOTEMPTY', async () => {
+    const projects = fakeStore('absent', {
+      ensureProject: async () => {
+        throw new TypeError('Broad filesystem roots cannot be added as projects')
+      },
+    })
+    // Another process wrote into the target between our mkdir and the refusal:
+    // the NON-RECURSIVE rmdir must fail ENOTEMPTY and their bytes must survive.
+    // (The target must NOT pre-exist here — that leg is covered by the
+    // 'target-exists' test above, which outranks this one.)
+    const filesystem = fakeFs({ rmdirError: Object.assign(new Error('ENOTEMPTY: directory not empty'), { code: 'ENOTEMPTY' }) })
+    const error = await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(/Broad filesystem roots/)
+    expect((error as Error).message).toContain('left behind')
+    expect((error as Error).message).toContain(target)
+    expect(filesystem.removed).toEqual([])
+    expect(filesystem.directories.has(target)).toBe(true)
+    expect(filesystem.copied).toEqual([])
+    expect(filesystem.writes).toEqual([])
+  })
+
+  test('a payload-copy failure after a successful grant is a NAMED error and never unwinds the record', async () => {
+    const projects = fakeStore()
+    const filesystem = fakeFs({ cpThrows: new Error('ENOSPC: no space left on device') })
+    const error = await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect((error as { name?: string }).name).toBe('SeedIncompleteError')
+    expect(String((error as Error).message)).toMatch(/seed incomplete .*payload-copy/)
+    expect(String((error as Error).message)).toMatch(/ENOSPC/)
+    // The grant is NOT unwound: the record stays, nothing is deleted, and the
+    // caller surfaces the partial state instead of a silent retry.
+    expect(projects.calls).toContain('ensureProject')
+    expect(filesystem.removed).toEqual([])
+    expect(filesystem.copied).toEqual([])
+  })
+
+  test('a BUILD.json failure after the payload copied is named with stage build-json', async () => {
+    const projects = fakeStore()
+    const filesystem = fakeFs({ writeThrows: new Error('EACCES: permission denied') })
+    const error = await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect((error as { name?: string }).name).toBe('SeedIncompleteError')
+    expect(String((error as Error).message)).toMatch(/build-json/)
+    expect(filesystem.removed).toEqual([])
   })
 })
