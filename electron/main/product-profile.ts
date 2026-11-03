@@ -146,8 +146,15 @@ function validateDefaultProject(value: unknown, harnesses: readonly HarnessId[])
 
   // `to` must be a home-relative path with a real subdirectory: ProjectService refuses
   // $HOME and volume roots (isBroadProjectRoot), so `~` alone would fail at seeding.
+  // `..` segments would escape $HOME entirely (`~/..` -> the home's parent) and land in a
+  // directory isBroadProjectRoot does NOT refuse — so the escape is refused here, where the
+  // profile is the thing being trusted, rather than at seeding time.
   if (!to.startsWith('~/') || to === '~/' || to.slice(2).trim() === '') {
     throw new ProductProfileError('defaultProject.to', `expected "~/<name>", got ${to}`)
+  }
+  const targetSegments = to.slice(2).split('/')
+  if (targetSegments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new ProductProfileError('defaultProject.to', `must stay inside the home directory, got ${to}`)
   }
 
   if (spec.harness !== undefined) {

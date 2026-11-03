@@ -176,3 +176,26 @@ describe('default project paths', () => {
     expect(JSON.stringify(summary)).not.toContain('vendor/vizmaster')
   })
 })
+
+describe('defaultProject.to — the home escape is refused at load, not at seeding', () => {
+  const base = { profileVersion: 1, id: 'vizmaster', harnesses: ['omp'] }
+  const build = (to: string) =>
+    validateProductProfile(
+      { ...base, defaultProject: { name: 'X', from: 'vendor/x', to, version: '1.0.0' } },
+      'packaged',
+    )
+
+  test.each(['~/..', '~/../../etc', '~/a/../b', '~/VizMaster/', '~/./x'])('refuses %s', (to) => {
+    // `~/..` resolves to the home's PARENT, which isBroadProjectRoot does not refuse —
+    // so the escape must die here, where the profile is the thing being trusted.
+    expect(() => build(to)).toThrow(ProductProfileError)
+  })
+
+  test('accepts ~/VizMaster', () => {
+    expect(build('~/VizMaster').defaultProject?.to).toBe('~/VizMaster')
+  })
+
+  test('accepts a nested home path without .. segments', () => {
+    expect(build('~/work/vizmaster').defaultProject?.to).toBe('~/work/vizmaster')
+  })
+})
