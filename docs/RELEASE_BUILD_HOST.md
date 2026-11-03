@@ -208,3 +208,16 @@ bad artefact:
 
 Report the digest of the **committed** source and the **pinned** CLI artefact alongside the
 artefact digest; a build is a triple (commit, pinned CLI, output), not a single number.
+
+## Bundle-freshness phantom — "STALE BUNDLE" on a clean tree
+
+`git checkout -- <single source file>` rewrites that file's mtime, and
+`test/unit/bundle-freshness.test.ts` compares the tracked bundle's mtime against the newest `.ts`
+under `src/` — a **superset** of the bundle's actual import graph, so any source touch counts.
+Result: "STALE BUNDLE … re-bundle with `node scripts/build-pi-extension.mjs`" **on a clean
+tree**, pointing at a rebuild that changes nothing.
+
+Cure: run the bundler the message names, then `git status --porcelain`. Re-bundling
+unchanged sources is byte-identical (measured 2026-11-02: single-file checkout → red →
+re-bundle → identical bytes, gate green, empty diff). Empty diff = the red was mtime only;
+do not commit a rebuild for it, and do not chase phantom staleness past this check.

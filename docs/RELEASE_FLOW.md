@@ -4,6 +4,10 @@
 copied from a plan. If a number here disagrees with a newer build, the newer measurement wins — update this file in
 the same change that moves it.
 
+**Companion:** `docs/RELEASE_HOSTING.md` — where builds and the updater feed live (R2 vs GitHub Releases, feed
+URLs, the migration note for already-shipped installs). This file and that one describe two halves of the same
+pipeline; neither is complete without the other.
+
 ---
 
 ## 1 · Branches
