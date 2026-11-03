@@ -209,15 +209,17 @@ bad artefact:
 Report the digest of the **committed** source and the **pinned** CLI artefact alongside the
 artefact digest; a build is a triple (commit, pinned CLI, output), not a single number.
 
-## Bundle-freshness phantom — "STALE BUNDLE" on a clean tree
+## The vendored extension moves only via re-vendoring — do not chase staleness here
 
-`git checkout -- <single source file>` rewrites that file's mtime, and
-`test/unit/bundle-freshness.test.ts` compares the tracked bundle's mtime against the newest `.ts`
-under `src/` — a **superset** of the bundle's actual import graph, so any source touch counts.
-Result: "STALE BUNDLE … re-bundle with `node scripts/build-pi-extension.mjs`" **on a clean
-tree**, pointing at a rebuild that changes nothing.
+`assets/extensions/vclaw-agent.js` is vendored from the agent-sdk repo; **this repo has no
+pi-extension bundler and no bundle-freshness gate** (`scripts/build-pi-extension.mjs` is
+MODULE_NOT_FOUND on this branch, and `tests/unit/` has no bundle-freshness test). The
+extension's bytes change only when the SDK lane re-vendors — so "the bundle is stale" is
+never a vclaw-desktop defect.
 
-Cure: run the bundler the message names, then `git status --porcelain`. Re-bundling
-unchanged sources is byte-identical (measured 2026-11-02: single-file checkout → red →
-re-bundle → identical bytes, gate green, empty diff). Empty diff = the red was mtime only;
-do not commit a rebuild for it, and do not chase phantom staleness past this check.
+Measured in agent-sdk 2026-11-02, because a false red can appear THERE: after a
+single-file `git checkout -- <source>` advances a source mtime past the tracked bundle,
+agent-sdk's `test/unit/bundle-freshness.test.ts` fails with "STALE BUNDLE … re-bundle with
+`node scripts/build-pi-extension.mjs`" even on a clean tree — re-running the bundler
+produced byte-identical output and an empty diff (mtime only, not staleness). That gate
+and its bundler live in agent-sdk; nothing in this repo re-bundles anything.
