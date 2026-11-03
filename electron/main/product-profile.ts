@@ -24,13 +24,20 @@ const HARNESS_VOCABULARY: readonly string[] = PRODUCT_HARNESS_IDS
  * build carries and a user can read — not in a patch that a member repo replays.
  *
  * Invariants (checked in validateProductProfile, refused rather than repaired):
- *   - `harnesses` is the PRODUCT's set; `settings.enabledHarnesses` stays the USER's
- *     preference inside it, so the two intersect instead of one overwriting the other.
+ *   - `harnesses` is the PRODUCT's set and REPLACES visibility: `settings.enabledHarnesses`
+ *     stays the USER's preference but is INERT for what this build shows. No code intersects
+ *     the two, and that is deliberate — silently overriding a user preference to satisfy a
+ *     comment is the worse defect. Consumers that could resurrect an unoffered harness if
+ *     anyone ever reads them for visibility: `electron/main/store.ts:229`,
+ *     `electron/main/settings-schedules.ts:76`, `src/lib/data.ts:37`. If a settings page
+ *     ever renders toggles from `enabledHarnesses`, add the intersection HERE first.
  *   - `defaultProject.from` names a directory shipped next to the app; it is resolved at
  *     run time against Resources and may never escape it.
  *   - `defaultProject.to` is a user-visible path (`~/Name`), never a bare home or a root —
  *     `ProjectService.grantProjectFolder` refuses broad roots, so a bad value would fail at
  *     seeding time rather than at build time, which is the wrong place to find out.
+ *     `..` segments are refused outright: `~/..` resolves to the home's PARENT, which
+ *     isBroadProjectRoot does NOT refuse (exact-equality against root/home only).
  */
 
 export interface ProductIdentity {
