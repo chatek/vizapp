@@ -177,15 +177,21 @@ describe('seedDefaultProject', () => {
   test('never copies into a directory that already exists on disk, record or no record', async () => {
     // The dir is the USER'S even without a project record: seedStatus is record-based, so
     // the seeder must not treat 'absent' as licence to force-copy over whatever is there.
+    // NON-EMPTY on purpose: the guard must hold when there is real content to lose.
     const projects = fakeStore()
-    const filesystem = fakeFs({ directories: [target] })
+    const filesystem = fakeFs({
+      directories: [target],
+      files: { [join(target, 'package.json')]: '{ "user": true }' },
+    })
     await expect(seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem })).resolves.toEqual({
       status: 'skipped',
       reason: 'target-exists',
     })
     expect(filesystem.copied).toEqual([])
-    expect(projects.calls).not.toContain('ensureProject')
+    expect(filesystem.writes).toEqual([])
     expect(filesystem.removed).toEqual([])
+    expect(projects.calls).not.toContain('ensureProject')
+    expect(filesystem.files.get(join(target, 'package.json'))).toBe('{ "user": true }')
   })
 
   test('a refused grant removes the directory it created and rethrows', async () => {
@@ -202,6 +208,7 @@ describe('seedDefaultProject', () => {
     expect(filesystem.removed).toEqual([target])
     expect(filesystem.directories.has(target)).toBe(false)
     expect(filesystem.copied).toEqual([])
+    expect(filesystem.writes).toEqual([])
   })
 
   test('the payload copy never overwrites an existing file (force is off)', async () => {
