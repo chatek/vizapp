@@ -20,7 +20,10 @@ const memberProfile = validateProductProfile(
 
 const genericProfile = validateProductProfile({ profileVersion: 1, id: 'vclaw', harnesses: ['omp'] }, 'built-in')
 
-function fakeStore(status: 'dismissed' | 'existing' | 'absent' = 'absent'): DefaultProjectStore & { calls: string[] } {
+function fakeStore(
+  status: 'dismissed' | 'existing' | 'absent' = 'absent',
+  overrides: Partial<DefaultProjectStore> = {},
+): DefaultProjectStore & { calls: string[] } {
   const calls: string[] = []
   return {
     calls,
@@ -31,10 +34,12 @@ function fakeStore(status: 'dismissed' | 'existing' | 'absent' = 'absent'): Defa
     touchByFolder: vi.fn(async () => {
       calls.push('touchByFolder')
     }),
-    ensureProject: vi.fn(async () => {
-      calls.push('ensureProject')
-      return {}
-    }),
+    ensureProject:
+      overrides.ensureProject ??
+      vi.fn(async () => {
+        calls.push('ensureProject')
+        return {}
+      }),
   }
 }
 
@@ -43,6 +48,8 @@ interface FakeFs extends DefaultProjectFilesystem {
   files: Map<string, string>
   copied: string[]
   writes: [string, string][]
+  removed: string[]
+  cpForces: boolean[]
 }
 
 function fakeFs(options: { directories?: string[]; files?: Record<string, string>; payloadEntries?: string[] } = {}): FakeFs {
@@ -50,12 +57,16 @@ function fakeFs(options: { directories?: string[]; files?: Record<string, string
   const files = new Map(Object.entries(options.files ?? {}))
   const copied: string[] = []
   const writes: [string, string][] = []
+  const removed: string[] = []
+  const cpForces: boolean[] = []
   const payloadEntries = options.payloadEntries ?? ['index.js']
   return {
     directories,
     files,
     copied,
     writes,
+    removed,
+    cpForces,
     stat: async (path) => {
       if (!directories.has(path)) throw new Error(`ENOENT ${path}`)
       return { isDirectory: () => true }
@@ -66,6 +77,7 @@ function fakeFs(options: { directories?: string[]; files?: Record<string, string
     cp: async (source, destination, cpOptions) => {
       expect(source).toBe(payloadPath)
       expect(destination).toBe(target)
+      cpForces.push(Boolean(cpOptions.force))
       for (const entry of payloadEntries) {
         // The real fs.cp calls filter(sourcePath) for every entry it walks.
         if (cpOptions.filter(join(source, entry))) copied.push(entry)
@@ -79,6 +91,10 @@ function fakeFs(options: { directories?: string[]; files?: Record<string, string
     writeFile: async (path, contents) => {
       writes.push([path, contents])
       files.set(path, contents)
+    },
+    rm: async (path) => {
+      removed.push(path)
+      directories.delete(path)
     },
   }
 }
@@ -156,5 +172,42 @@ describe('seedDefaultProject', () => {
     const current = fakeFs({ files: { [buildJson]: JSON.stringify({ release: '1.0.0+20261029.7263596' }) } })
     await seedDefaultProject({ profile: memberProfile, context, homeDir, projects: fakeStore(), filesystem: current })
     expect(current.writes).toEqual([])
+  })
+
+  test('never copies into a directory that already exists on disk, record or no record', async () => {
+    // The dir is the USER'S even without a project record: seedStatus is record-based, so
+    // the seeder must not treat 'absent' as licence to force-copy over whatever is there.
+    const projects = fakeStore()
+    const filesystem = fakeFs({ directories: [target] })
+    await expect(seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem })).resolves.toEqual({
+      status: 'skipped',
+      reason: 'target-exists',
+    })
+    expect(filesystem.copied).toEqual([])
+    expect(projects.calls).not.toContain('ensureProject')
+    expect(filesystem.removed).toEqual([])
+  })
+
+  test('a refused grant removes the directory it created and rethrows', async () => {
+    const projects = fakeStore('absent', {
+      ensureProject: async () => {
+        throw new TypeError('Broad filesystem roots cannot be added as projects')
+      },
+    })
+    const filesystem = fakeFs()
+    await expect(seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem })).rejects.toThrow(
+      /Broad filesystem roots/,
+    )
+    expect(projects.calls).toEqual(['seedStatus'])
+    expect(filesystem.removed).toEqual([target])
+    expect(filesystem.directories.has(target)).toBe(false)
+    expect(filesystem.copied).toEqual([])
+  })
+
+  test('the payload copy never overwrites an existing file (force is off)', async () => {
+    const projects = fakeStore()
+    const filesystem = fakeFs()
+    await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem })
+    expect(filesystem.cpForces).toEqual([false])
   })
 })

@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { ProductProfile, ProductProfileContext } from './product-profile'
 import { defaultProjectPayloadPath, expandDefaultProjectTarget } from './product-profile'
@@ -31,10 +31,11 @@ export interface DefaultProjectFilesystem {
   cp(source: string, target: string, options: { recursive: boolean; force: boolean; filter(source: string): boolean }): Promise<void>
   readFile(path: string, encoding: 'utf8'): Promise<string>
   writeFile(path: string, contents: string, encoding: 'utf8'): Promise<void>
+  rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>
 }
 
 export type DefaultProjectResult =
-  | { status: 'skipped'; reason: 'no-default-project' | 'payload-absent' }
+  | { status: 'skipped'; reason: 'no-default-project' | 'payload-absent' | 'target-exists' }
   | { status: 'suppressed'; reason: 'dismissed' }
   | { status: 'existing' }
   | { status: 'seeded' }
@@ -53,6 +54,7 @@ const defaultFilesystem: DefaultProjectFilesystem = {
   cp: (source, target, options) => cp(source, target, options),
   readFile: (path, encoding) => readFile(path, encoding),
   writeFile: (path, contents, encoding) => writeFile(path, contents, encoding),
+  rm: (path, options) => rm(path, options),
 }
 
 async function exists(path: string, filesystem: DefaultProjectFilesystem): Promise<boolean> {
@@ -68,8 +70,10 @@ async function exists(path: string, filesystem: DefaultProjectFilesystem): Promi
  * Seeds the product's default project on first run.
  *
  * Every branch is a state the app will actually meet, and the order is the contract:
- * no profile -> nothing; no payload -> nothing (generic/dev/CI legitimately ship without one);
- * user deleted it before -> never resurrect; already there -> just touch; otherwise copy.
+ * no profile -> nothing; no payload -> nothing; user deleted it before -> never resurrect;
+ * already there -> just touch; a directory that already exists -> never copy into it;
+ * otherwise grant FIRST and only then copy (a refused grant removes the directory we
+ * created, and the copy never overwrites an existing file).
  *
  * Returns rather than throws for those states: a missing payload is a configuration fact, not
  * a failure, and a startup crash over it would be worse than starting without the project.
@@ -83,6 +87,9 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
   const payloadPath = defaultProjectPayloadPath(profile, context)
   const target = expandDefaultProjectTarget(profile, homeDir)
   if (!payloadPath || !target) return { status: 'skipped', reason: 'no-default-project' }
+  // The target check outranks the payload check: a directory that already exists is the
+  // user-data fact, and it must be reported even if the payload were missing.
+  if (await exists(target, filesystem)) return { status: 'skipped', reason: 'target-exists' }
   if (!(await exists(payloadPath, filesystem))) return { status: 'skipped', reason: 'payload-absent' }
 
   const state = await projects.seedStatus(target)
@@ -92,10 +99,30 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
     return { status: 'existing' }
   }
 
+  // A directory that already exists is the USER'S even without a project record: copying
+  // into it with force would overwrite same-named files — the exact loss the subtree
+  // filter cannot cover, because the filter only guards the three USER_OWNED names.
+  if (await exists(target, filesystem)) return { status: 'skipped', reason: 'target-exists' }
+
   await filesystem.mkdir(target, { recursive: true })
+  try {
+    // GRANT BEFORE COPY: a refused grant (broad root, symlinked target, ownership
+    // mismatch) must leave no populated directory behind — `force: true` into a
+    // directory we just created would look like success to the user while the store
+    // holds no record of it.
+    await projects.ensureProject(target)
+  } catch (error) {
+    // We created this directory and nothing has been written into it yet, so
+    // removing it cannot lose user data. A pre-existing directory is left alone.
+    await filesystem.rm(target, { recursive: true, force: true })
+    throw error
+  }
+
   await filesystem.cp(payloadPath, target, {
     recursive: true,
-    force: true,
+    // A collision would mean the target gained files between the exists check and
+    // now; erroring beats overwriting.
+    force: false,
     filter: (source) => {
       const entry = relative(payloadPath, source)
       if (entry === '') return true
@@ -103,7 +130,6 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
     },
   })
   await writeBuildJson(target, spec, filesystem)
-  await projects.ensureProject(target)
   return { status: 'seeded' }
 }
 
