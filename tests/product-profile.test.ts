@@ -185,7 +185,7 @@ describe('defaultProject.to — the home escape is refused at load, not at seedi
       'packaged',
     )
 
-  test.each(['~/..', '~/../..', '~/a/../..', '~/x/../../etc', '~/a/../b', '~/VizMaster/', '~/./x'])('refuses %s', (to) => {
+  test.each(['~/..', '~/../..', '~/a/../..', '~/x/../../etc', '~/a/../b', '~/VizMaster/', '~/./x', '~/..\\..', '~/a\\..\\b'])('refuses %s', (to) => {
     // `~/..` resolves to the home's PARENT, which isBroadProjectRoot does not refuse —
     // so the escape must die here, where the profile is the thing being trusted.
     expect(() => build(to)).toThrow(ProductProfileError)

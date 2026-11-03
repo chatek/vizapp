@@ -27,7 +27,8 @@ export interface DefaultProjectStore {
 /** Injectable filesystem so every branch is testable without touching the real home. */
 export interface DefaultProjectFilesystem {
   stat(path: string): Promise<{ isDirectory(): boolean }>
-  mkdir(path: string, options: { recursive: boolean }): Promise<unknown>
+  /** Returns the first directory it CREATED, or undefined when the directory already existed. */
+  mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>
   cp(source: string, target: string, options: { recursive: boolean; force: boolean; filter(source: string): boolean }): Promise<void>
   readFile(path: string, encoding: 'utf8'): Promise<string>
   writeFile(path: string, contents: string, encoding: 'utf8'): Promise<void>
@@ -126,7 +127,11 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
   // filter cannot cover, because the filter only guards the three USER_OWNED names.
   if (await exists(target, filesystem)) return { status: 'skipped', reason: 'target-exists' }
 
-  await filesystem.mkdir(target, { recursive: true })
+  // Node returns the FIRST directory it created, or `undefined` when the directory already
+  // existed. That return value is the only way to know whether the refusal path may remove
+  // anything: a directory that appeared between the check above and this call is NOT ours,
+  // and rmdir on an empty one would silently delete someone else's directory.
+  const created = await filesystem.mkdir(target, { recursive: true })
   try {
     // GRANT BEFORE COPY: a refused grant (broad root, symlinked target, ownership
     // mismatch) must leave no populated directory behind — `force: true` into a
@@ -134,19 +139,21 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
     // holds no record of it.
     await projects.ensureProject(target)
   } catch (error) {
-    // We created this directory seconds ago, so the ONLY safe cleanup is a
-    // NON-RECURSIVE rmdir: if another process wrote into it between our mkdir and
-    // the refusal, rmdir fails ENOTEMPTY/EEXIST and their bytes stay — the leftover
-    // path is named in the rethrown error. Recursive deletion here would be the
-    // same data-loss class this verb exists to prevent, just on the refusal path.
-    try {
-      await filesystem.rmdir(target)
-    } catch (cleanupError) {
-      const reason = cleanupError instanceof Error ? `${cleanupError.name}: ${cleanupError.message}` : String(cleanupError)
-      const leftover = /ENOTEMPTY|EEXIST/i.test(reason)
-        ? ` — a directory was left behind at ${target}: something else wrote into it during the seed; inspect before removing`
-        : ` — cleanup also failed (${reason}); the directory may still exist at ${target}`
-      if (error instanceof Error) error.message = `${error.message}${leftover}`
+    // Cleanup is conditional on OWNERSHIP and non-recursive. `created === undefined` means
+    // we did not create it, so nothing is removed. When we did create it, rmdir fails
+    // ENOTEMPTY/EEXIST if another process wrote into it and their bytes stay — the leftover
+    // path is named in the rethrown error. Recursive deletion here would be the same
+    // data-loss class this verb exists to prevent, just on the refusal path.
+    if (created !== undefined) {
+      try {
+        await filesystem.rmdir(target)
+      } catch (cleanupError) {
+        const reason = cleanupError instanceof Error ? `${cleanupError.name}: ${cleanupError.message}` : String(cleanupError)
+        const leftover = /ENOTEMPTY|EEXIST/i.test(reason)
+          ? ` — a directory was left behind at ${target}: something else wrote into it during the seed; inspect before removing`
+          : ` — cleanup also failed (${reason}); the directory may still exist at ${target}`
+        if (error instanceof Error) error.message = `${error.message}${leftover}`
+      }
     }
     throw error
   }

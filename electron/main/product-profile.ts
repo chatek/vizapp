@@ -159,7 +159,10 @@ function validateDefaultProject(value: unknown, harnesses: readonly HarnessId[])
   if (!to.startsWith('~/') || to === '~/' || to.slice(2).trim() === '') {
     throw new ProductProfileError('defaultProject.to', `expected "~/<name>", got ${to}`)
   }
-  const targetSegments = to.slice(2).split('/')
+  // Split on BOTH separators: `expandDefaultProjectTarget` uses `join()`, which treats `\`
+  // as a separator on win32, so splitting on '/' alone let `~/..\..` validate and escape home
+  // in the Windows build. Measured by the lead on 9b8770f.
+  const targetSegments = to.slice(2).split(/[\\/]+/)
   if (targetSegments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
     throw new ProductProfileError('defaultProject.to', `must stay inside the home directory, got ${to}`)
   }

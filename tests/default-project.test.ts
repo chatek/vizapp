@@ -60,6 +60,8 @@ function fakeFs(
     rmdirError?: Error
     cpThrows?: Error
     writeThrows?: Error
+    /** Models the TOCTOU case: another process owns the directory, mkdir creates nothing. */
+    mkdirCreatesNothing?: boolean
   } = {},
 ): FakeFs {
   const directories = new Set(options.directories ?? [payloadPath])
@@ -81,7 +83,13 @@ function fakeFs(
       return { isDirectory: () => true }
     },
     mkdir: async (path) => {
+      // Mirror Node's fs.mkdir({recursive:true}): the FIRST directory created, or
+      // undefined when the directory already existed. The seeder relies on this to know
+      // whether the refusal path may remove anything.
+      if (options.mkdirCreatesNothing) return undefined
+      const existed = directories.has(path)
       directories.add(path)
+      return existed ? undefined : path
     },
     cp: async (source, destination, cpOptions) => {
       if (options.cpThrows) throw options.cpThrows
@@ -270,6 +278,23 @@ describe('seedDefaultProject', () => {
     expect(projects.calls).toContain('ensureProject')
     expect(filesystem.removed).toEqual([])
     expect(filesystem.copied).toEqual([])
+  })
+
+  test('a directory that pre-existed (mkdir created nothing) is NEVER removed on a refusal', async () => {
+    // TOCTOU: the directory can appear between the exists() check and mkdir, so mkdir returns
+    // undefined. Removing it then would delete someone else's (empty) directory.
+    const projects = fakeStore('absent', {
+      ensureProject: async () => {
+        throw new TypeError('Broad filesystem roots cannot be added as projects')
+      },
+    })
+    const filesystem = fakeFs({ mkdirCreatesNothing: true })
+    const error = await seedDefaultProject({ profile: memberProfile, context, homeDir, projects, filesystem }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(String((error as Error).message)).toMatch(/Broad filesystem roots/)
+    expect(filesystem.removed).toEqual([])
   })
 
   test('a BUILD.json failure after the payload copied is named with stage build-json', async () => {
