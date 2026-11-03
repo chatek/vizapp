@@ -73,6 +73,13 @@ try {
     const profileModule = resolve('electron/main/product-profile.ts')
     const { validateProductProfile } = await import(pathToFileURL(profileModule).href)
     profile = validateProductProfile(JSON.parse(readFileSync(profilePath, 'utf8')), 'development', profilePath)
+  } else if (profileIndex !== -1) {
+    // The caller ASKED for this profile by path: silently packaging the generic product
+    // under an explicit profile request is how a member ships an unnamed generic app with
+    // every gate green. A checkout with no product/ directory at all stays on the fallback
+    // (older pins have neither product/ nor product-profile.ts and must still package).
+    console.error(`--profile ${profilePath} does not exist; refusing to package the generic product under an explicit profile request`)
+    process.exit(2)
   } else {
     console.warn(`No product profile at ${profilePath}; packaging the generic product`)
   }
