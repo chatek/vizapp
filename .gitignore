@@ -24,8 +24,18 @@ __pycache__/
 /build/*.app
 /build/*.exe
 /build/*.AppImage
+/build/*.deb
+/build/*.rpm
+/build/*.pacman
+/build/*.appx
+/build/*.msix
 /build/*.blockmap
 /build/*.tar
 # Staged build input: package.mjs copies the --profile here so electron-builder ships it as
 # resources/product.json. Never committed — it is whichever profile this build selected.
 product/profile.active.json
+# Integrated member payload: a member integrator writes its bundle to product/payload/
+# (contract v2) in its snapshot. The generic product ships the placeholder README alone,
+# so integrated bytes must never look like tracked generic content.
+/product/payload/*
+!/product/payload/README.md

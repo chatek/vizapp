@@ -91,13 +91,13 @@ One JSON file, embedded in the package, **the only place a product differs**:
 {
   "profileVersion": 1,
   "id": "vizmaster",                  // must equal the member id in the artifact name
-  "identity": { "productName": "VizMaster", "appId": "app.vizmaster.desktop" },
+  "identity": { "productName": "VClaw", "appId": "com.vclaw.desktop" }, // member keeps the generic identity (2026-11-05 ruling)
   "harnesses": ["omp"],               // the offered set — a product decision
   "defaultProject": {
     "name": "VizMaster",
-    "from": "vendor/vizmaster",       // payload dir, relative to Resources
+    "from": "product/payload",       // fixed v2 payload dir; the build refuses any other value
     "to": "~/VizMaster",              // expanded at run time, never baked absolute
-    "version": "1.0.0+20261029.7263596"
+    "version": "0.0.0+unrendered"     // placeholder: package.mjs renders the payload release
   }
 }
 ```
@@ -251,7 +251,10 @@ and `verify-package` asserting name ↔ profile agreement.
    would drive `build.extraResources`; electron-builder takes that statically, and its CLI cannot
    append array entries sanely. The convention is instead `product/payload` — always shipped, empty
    for the generic product — which is exactly the v1 rule ("payload integrated before packaging")
-   with a fixed path. The selected profile is staged as `product/profile.active.json` and shipped as
+   with a fixed path. A member profile's `defaultProject.from` must be `product/payload`; the v2
+   integrator copies the bundled payload there and `package.mjs` refuses any other value. The
+   legacy `vendor/<member>` + `{from: 'vendor/vizmaster', to: 'vizmaster'}` route is retired. The
+   selected profile is staged as `product/profile.active.json` and shipped as
    `resources/product.json`, because the extraResources entry is static too.
 2. **The seeder had to be non-destructive by construction.** An earlier subagent version read
    `lessons/node_modules/.git` as text and then removed the target before restoring them — that

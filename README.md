@@ -84,12 +84,17 @@ Ask User and computer control are off by default. You can enable, disable, or re
 
 1. Install Pi, OMP, Prime Agent, or any combination of the three.
 2. Sign in or configure a model provider through each harness's own CLI.
-3. Download VClaw from [GitHub Releases](https://github.com/chatek/vclaw-desktop/releases), or run it from source.
+3. Download VClaw from the [release page](https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app/releases), or run it from source.
 4. Add a project folder and start a session.
 
 VClaw checks common install locations automatically. If a harness is missing, open **Settings → Harness** to refresh detection or choose its executable.
 
-GitHub Releases provides a DMG and ZIP for macOS, common Linux package formats plus AppImage, and a Windows installer and ZIP.
+A release provides the macOS `.app` zip for both architectures, built only on the project's
+macOS build host and named `-unsigned` until a Developer ID exists — Gatekeeper needs an override
+on first launch. The DMG comes from the separate installer flow
+([docs/RELEASE_BUILD_HOST.md](docs/RELEASE_BUILD_HOST.md)). Linux and Windows packaging recipes
+live in [FORK.md](FORK.md) but are not published by the release flow
+([docs/RELEASE_FLOW.md](docs/RELEASE_FLOW.md)).
 
 Harness provider credentials stay with the harness. Optional voice keys are encrypted with the operating system's secure storage, and local `whisper.cpp` dictation needs no API key.
 

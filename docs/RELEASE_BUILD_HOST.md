@@ -1,158 +1,111 @@
-# Producing a VClaw desktop build (macOS, dmg/zip)
+# Producing a VClaw desktop installer (`.dmg`/`.zip`, macOS)
 
-**Where this fits:** the two-flow model and the artefact-of-record rule live in
-[BUILD.md](BUILD.md). This file is the host-side **dmg/zip** variant (signing, notarisation,
-`package.mjs`); the default `--dir` flow that bundles OMP is [BUILD_REMOTE.md](BUILD_REMOTE.md).
-Both run on this host, and **only an artefact produced here is evidence** — a local build is
-never a delivery candidate.
+**Where this fits:** the flows and the artefact-of-record rule are in [BUILD.md](BUILD.md).
+This file is the host-side **`.dmg`/`.zip`** variant (`package.mjs`, signing, notarisation).
+The default `--dir` flow that bundles OMP is [BUILD_REMOTE.md](BUILD_REMOTE.md) — it also owns
+the host facts table, which is measured more recently than this page. Both flows run on
+`BUILD_USER_REDACTED` and only an artefact produced there is evidence.
 
-The build runs **on `BUILD_USER_REDACTED`**, never on the workstation
-(repo rule, `AGENTS.md`). This file is the procedure as measured on 2026-11-01, by the
-builder who took the lane over; every command below was run, and the two traps cost real time.
+Publishing the result is **not** done here and not in CI:
+[RELEASE_FLOW.md](RELEASE_FLOW.md) §Publish.
 
-## Host facts (measured 2026-11-01)
+## Prerequisites on the host
 
-| | |
+The installer flow needs the same machine, checkout and release set as the `--dir` flow, plus:
+
+| requirement | why |
 |---|---|
-| hardware / OS | Apple M4, 16 GiB, Darwin arm64, headless over ssh |
-| disk | 460 GiB, **201 Gi free** |
-| node | **v25.8.0** — satisfies `engines.node: >=24.15.0`, and is *outside* npm 12.0.2's own supported set. The `--dir` flow does **not** use it: `build-remote.sh` prepends `~/build/toolchain/node-v24.15.0-darwin-arm64` (BUILD_REMOTE.md) |
-| npm | 11.11.0 shipped; **12.0.2 installed by `toolchain:bootstrap`** (required) |
-| Xcode | Command Line Tools only (`/Library/Developer/CommandLineTools`) — fine for native modules |
-| code-signing identities | **0 valid** — see *Signing* below |
+| a checkout at the release commit | `build-remote.sh` leaves one at `~/build/vclaw/vclaw-desktop` and throws it away per run; reuse that host/paths and re-sync after the build rather than keeping a second hand-synced tree |
+| npm **12.0.2** on `PATH` for the packaging step | `package.mjs` refuses anything older; node 24.15.0 ships npm 11, so run `npm run toolchain:bootstrap` (off-system prefix, see `FORK.md`) and put its shim first |
+| dependencies installed, `out/` built | `npm ci` alone does **not** create `out/`; `package.mjs` runs `npm run build:bundle` itself, so deps are the only manual step |
+| `ELECTRON_MIRROR` **or** `VCLAW_ELECTRON_DIST` | the host's `github.com` is a fake-ip; electron-builder's Electron download dies late without one of them (trap 3) |
+| no signing identity expected | 0 valid identities on this host; only `--qa` is possible (see *Signing*) |
 
 ## Procedure
 
 ```bash
-# 0. on the workstation — source must be committed; the host has no .git
-cd vclaw-desktop && git status --porcelain   # empty
-COMMIT=$(git rev-parse --short HEAD)
+H=BUILD_USER_REDACTED
 
-# 1. sync. THE EXCLUDES MUST BE ANCHORED, see trap 1
-rsync -az --delete \
-  --exclude='/.git' --exclude='/node_modules' --exclude='/out' \
-  --exclude='/release' --exclude='/test-results' \
-  . BUILD_USER_REDACTED:~/vclaw-desktop-build/
+# 1. source + release set on the host (idempotent; also proves the host still matches)
+bash scripts/release/build-remote.sh --check
 
-# 2. toolchain + deps (fresh clone only; node_modules persists between builds)
-ssh BUILD_USER_REDACTED 'cd ~/vclaw-desktop-build && node scripts/release/bootstrap-npm.mjs'
-ssh BUILD_USER_REDACTED 'cd ~/vclaw-desktop-build && npm ci'
+# 2. installer build over ssh, in the host's own checkout and toolchain
+tailscale ssh $H 'cd ~/build/vclaw/vclaw-desktop &&
+  export npm_config_prefix="$HOME/build/tools/npm12" &&
+  npm run toolchain:bootstrap &&
+  export PATH="$(npm prefix -g)/bin:$PATH" &&
+  export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ &&
+  node scripts/release/package.mjs --qa --platform mac --arch arm64 --skip-verify'
 
-# 3. THE INSTALL SCRIPTS, see trap 2 — approve, rebuild, then restore package.json
-ssh BUILD_USER_REDACTED 'cd ~/vclaw-desktop-build && npm install-scripts approve --all && npm rebuild'
-rsync -az package.json BUILD_USER_REDACTED:~/vclaw-desktop-build/package.json   # undo the approval edit
+# 3. output: release/mac/arm64/{VClaw-<version>-arm64.dmg, .zip}
+#    (arm64 and x64 are separate runs; x64 is not cross-packaged from this flow)
 
-# 4. package. --skip-verify is the CI path (release.yml): the verify suite has already
-#    run on this commit, and the hermetic Playwright e2e cannot run headless.
-ssh BUILD_USER_REDACTED 'cd ~/vclaw-desktop-build \
-  && node scripts/release/package.mjs --qa --platform mac --skip-verify'
-
-# 5. collect: release/mac/arm64/{VClaw-<version>-arm64.dmg, .zip, mac-arm64/VClaw.app}
+# 4. pull back, hash on both sides, then publish — RELEASE_FLOW.md §3
 ```
 
-`npm run package:mac:local-qa` is the same thing **without** `--skip-verify`; it additionally
-runs `release:verify` = `release:verify:package` + `test:e2e:hermetic`. Use the direct
-invocation when the verify suite already ran on the commit, exactly as CI does.
+`tailscale ssh` returns **0** even when the remote command failed, so the local exit code of
+step 2 proves nothing: read the remote output's own verdict line
+(`Local QA mac/<arch> package pipeline passed.`) and the `Packaging failed: …` line that
+precedes a non-zero exit.
 
-## Trap 1 — an unanchored rsync exclude silently empties `scripts/`
+`--skip-verify` skips the duplicate `release:verify` aggregate. Use it when
+`release:verify:package` already ran on that exact commit; it does **not** skip bundle creation
+or `verify-package`, which `package.mjs` runs after packaging regardless. There is no CI run to
+lean on here (Forgejo Actions cannot build this repo), so if the aggregate has not run, drop the
+flag — but `test:e2e:hermetic` needs a display and will not pass headless, so the honest version
+of step 2 is "package verification ran, hermetic e2e did not". `npm run package:mac:local-qa`
+is this command without `--skip-verify`.
+
+## Trap 1 — if you hand-sync instead of using the driver, anchor the excludes
 
 `--exclude='release'` matches **any** directory named `release` at any depth, so it drops
-`scripts/release/` and all 25 build scripts. Every later step then fails with
-`Cannot find module '.../scripts/release/bootstrap-npm.mjs'`, which reads like a missing
-toolchain and is not. **Always anchor**: `--exclude='/release'`.
+`scripts/release/` and all build scripts; every later step then fails with
+`Cannot find module '.../scripts/release/…'`, which reads like a missing toolchain.
+**Always anchor**: `--exclude='/release'`. Same shape for `build/`: `--exclude='build/*'`
+strips the entitlements plists electron-builder needs, so do not exclude it — it is a *source*
+directory (`buildResources`). `build-remote.sh` avoids rsync entirely.
 
-Same shape for `build/`: `--exclude='build/*'` strips the entitlements plists electron-builder
-needs. Do not exclude `build/`; it is a *source* directory here (electron-builder's
-`buildResources`), and it is also where the finished artefact is delivered.
+## Trap 2 — two npm floors, and they are different
 
-## Trap 2 — npm 12 blocks the install scripts this app needs
+`node 24.15.0` ships npm **11**, and `package.json` pins `packageManager: npm@12.0.2`. The
+split matters:
 
-`package.json` pins `packageManager: npm@12.0.2`, and npm 12 **refuses to run dependency
-install scripts** unless they are listed under `allowScripts` (the repo has no such list).
-A fresh `npm ci` therefore exits **0** while skipping nine scripts — including `node-pty`,
-`esbuild` (both copies), `zeromq`, `koffi`, `protobufjs`, `electron-winstaller` and
-`prime-agent`. Exit 0 does not mean installed: `node_modules/.bin/esbuild` and
-`node_modules/node-pty/build/Release/pty.node` will be **missing**, and the failure surfaces
-later as a bundling or terminal error.
-
-**Which entrypoint forces this, measured rather than assumed — it matters, because the two
-answers differ:**
-
-| entrypoint | npm floor enforced? | consequence |
+| step | npm that runs it | result |
 |---|---|---|
-| `npm run package:mac` / `package.mjs` | **yes**, hard | npm 11 is refused before anything runs: `Packaging failed: npm >=12.0.2 is required (found 11.17.0)` (node 24.19.0, npm 11.17.0, 2026-11-01). So bootstrap npm 12 — and then approve + rebuild, because npm 12 blocks the scripts. |
-| member driver (`app/scripts/build-local.sh` in `chatek/vizmaster`) | **no** — it never calls `package.mjs` | homebrew npm 11 works fine and runs the install scripts normally. This is why the VizMaster rehearsal never hit either half of this trap. |
+| `npm ci` (dependencies) | 11 (node 24.15.0's own) | correct — the `allowScripts` allowlist in `package.json` lets the nine native install scripts run |
+| `package.mjs` | **12.0.2 required** | refuses with `Packaging failed: npm >=12.0.2 is required (found 11.x)` |
 
-So "the pinned toolchain is not required" is true for the member driver and **false** for the
-generic entrypoint. If you use the generic one, you need both steps, in this order:
+So bootstrap npm 12 for step 2 only; do not reinstall dependencies with it. The old
+`npm install-scripts approve --all && npm rebuild` dance is **obsolete** — it wrote a
+host-absolute path into `package.json` for the vendored `prime-agent` tarball, and the
+checked-in allowlist replaces it. A clean install now warns about exactly one blocked script
+(`prime-agent`, which exits 0 unless a bootstrap env var is set); that warning is expected, and
+any *other* blocked script is a new dependency that needs an allowlist entry.
 
-```bash
-npm install-scripts approve --all && npm rebuild
-```
+## Trap 3 — the host cannot reach GitHub, so electron-builder downloads fail late
 
-⚠ `approve` writes an `allowScripts` block **into `package.json`**, and for the vendored
-prime-agent tarball it records a **host-absolute path**
-(`file:/Users/chance/vclaw-desktop-build/vendor/...`). Restore the committed `package.json`
-after the rebuild — the approval is an install-time action, not a source change, and an
-artefact must come from the commit, not from a host-mutated tree.
-
-> **FIXED — `package.json` now carries an `allowScripts` allowlist** (ten registry entries,
-> version-pinned). Verified by a genuine clean install on the host, with no `approve` step:
-> `rm -rf node_modules && npm ci` → `node_modules/.bin/esbuild`,
-> `node_modules/node-pty/build/Release/pty.node`, `node_modules/fsevents/fsevents.node`,
-> `node_modules/zeromq/build/darwin/arm64/…/addon.node`,
-> `node_modules/koffi/build/koffi/darwin_arm64/koffi.node` and Electron's dist all present.
->
-> **The one entry that cannot be expressed — and why it does not matter.** `prime-agent` is a
-> `file:` dependency, and npm keys install scripts for those by the **resolved absolute path**:
-> measured on this host, `allowScripts` entries `prime-agent@0.7.0-gooeypi.1`, `dep` and
-> `file:./dep-1.0.0.tgz` were **all blocked** for a local tarball dep, and only
-> `dangerously-allow-all-scripts=true` ran it. That is why `npm install-scripts approve` writes
-> `file:/Users/<builder>/…` — an entry no commit can carry. Leaving it blocked is safe here:
-> prime-agent's `postinstall.cjs` delegates to `dist/postinstall.js`, which exits 0 unless
-> `PRIME_AGENT_BOOTSTRAP_KERNEL_ON_INSTALL=1` or `PRIME_AGENT_BOOTSTRAP_TOOLS_ON_INSTALL=1`
-> (read from the vendored tarball; neither is set by this repo or its workflows).
->
-> Consequence: a clean install warns about exactly one blocked script — `prime-agent` — and that
-> warning is expected. Anything else appearing in `npm install-scripts ls` is a new dependency
-> that needs an entry.
-
-## Trap 3 — the host's DNS cannot reach GitHub, so electron-builder stalls on downloads
-
-`nslookup github.com` on the host returns **`198.18.0.49`** — the fake-ip range a proxy/VPN
-hands out when it is not actually routing. electron-builder uses `got` for every download, so
-the build dies with:
-
-```
-⨯ connect EADDRNOTAVAIL 198.18.0.49:443 - Local (0.0.0.0:0)
-```
-
-It fails **late**: after bundling, after `@electron/rebuild`, after the `.app` is packaged —
-so it reads as a packaging bug. It is not.
-
-Two mitigations, both used together:
+`nslookup github.com` on the host returns a fake-ip (`198.18.0.x`), so the downloader dies with
+`⨯ connect EADDRNOTAVAIL …:443` **after** bundling, `@electron/rebuild` and packaging — it
+reads as a packaging bug. Two mitigations, both usable together:
 
 ```bash
-# 1. never download Electron — it is already unpacked in node_modules by `npm ci`
-npx electron-builder --mac --arm64 --publish never \
-  --config.directories.output=release/mac/arm64 \
-  --config.mac.identity=null --config.mac.notarize=false \
-  --config.electronDist=$PWD/node_modules/electron/dist
+# 1. never download Electron — point at the copy npm already unpacked
+export VCLAW_ELECTRON_DIST=$PWD/node_modules/electron/dist
 
-# 2. the ZIP target can still reach for a network resource. When .app and .dmg exist but the
-#    .zip is missing, produce it with the same tool electron-builder uses:
-cd release/mac/arm64 && ditto -c -k --sequesterRsrc --keepParent mac-arm64/VClaw.app \
-  VClaw-<version>-arm64.zip
+# 2. the downloader still needs a mirror for anything else it fetches
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 
-# then gate it:
-cd ~/vclaw-desktop-build && node scripts/release/verify-package.mjs \
+# 3. if the .zip target is the only thing missing, produce it with the tool electron-builder uses
+cd release/mac/arm64 && ditto -c -k --sequesterRsrc --keepParent VClaw.app VClaw-<version>-arm64.zip
+
+# then gate it
+cd ~/build/vclaw/vclaw-desktop && node scripts/release/verify-package.mjs \
   --mode qa --arch arm64 --release-directory=$PWD/release/mac/arm64
 ```
 
 `verify-package.mjs` is **static** — archive integrity, contained application, native unpack
-allowlist, architectures, Electron fuses, size budgets. It does not launch the app, so it works
-over headless ssh. `release:verify`'s other half, `test:e2e:hermetic`, does not: that is why
-step 4 uses `--skip-verify` and the verify suite must have run on the commit beforehand.
+allowlist, architectures, Electron fuses, size budgets, artifact name ↔ packaged profile. It
+does not launch the app, so it works over headless ssh.
 
 ### Runtime proof over ssh — the packaged smoke
 
@@ -160,10 +113,10 @@ A GUI launch is impossible over ssh, but the app carries its own headless mode, 
 only *runtime* evidence available on this host:
 
 ```bash
-APP=release/mac/arm64/mac-arm64/VClaw.app
+APP=release/mac/arm64/VClaw.app
 "$APP/Contents/MacOS/VClaw" --packaged-smoke=/tmp/smoke-marker.json; echo "rc=$?"
 # rc=0 and the marker written:
-# {"event":"vclaw-packaged-smoke-ready","url":"prime-work://app/index.html","version":"1.1.17"}
+# {"event":"vclaw-packaged-smoke-ready","url":"prime-work://app/index.html","version":"…"}
 ```
 
 The marker means the packaged app started, loaded its renderer and completed an authorized IPC
@@ -172,45 +125,44 @@ measured working on the 1.1.17 arm64 build (2026-11-01, rc=0).
 
 ## Delivering the artefact
 
-`vclaw-desktop/build/` is both electron-builder's `buildResources` directory and the agreed drop
-point, so it holds tracked plists and large binaries at once. `.gitignore` ignores the artefact
-patterns but **not** the plists — never `git add build/` wholesale.
-
 Copy the DMG and ZIP back, then confirm the transfer with `shasum -a 256` on **both** sides
 before anyone opens the file. Report the triple with every delivery: source commit, pinned CLI
-digest, artefact digest. Only an artefact built on this host is evidence; a local build
-(`BUILD_LOCAL.md`) is marked `not-evidence` and never enters `build/` or a release.
+digest, artefact digest — the publishing steps and the re-fetch check are
+[RELEASE_FLOW.md](RELEASE_FLOW.md) §3. Only an artefact built on this host is evidence; a local
+build (`BUILD_LOCAL.md`) is marked `not-evidence` and never enters `build/` or a release.
 
 ## Trap 5 — a platform `artifactName` silently beats the generic one
 
-`package.json` sets `build.mac.artifactName` (`${productName}-${version}-${arch}.${ext}`). electron-builder
-resolves **platform-specific config before the generic key**, so `--config.artifactName=…` and a top-level
-`build.artifactName` are both ignored on macOS. The build looks correct — the file that appears matches the
-product name — which is why this survived: a member build therefore shipped as
-`VizMaster-1.1.17-arm64.dmg` instead of `VClaw-1.1.17-vizmaster-arm64.dmg`, and nothing failed, because the
-only checker compared the artifact to itself.
-
-Set the **per-platform** key: `--config.<platform>.artifactName=…`. And assert the name against the product
-identity at verification time (`assertPackagedProductProfile`), which is what turned this from a silent
-mismatch into a failing gate.
+`package.json` sets `build.mac.artifactName`, and electron-builder resolves platform-specific
+config before the generic key, so `--config.artifactName=…` and a top-level `build.artifactName`
+are both ignored on macOS. The build looks correct — the file that appears matches the product
+name — which is why this survived: a member build shipped as `VizMaster-1.1.17-arm64.dmg`
+instead of `VClaw-1.1.17-vizmaster-arm64.dmg`, and nothing failed, because the only checker
+compared the artifact to itself. Use the **per-platform** key (which `package.mjs` derives from
+the profile) and let `verify-package` assert the name against the packaged identity.
 
 ## Signing
 
-`security find-identity -v -p codesigning` → **0 valid identities**. Only `--qa` builds are
-possible: `package.mjs --qa` sets `CSC_IDENTITY_AUTO_DISCOVERY=false`,
-`--config.mac.identity=null` and `--config.mac.notarize=false`. A `--public` build will throw
-on `validateReleaseCredentials` before packaging — do not spend a cycle discovering that.
+`security find-identity -v -p codesigning` → **0 valid identities** (host and workstation).
+Only `--qa` builds are possible: `--qa` sets `CSC_IDENTITY_AUTO_DISCOVERY=false`,
+`--config.mac.identity=null` and `--config.mac.notarize=false`. A `--public` build throws on
+`validateReleaseCredentials` before packaging — do not spend a cycle discovering that, and do
+not "fix" it by inventing a local identity. Unsigned artefacts are published marked `unsigned`,
+releases default to draft, and an Apple Developer ID is an open blocker
+([RELEASE_FLOW.md](RELEASE_FLOW.md) §Blocked).
 
 ## Verifying an arrival
 
-Follow the host README rules in `deploy/nodes.md`; they exist because each one caught a real
-bad artefact:
+Follow the destination host's README rules (`deploy/nodes.md`); they exist because each one
+caught a real bad artefact:
 
 1. **sha256 before extracting** — a truncated `.app` once passed `lipo -archs`, all four plist
    keys and the version string; only the digest caught it.
-2. `lipo -archs <app>/Contents/MacOS/<exe>` → `arm64` (verify with a tool, never a filename).
+2. `lipo -archs <app>/Contents/MacOS/<exe>` → the requested arch (verify with a tool, never a
+   filename).
 3. Read `CFBundleName` / `CFBundleDisplayName` / `CFBundleIdentifier` from `Info.plist`.
-4. **Read the exit code from the log file**, not the shell handle.
+4. **Read the exit code from the log file**, not the shell handle — `tailscale ssh` returns 0
+   for a failed remote command ([BUILD_REMOTE.md](BUILD_REMOTE.md)).
 5. One writer per output directory.
 
 Report the digest of the **committed** source and the **pinned** CLI artefact alongside the

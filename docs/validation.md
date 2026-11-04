@@ -18,14 +18,14 @@ The required checks are exactly the seven normal pull-request gates:
 
 Do not require `local-qa-package`: it is manual local QA, runs only through `workflow_dispatch`, and is intentionally excluded from pull-request validation.
 
-`Production dependency audit` is a seventh pull-request gate: it runs the exception-aware `npm run audit:production` evaluator against the exact PR head, and the release workflow runs the same evaluator against its validated immutable SHA before any package or publication job. After the check context first appears on a pull request, a repository administrator must add `Production dependency audit` to the required status checks on `main`. The scheduled [dependency-audit workflow](../.github/workflows/audit.yml) remains for advisories disclosed after merge.
+`Production dependency audit` is a seventh pull-request gate: it runs the exception-aware `npm run audit:production` evaluator against the exact PR head. After the check context first appears on a pull request, a repository administrator must add `Production dependency audit` to the required status checks on `main`. The scheduled [dependency-audit workflow](../.github/workflows/audit.yml) remains for advisories disclosed after merge.
 
 GitHub merge queues are not available to this public repository while it is owned by a personal account. Consequently, `merge_group` or a required merge queue cannot enforce this policy here; strict up-to-date branch protection is the supported latest-main control. If the repository moves to an organization, merge-queue support should be designed and tested separately before enabling it.
 
 An authorized maintainer can verify the active legacy branch protection and exact required-context set with:
 
 ```sh
-gh api repos/am-will/gooey-pi/branches/main/protection \
+gh api repos/chatek/vclaw-desktop/branches/main/protection \
   --jq '{strict: .required_status_checks.strict, contexts: .required_status_checks.contexts, reviews: .required_pull_request_reviews}'
 ```
 
@@ -34,7 +34,7 @@ gh api repos/am-will/gooey-pi/branches/main/protection \
 | Concern | Authoritative definition |
 |---|---|
 | Pull-request, `main`, and manual CI | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
-| Tagged public releases | [`.github/workflows/release.yml`](../.github/workflows/release.yml) |
+| Tagged release publication | [RELEASE_FLOW.md](RELEASE_FLOW.md) §3 (workstation → Forgejo release). `.github/workflows/release.yml` is GitHub-hosted and the release flow does not run it. |
 | Scheduled production-dependency audit | [`.github/workflows/audit.yml`](../.github/workflows/audit.yml) |
 | Aggregate commands and toolchain policy | [`package.json`](../package.json) and [`.nvmrc`](../.nvmrc) |
 | Resolved dependency graph | [`package-lock.json`](../package-lock.json) |
@@ -93,7 +93,7 @@ Expected skips are part of this design:
 
 `windows-state-migration` is required for every CI trigger listed above; a skip is not expected.
 
-A green PR packaging matrix does not prove Developer ID signing, Apple notarization/stapling, Gatekeeper acceptance, Authenticode identity, installer integrity, or the complete public artifact matrix. Those belong to the release workflow.
+A green PR packaging matrix does not prove Developer ID signing, Apple notarization/stapling, Gatekeeper acceptance, Authenticode identity, or installer integrity. Nothing in this repo establishes those today (see *Release validation*).
 
 ## Local aggregate commands
 
@@ -130,7 +130,13 @@ A passing audit therefore does not mean the production graph carries no known ad
 
 ## Public release validation
 
-The [release workflow](../.github/workflows/release.yml) runs for a semantic-version tag or a manual request naming an existing tag. It first verifies that the tag matches both package manifests and resolves to a commit on `main`; downstream jobs check out the resulting immutable commit SHA.
+There is **no CI release pipeline here**: Forgejo Actions cannot build this repo (no darwin
+runner, and the instance cannot reach github.com to fetch actions). The GitHub-hosted
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) is not the release path —
+it publishes GitHub Releases and R2 staging, while this estate publishes a Forgejo release from
+the workstation — and the release flow does not run it. The table below is the workflow as
+committed, kept because the workflow and this table are held equal by
+[`tests/validation-documentation.test.ts`](../tests/validation-documentation.test.ts).
 
 | Release job | Responsibility |
 |---|---|
@@ -144,11 +150,29 @@ The [release workflow](../.github/workflows/release.yml) runs for a semantic-ver
 | `package-member` | When a member id is supplied on a manual dispatch, fetch that member repo at a pinned SHA, bundle its payload, integrate the overlay, and build/sign/notarize the member artifact. Independent stream: its artifacts go to the asset host, never into the GitHub Release, so it does not gate `release-packages`. |
 | `release-packages` | Reject failed prerequisites, collect the enabled platform artifacts, generate checksums, attest provenance, and publish or resume the GitHub Release with write permission scoped to this final job. |
 
-Native release jobs pass `--skip-verify` only after the same immutable SHA has passed the upstream quality and E2E jobs. That flag skips a duplicate pre-package test aggregate; it does not skip bundle creation or the platform-specific post-package verification.
+How a release is actually validated, in order:
 
-Public macOS checks require external Developer ID and notarization credentials that are not present in ordinary PR CI. Signed Windows packaging is also conditional on repository configuration and secrets. If neither signed nor unsigned Windows release mode is enabled, `package-windows` is expected to be skipped and the aggregate release gate explicitly accepts that skip. Within an enabled Windows job, the signed and unsigned build steps are mutually exclusive, so one of them is normally skipped.
+1. `bash scripts/release/release-forgejo.sh --arm64 --x64 --dry-run` — clean tree, `HEAD` at
+   the `origin` tip, `build-remote.sh --check`, the build itself, provenance re-read from
+   `release-remote/<arch>/BUILD.json` (every arch agreeing on the commit), the signing probe,
+   and staging. Only the remote host's artefact counts; provenance format in
+   [BUILD_REMOTE.md](BUILD_REMOTE.md).
+2. Host and local gates from the build: `verify.txt`, then unzip + `lipo -archs` + the `omp`
+   digest against `SHA256SUMS.txt` ([BUILD_REMOTE.md](BUILD_REMOTE.md)).
+3. For the dmg/zip flow, `verify-package.mjs --mode qa` (static: archive integrity, contained
+   app, native unpack allowlist, arch, fuses, size budgets, artifact name ↔ profile) plus the
+   packaged smoke (`--packaged-smoke`, rc=0 and the marker) — the only runtime proof available
+   over ssh.
+4. Publish-time re-fetch: served sizes equal the staged ones and `SHA256SUMS.txt` is
+   byte-identical to the local file; the release body carries the evidence triple
+   ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3, §4).
 
-An explicitly enabled unsigned Windows beta is not trust-ready and must be labelled as such. Ordinary PR smoke packages and manual local-QA artifacts do not replace any credentialed release check.
+What that does **not** establish: Developer ID signing, notarisation/stapling, Gatekeeper
+acceptance, or Authenticode identity. The jobs above that check those things need credentials
+this estate does not hold; there are 0 codesigning identities on the host and on the workstation,
+so every artefact is `unsigned`, releases default to draft, and `--public` refuses.
+`test:e2e:hermetic` needs a display and does not run on the headless host — say so rather than
+implying it ran.
 
 ## Recording evidence
 

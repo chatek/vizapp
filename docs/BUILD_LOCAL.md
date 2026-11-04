@@ -185,9 +185,11 @@ sibling** of `vclaw-desktop` (`../vendors/…`); the `extraResources.from` glob 
 
 `mac.notarize` is `true` in `package.json`, and a plain `electron-builder --mac --arm64`
 builds `dmg`/`zip` targets and then tries to sign and notarise — which fails on a machine
-with no Developer ID identity and no notarisation credentials. Only `--dir --publish never`
-is the local target: it produces the `.app`, runs `after-pack`, and stops. Do not "fix" a
-notarisation error by adding credentials locally; that is the remote flow's job.
+with no Developer ID identity (this estate has **0** on both machines) and no notarisation
+credentials. Only `--dir --publish never` is the local target: it produces the `.app`, runs
+`after-pack`, and stops. Do not "fix" a notarisation error by adding credentials locally; a
+signed build needs an Apple Developer ID that nobody here holds, so it is an open blocker
+(`RELEASE_FLOW.md` §5 · Blocked today), not a local configuration step.
 
 Related: `after-pack.cjs` reads `context.arch` as electron-builder's numeric enum
 (ia32=0, x64=1, armv7l=2, arm64=3, universal=4). This was a real bug, fixed in `cabbc52`;

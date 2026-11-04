@@ -12,7 +12,7 @@ function archName(arch) {
   return ARCH_NAMES[arch] || `unknown(${arch})`
 }
 
-// The vizmaster branch bundles OMP (resources/harness/bin/omp, wired through
+// VClaw bundles OMP (resources/harness/bin/omp, wired through
 // mac.extraResources from ../vendors/oh-my-pi/releases/<pin>/omp-darwin-${arch}).
 // Verify, before fuses are flipped: the binary is present, its sha256 matches the
 // release set's SHA256SUMS.txt, and its Mach-O slice matches the build arch. A wrong
@@ -23,12 +23,7 @@ function verifyBundledOmp(context) {
   if (arch === 'universal') {
     throw new Error('bundled omp: universal mac builds are not supported — build --arm64 and --x64 separately')
   }
-  const appResources = join(
-    context.appOutDir,
-    `${context.packager.appInfo.productFilename}.app`,
-    'Contents',
-    'Resources',
-  )
+  const appResources = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
   const bundled = join(appResources, 'harness', 'bin', 'omp')
   if (!fs.existsSync(bundled)) {
     throw new Error('bundled omp: resources/harness/bin/omp is missing — was mac.extraResources applied?')

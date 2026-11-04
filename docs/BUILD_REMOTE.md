@@ -6,6 +6,11 @@ flow that bundles OMP into the app (`electron-builder --mac --<arch> --dir`, dri
 `scripts/release/build-remote.sh`). The dmg/zip flow — signing, notarisation, `package.mjs`,
 its npm-12 trap — is a different lane and lives in [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md).
 
+This driver **builds**; it does not publish. The workstation runs
+`scripts/release/release-forgejo.sh`, which calls this driver, tags the commit, uploads
+`release-remote/<arch>/` to a Forgejo release on `chatek/vclaw-app` and re-fetches to verify
+([RELEASE_FLOW.md](RELEASE_FLOW.md) §3).
+
 Everything below was measured on 2026-11-04/05 on the host, not inferred from the docs.
 
 ## Remote is primary — there is no silent fallback
@@ -111,12 +116,21 @@ Every build writes one, next to the zip (arm64 shown; x64 differs only in `arch`
 }
 ```
 
-`source.remote` is deliberate: **two repositories carry a `vizmaster` branch** — this checkout's
-`origin` (Forgejo `chatek/vclaw-app`, tip `cabbc52…`) and GitHub `chatek/vclaw-desktop` (tip
-`c49cc37…` per the member lane). A tuple naming only `repo: vclaw-desktop` + sha cannot say which
-record it came from, and a pin against the wrong repo is the stale-artefact class again. The remote
-URL makes the pin self-describing; designating which repo is the record is a lead decision, not a
-driver one.
+`source.remote` is `git remote get-url origin`. In this clone that is the **Forgejo mirror**
+(`chatek/vclaw-app`), not the record repo (GitHub `chatek/vclaw-desktop`), so treat the field as a
+**locator, not an authority**: it says which URL this checkout fetched from, not which repo is
+canonical. Measured 2026-11-05 at HEAD `346127d`: both remotes carry `main 92991ab` and
+`vizmaster 1b2c62b`, and `c49cc37` is an ancestor of `cabbc52` — one linear history, not two. A pin
+consumer should therefore resolve repo+sha against the designated record, and use
+`source.remote` only to explain which mirror produced the bytes.
+
+`branch` records the branch the bundle was cut from, not a policy. The flow now cuts from
+**`main`** — the single long-lived branch; `origin/vizmaster` is legacy and retiring — so a
+`BUILD.json` naming `vizmaster` is a historical measurement, not an instruction.
+
+The example above is from the run at `cabbc52…`; a build of HEAD `346127d…` emits that commit and
+the same shape. The `release-remote/{arm64,x64}/BUILD.json` currently on disk predate the
+`source.remote` field and that tip — regenerate rather than hand them over.
 
 `build-remote.sh --check` can be run on the receiving side to re-prove a host still matches; the
 digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is taken on the host
@@ -248,7 +262,7 @@ Two prerequisites are easy to miss and both were hit on the first real run:
   `⨯ Application entry file "out/main/index.js" in the ".../app.asar" is corrupted: Error:
   "out/main/index.js" was not found in this archive`. The driver runs the bundle and asserts the
   file exists before packaging.
-* **`product/profile.active.json` is generated, not tracked** (`.gitignore:29`). `package.mjs`
+* **`product/profile.active.json` is generated, not tracked** (`.gitignore:36`). `package.mjs`
   writes it from the chosen profile so electron-builder can copy it to `resources/product.json`,
   then deletes it. The driver stages `$VCLAW_PROFILE` (default `product/profile.json` = the
   generic `vclaw` profile; `product/vizmaster.json` for a member build) and removes it afterwards.
@@ -360,10 +374,10 @@ Post-ruling values follow from the same mechanism (`APP_NAME` from the profile, 
 It selects identity and `resources/product.json` — it does **not** produce the member payload
 layout. Measured on the pulled member bundle: `Contents/Resources/` holds
 `product/payload/{README.md}` (the generic `extraResources` mapping) and there is **no**
-`Contents/Resources/vizmaster/` and no payload `BUILD.json`. A real member release is the CI
-`member` job (`.github/workflows/release.yml`): checkout the member repo at the pinned 40-hex sha →
+`Contents/Resources/vizmaster/` and no payload `BUILD.json`. The member job in
+`.github/workflows/release.yml` does this end to end — checkout the member repo at the pinned 40-hex sha →
 `npm run bundle:<member>` → `npm run integrate:<member> -- --vclaw "$GITHUB_WORKSPACE"` →
-`integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"`. The **integrate** step is
+`integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"` — but that workflow is GitHub-hosted and the release flow does not run it (no Forgejo Actions; publishing is the manual flow in `RELEASE_FLOW.md` §3). `--dir` cannot substitute: the **integrate** step is
 what writes the member overlay into this checkout; contract v2 puts the payload at
 `product/payload` (one location, seeded from `Resources/product/payload`), and the legacy
 `Resources/<MEMBER_ID>/` route is retired.
@@ -383,14 +397,16 @@ three-line refusal and nothing written (a late refusal would leave a half-writte
 The handed-over post-packaging assert (`chatek/vizmaster` `scripts/assert-member-dmg.sh`, eight
 keys, prefix compare, `dirty`/`vclawDirty`, payload `dist/`, `Resources/extensions/vclaw-agent.js`)
 was run here against a dmg built from this driver's member bundle with a **synthetic** payload
-(labelled synthetic — not a release):
+(labelled synthetic — not a release). The pass/prefix/dirty/removed rows were measured at the
+revision then current; the layout-aware revision was re-measured on a real pulled `.app` and reports
+its input and the layouts it probed (>`input: app bundle`, then the failure below).
 
 | case | result |
 |---|---|
 | matching pin | `BUILD.json OK …` then `PASS`, rc=0 |
 | wrong pin | `FAIL: vizmasterCommit 772f4bb is not a prefix of the pinned deadbeef…`, rc=1 |
 | `dirty: true` | `FAIL: artifact carries a dirty build`, rc=1 |
-| payload `BUILD.json` removed | `FAIL: missing vizmaster/BUILD.json in the .app`, rc=1 |
+| payload `BUILD.json` removed | `FAIL: no payload BUILD.json in the .app (looked for vizmaster/ and product/payload/)`, rc=1 (current, layout-aware revision; an earlier revision said `missing vizmaster/BUILD.json in the .app`) |
 | `vclawVersion: null` | `FAIL: BUILD.json has empty/non-string values: vclawVersion`, rc=1 |
 | `vclawDirty: "false"` (string, not boolean) | `FAIL: BUILD.json dirty/vclawDirty must be booleans`, rc=1 |
 
@@ -421,9 +437,12 @@ rc=1 — keeping the prefix rule for short pins (verified in the member tree at 
 `assert-member-dmg.sh:91-93`, `build-info.mjs:118-119`). A pin can therefore name the exact commit;
 the short keys remain for display and for the in-tree `:326` prefix check.
 
-**Member-repo source of truth.** Measured 2026-11-05: the Forgejo mirror `chatek/vizmaster` is at
-`a77a74ef` (2026-10-26) while GitHub and the local working tree are at `800a9e5` (2026-11-05) —
-ten days stale. A payload cut from the mirror would carry a stamp naming code that is not there,
+**Member-repo source of truth.** Reproducible with one command per side — `git ls-remote
+<remote> refs/heads/main` against the member clone's remotes (`origin` = GitHub
+`chatek/vizmaster`, `forgejo` = `…/forgejo/chatek/vizmaster`). Measured 2026-11-05: the Forgejo
+mirror answers `a77a74ef` (its 2026-10-26 tip, unchanged) while GitHub's main keeps advancing
+(`813c2c7` at the time of writing, `31dd4a5` minutes earlier) — so the mirror is not merely behind,
+it is frozen, and the gap grows. A payload cut from the mirror would carry a stamp naming code that is not there,
 so mirror reads are NOT-EVIDENCE for a pin until the sync is fixed.
 
 The workflow now emits that provenance itself: between `Install member dependencies` and
@@ -482,3 +501,33 @@ by hand and are worth re-checking if the native dependency set changes.
 * The `--packaged-smoke` runtime proof — RELEASE_BUILD_HOST.md; it works over ssh and should be
   run on the `.app` this driver produces.
 * Forgejo clone/fetch from the host — impossible on this host today (netmap, see above).
+
+## Publishing to Forgejo (`scripts/release/release-forgejo.sh`)
+
+The host cannot reach the Forgejo box, so the workstation publishes. One command takes "code at a
+commit" to "assets on a `chatek/vclaw-app` release":
+
+```bash
+bash scripts/release/release-forgejo.sh --arm64 --dry-run       # rehearse: build, print payloads
+bash scripts/release/release-forgejo.sh --arm64                 # arm64 draft release
+bash scripts/release/release-forgejo.sh --arm64 --x64 --publish # both arches, published
+bash scripts/release/release-forgejo.sh --tag v1.1.17+346127d   # explicit tag
+```
+
+Order: preflight (clean tracked tree, HEAD == `origin/<branch>` tip, `--check`, token, Releases
+unit) → `build-remote.sh` → provenance re-read from `release-remote/<arch>/BUILD.json` → annotated
+tag `v<version>+<short sha>` pushed to `origin` **and** `github` (this submodule has no fan-out) →
+`POST /api/v1/repos/chatek/vclaw-app/releases` → upload the zip, `BUILD-<arch>.json`, merged
+`SHA256SUMS.txt`, `tuple.json` → re-fetch and compare served sizes and `SHA256SUMS.txt`. Unsigned
+is always stated: `-unsigned` in the zip asset name, `unsigned=yes` in the body. The token comes
+from `FORGEJO_TOKEN` or `<superproject>/.prime/forgejo-token`; it is handed to curl in a 0600 config
+so it never appears on a command line or in any output.
+
+| failure | what it means |
+|---|---|
+| `has uncommitted changes to tracked files` | commit or undo — the host builds a commit, not your working tree |
+| `is not the tip of origin/<branch>` | push the branch, or check out the tip you mean to release |
+| `--check failed on: <label>` | a host fault a build cannot repair (node, disk, mirror, profile); `checkout` / `omp …` / `SHA256SUMS.txt` failures are synced by the build |
+| `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-app` with `{"has_releases":true}`, once, as an admin |
+| `already exists at …` / `a release for … already exists` | tags and releases are never rewritten — pick another `--tag` |
+| `served size … != local` | the upload truncated; the release is not trustworthy |

@@ -67,10 +67,15 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    `docs/RELEASE_BUILD_HOST.md`, trap 1). Never integrate into the canonical checkout; keep it
    clean — a dirty tracked tree must fail the build, not be stamped silently.
 3. **Payload.** Bundle your member app (your `dist/`, your payload `package.json`) in your repo.
-4. **Integrate** (in the snapshot, idempotently): copy payload → `product/payload/`; write your
-   product profile → `product/<member>.json` (id, identity, harnesses, defaultProject); copy overlay
-   modules into `electron/main/`; apply the remaining anchored insertion from the contract
-   (`index-store-import`); then run your integrator's `--check` — must be `ok: true`.
+4. **Integrate** (in the snapshot, idempotently): copy the bundled payload to `product/payload/`
+   and write your product profile → `product/<member>.json` (id, identity, harnesses,
+   `defaultProject.from: 'product/payload'`). The static `{from: 'product/payload'}` extraResources
+   entry ships it as `Resources/product/payload`; the legacy `vendor/<member>` +
+   `{from: 'vendor/vizmaster', to: 'vizmaster'}` route is retired, and `package.mjs` refuses a
+   profile whose `defaultProject.from` is anything else. `defaultProject.version` is rendered from
+   the emitted tuple at package time, so a placeholder is correct. Copy overlay modules into
+   `electron/main/`; apply the remaining anchored insertion (`index-store-import`); then run your
+   integrator's `--check` — must be `ok: true`.
    **Contract v2 retired the three behavioural edits** (harness rewrite, project-list wrapper,
    `ensureDefaultProject` call): the profile expresses those as data. See `FORK.md`.
 5. **Typecheck** the integrated snapshot: `npm ci && npm run typecheck` (toolchain pins:
@@ -79,20 +84,31 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    `package.mjs`; a member build must still never inherit the generic publish target — the
    auto-updater would offer someone else's builds.
 7. **Package.** Run this **on the remote build host** (`docs/BUILD_REMOTE.md`; a local artefact is
-   not evidence, `docs/BUILD.md`):
+   not evidence, `docs/BUILD.md`), with the repo-pinned npm 12 on `PATH` for this step
+   (`npm run toolchain:bootstrap`; node 24.15.0 ships npm 11 and `package.mjs` refuses it):
    `node scripts/release/package.mjs --qa --platform mac --arch <arch> --profile product/<member>.json`
    (the script derives the artifact name from the profile id and refuses a name/profile mismatch)
-   (Windows: Windows-only runner; Linux targets per `FORK.md`). Verify the artifact
-   (layout, identity, your release stamp `<memberVersion>+<date>.<shortSha>`), write
-   `SHA256SUMS`, publish to **your** updater channel.
-8. **Update the pin** whenever you want newer `main`; re-run the seam verifier as part of
-   your CI so a contract change is caught before a release, not during one.
+   (Windows: Windows-only runner; Linux targets per `FORK.md`; neither is published by the release
+   flow). Verify the artifact (layout, identity, your release stamp
+   `<memberVersion>+<date>.<shortSha>`), write `SHA256SUMS`, publish to **your** updater channel.
+   The build that vclaw-desktop itself hands over is published as a **Forgejo release on
+   `chatek/vclaw-app`** with its `BUILD.json` (`docs/RELEASE_FLOW.md` §3). That handoff is
+   **blocked today** on two counts: the consumer's intake compares a `handoff.json` to
+   `BUILD.json`, mount-asserts, checks identity, and refuses unsigned input, while no machine in
+   this estate holds a codesigning identity and the manual flow has no `handoff.json` producer
+   (`publish-member-staging.mjs` is called by the GitHub-hosted member job, which the release flow
+   does not run).
+8. **Update the pin** whenever you want newer `main`; re-run the seam verifier in whatever gate
+   you own (there is no CI in this repo that runs it for you) so a contract change is caught
+   before a release, not during one.
 
 Estate rules that bind every member build: macOS app builds of record run **only on the
 remote build host** (`_MAC_HOST_`, `docs/BUILD_REMOTE.md`) — local unsigned `--dir` builds are
 smoke/QA only and print `ARTEFACT(not-evidence)` (`docs/BUILD_LOCAL.md`); the two-flow entry
-point is `docs/BUILD.md`. Signed/notarized artifacts need the CI secrets (Apple Developer ID —
-open item in `FORK.md`).
+point is `docs/BUILD.md`. **Nobody signs today**: 0 codesigning identities exist on the host and
+on the workstation, there are no CI secrets to hold one, and Forgejo Actions cannot build this
+repo. Signed/notarized member artefacts therefore remain an open blocker (`FORK.md` §Open items),
+and a member artefact is `unsigned` with its release defaulting to draft.
 
 ## If a seam breaks
 

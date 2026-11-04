@@ -10,7 +10,7 @@ This threshold does not apply to tests, generated files, vendored code, lockfile
 
 ## Desktop builds
 
-macOS app builds have two flows; start at [`docs/BUILD.md`](docs/BUILD.md).
+macOS builds and installer packaging have one entry point; start at [`docs/BUILD.md`](docs/BUILD.md).
 
 - **Remote is primary.** `scripts/release/build-remote.sh` builds on
   `BUILD_USER_REDACTED` (procedure: `docs/BUILD_REMOTE.md`).
@@ -19,8 +19,16 @@ macOS app builds have two flows; start at [`docs/BUILD.md`](docs/BUILD.md).
   (procedure: `docs/BUILD_LOCAL.md`).
 - **Only the remote host's artefact is evidence.** A local build prints
   `ARTEFACT(not-evidence)`; never attach one to a release or treat it as equivalent.
-- The dmg/zip, signing, and notarisation path (`package.mjs`) is documented in
-  `docs/RELEASE_BUILD_HOST.md` and runs on that same host.
+- The dmg/zip path (`package.mjs`) is documented in `docs/RELEASE_BUILD_HOST.md` and runs on
+  that same host; it needs the repo-pinned npm 12 there, and only `--qa` (unsigned) is possible.
+- **Publishing is a workstation job, not CI.** `scripts/release/release-forgejo.sh` builds on the
+  host, tags, publishes a Forgejo release on `chatek/vclaw-app` (draft unless `--publish`) and
+  re-fetches to verify — `docs/RELEASE_FLOW.md` §3.
+- **No CI build path exists.** Forgejo Actions cannot build this repo (no darwin runner; the
+  instance cannot fetch actions from github.com). Do not document or plan one.
+- **Nobody signs today** (0 codesigning identities on the host and the workstation). Releases
+  are marked `unsigned` and default to draft.
+- `main` is the only long-lived branch; `origin/vizmaster` is legacy and retiring.
 
 Do not add another release-packaging procedure to a document: link to `docs/BUILD.md` instead.
 

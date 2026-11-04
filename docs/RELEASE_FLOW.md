@@ -1,182 +1,130 @@
-# Release flow — branches, builds, and what "released" means
+# Release flow — branch, build, publish
 
-**Status:** measured 2026-11-01 from this tree. Every commit id, digest and state below was verified on disk, not
-copied from a plan. If a number here disagrees with a newer build, the newer measurement wins — update this file in
-the same change that moves it.
+**Status:** the model below is the current one (2026-11-05). Where a number here disagrees
+with a newer measurement, the newer measurement wins — update this file in the same change
+that moves it.
 
-**Companion:** `docs/RELEASE_HOSTING.md` — where builds and the updater feed live (R2 vs GitHub Releases, feed
-URLs, the migration note for already-shipped installs). This file and that one describe two halves of the same
-pipeline; neither is complete without the other.
+**Companions:** [BUILD.md](BUILD.md) (the only place "where and how do I build" is answered),
+[RELEASE_HOSTING.md](RELEASE_HOSTING.md) (the updater feed), [MEMBER_BUILD.md](MEMBER_BUILD.md)
+(member verticals), [BUILD_REMOTE.md](BUILD_REMOTE.md) (host facts and per-build provenance).
 
 ---
 
-## 1 · Branches
+## 1 · Branch doctrine
 
-```
- feat/product-profiles ──┐  (this branch)                    main
-                         │                                    │
-   cb32af7  profile replaces 3 anchored code patches          │
-   daec25a  a product PRESENTS one project                    │
-   f714f43  mkdir -p + lazy import (member-safe)              │
-                         │                                    │
-                         └────────── base ── 7af39cb ◄────────┘
-                                              (== origin/main at the time of writing)
+**`main` is the single long-lived branch.** The generic product is whatever `main` packages.
+A member vertical is not a branch of this repo: the member rides `main` at a **pinned commit**
+and expresses its branding as a product profile (`product/<member>.json`, `FORK.md`), not as
+anchored code edits.
 
- builder/vclaw-sdk-9c5fab7b → 35f9530   (older commit, already an ancestor of main)
- vclaw/agent-sdk-gates      → 6052b84   (older commit, already an ancestor of main)
-```
-
-Rules that are not obvious:
-
-- **A product is data, not a patch.** `scripts/release/member-seams.mjs` used to perform three anchored text edits
-  for the VizMaster build. Those edits are exactly the two behaviours the operator reported as defects (three
-  harnesses offered; no VizMaster default). The profile replaces them; the seam contract in `FORK.md` is what
-  members are held to.
-- **Seeding is not presenting.** Writing `~/VizMaster` on first launch while the list still shows every project is
-  the reported defect. `"projects": "single"` filters at the listing boundary in `ProjectService`: one project
-  presented, the others preserved for when the profile switches back.
-- **Generic must stay generic.** A tree with no profile file packages as the generic product, with a warning. The
-  profile module is imported lazily for exactly this reason: a static import made every member pin predating
-  profiles fail with `ERR_MODULE_NOT_FOUND`.
+`origin/vizmaster` is **legacy and retiring**. Do not cut a release from it and do not treat it
+as a build target; `main` is the only branch the release flow reads. Historical branches
+(`feat/product-profiles`, `builder/*`, `vclaw/*`) are ancestors of `main` and carry nothing the
+release flow needs.
 
 ## 2 · Build
 
-**Canonical procedure:** [BUILD.md](BUILD.md) → [BUILD_REMOTE.md](BUILD_REMOTE.md) (remote,
-primary) with [BUILD_LOCAL.md](BUILD_LOCAL.md) as the explicitly opt-in fallback whose artefacts
-are **not evidence**. The diagram below is orientation, not a command list.
+Builds come **only** from the remote host, and the procedure lives in exactly one place:
+[BUILD.md](BUILD.md) → [BUILD_REMOTE.md](BUILD_REMOTE.md). A local build is an explicitly
+opt-in fallback whose output prints `ARTEFACT(not-evidence)` ([BUILD_LOCAL.md](BUILD_LOCAL.md));
+it never becomes a release asset.
 
 ```
- pick source commit (main, or a profile branch)
+ pick the commit on main (clean worktree)
       │
-      │ rsync with ANCHORED excludes: /.git /node_modules /out /release /test-results
-      ▼                       (an unanchored `release` eats scripts/release/ and every build fails)
- ~/vclaw-desktop-build/          host: _MAC_HOST_ (headless, 0 code-signing identities)
-      ├─ bootstrap-npm → npm 12.0.2
-      ├─ npm ci → allowScripts installs the 9 native modules
-      │            (esbuild, pty.node, koffi, zeromq, fsevents …)
-      │            ⚠ exit 0 without them means "installed", not installed
       ▼
- electron-builder --mac --arm64
-    --config.electronDist=node_modules/electron/dist   ← the host's github.com is a fake-ip
-    identity=null  notarize=false                       ← --qa: UNSIGNED, Gatekeeper needs an override
-      ├──► .app   (+ Resources/extensions/vclaw-agent.js = the pinned CLI extension)
-      ├──► .dmg
-      └──► .zip  (ditto when electron-builder's downloader dies late)
+ scripts/release/build-remote.sh --arm64 --x64        host: _MAC_HOST_, 0 signing identities
+      ├─ git bundle over tailscale ssh                (the host cannot clone from Forgejo)
+      ├─ npm ci + npm run build:bundle                (npm ci alone leaves out/ absent)
+      ├─ electron-builder --mac --<arch> --dir        ELECTRON_MIRROR required: no github.com
+      └─ pull back → release-remote/<arch>/{VClaw-<arch>-app.zip, BUILD.json, verify.txt, build.log}
       ▼
- verify-package --mode qa --arch arm64
-    integrity · contained app · native unpack allowlist · arch · Electron fuses · size budgets
-    + artifact name ↔ packaged profile id   (mismatch FAILS instead of shipping quietly)
-      ▼
- packaged smoke:  App --packaged-smoke=/tmp/m.json   → rc=0 + marker
-    └─ headless host: the only runtime proof available; there is no screenshot
-      ▼
- copy → build/  →  sha256 on BOTH sides (source → destination)
+ the union of BUILD.json + zip digests is the artefact's identity
 ```
 
-## 2b · The shared build host (measured 2026-11-01)
+One writer per `release-remote/<arch>/` at a time, and one writer per host output directory:
+two builds in the same `~/build/vclaw/vclaw-desktop/release/` overwrite each other.
 
-Any lane that needs a macOS build uses this host; it is not owned by one lane, it is shared.
-Current host facts and the sanctioned commands live in [BUILD_REMOTE.md](BUILD_REMOTE.md); the
-table below is the 2026-11-01 measurement and will drift (disk, and the node the driver uses).
+## 3 · Publish
 
-| fact | value |
-|---|---|
-| ssh | `ssh _MAC_HOST_` → `BUILD_HOST_REDACTED`, user **`chance`**, tailnet IP `100.117.40.22` |
-| access | Tailscale; the alias is already in this workstation's `~/.ssh/config` with key auth. A lane on the same workstation has it; anyone else needs their key authorised on the host first |
-| hardware | Apple M4, **16 GiB**, macOS **26.3.1**, arm64 |
-| disk | **194 Gi free** — fine for one tree (≈2–4 GiB with `node_modules`), not for many |
-| node / npm | **v25.8.0 / 12.0.2** (npm is installed by `toolchain:bootstrap`; npm 12 warns about node 25 — known) |
-| Xcode | Command Line Tools only — enough for native modules |
-| signing | **0 valid identities** → only `--qa` builds are possible |
+**The publisher is the workstation, not CI.** Driver: `scripts/release/release-forgejo.sh` —
+it builds through `build-remote.sh`, so it is still the host that compiles.
 
-**One writer per output directory.** Each lane uses its own checkout, e.g. `~/vclaw-desktop-build` (this lane) and
-`~/vclaw-vizmaster-build` (publisher). Two builds in one directory overwrite each other's `release/` and `node_modules`.
-
-Traps that cost real time here (all measured):
-
-1. **Anchored rsync excludes.** `--exclude='release'` also drops `scripts/release/`; use `--exclude='/release'`.
-2. **npm 12 blocks dependency install scripts.** `npm ci` exits **0** while skipping `node-pty`, `esbuild`, `zeromq`,
-   `koffi`, `protobufjs`, … — check that `node_modules/node-pty/build/Release/pty.node` exists, not the exit code.
-3. **`github.com` resolves to a fake-ip (`198.18.0.49`)** and electron-builder's downloader dies **late**, after the
-   `.app` is packaged. Pass `--config.electronDist=$PWD/node_modules/electron/dist`, and produce the `.zip` with
-   `ditto` if the downloader died.
-4. Verify with `verify-package --mode qa --arch arm64` and the packaged smoke (`--packaged-smoke` → rc=0 + marker);
-   compare digests **source → destination** before delivery.
-
-## 3 · Release
-
-```
- A. CODE — submodule first, parent second, never the reverse
-    vclaw-desktop <branch>  ──push──►  origin/<branch>
-           │
-           └─ parent repo: git add vclaw-desktop   (the gitlink moves to that commit)
-                 └─ commit ──push──► parent main ──webhook──► vchat3 deploy hook
-                        git pull --ff-only → node-deploy.sh
-                        GATE1 masked drift → GATE2 hashes → GATE1b content →
-                        GATE3 managed → stage → verify → atomic swap → read-back
-                        (a refusal is the system working; fix the repo, never the host)
-
- B. BINARIES — a push NEVER installs one
-    clean worktree @ the declared commit ──► release-built.sh <RELEASE.json>
-           │                                   GOOS=linux GOARCH=amd64, vcs.modified=false
-           ▼
-     apply.sh --check ──► --stage ──► --apply
-           ├─ backup <binary>.bak-<STAMP>
-           ├─ 5 legs: pid + exe sha · on-disk sha · /health · NATS socket · config sha
-           └─ any leg fails → restore + re-verify
+```bash
+bash scripts/release/release-forgejo.sh --arm64 --x64 --dry-run   # steps 1-5, prints the exact calls
+bash scripts/release/release-forgejo.sh --arm64 --x64             # draft release, both arches
+bash scripts/release/release-forgejo.sh --arm64 --tag v1.1.17 --publish
 ```
 
-## 4 · Identity — the filename lies, the digest does not
+What it does, aborting loudly at each step:
 
-```
- VClaw-1.1.17-arm64.dmg          ← constant string, five builds have carried it in one day
-   ├─ 0e78d6f3…  pre-allowScripts        superseded
-   ├─ 9b149fc4…  generic v1              superseded (bytes exist nowhere)
-   └─ 911519fa…  generic, rebuilt        current
- VClaw-1.1.17-vizmaster-arm64.dmg
-   ├─ 59c8fe37…  v1: seeded, showed all projects   superseded
-   └─ 49cec1b0…  v2: presents ONE project           current
-```
+1. **preflight** — clean tracked tree, `HEAD` equal to the `origin` tip of the branch,
+   `build-remote.sh --check` for the requested arches, a readable token
+   (`FORGEJO_TOKEN`, else `FORGEJO_TOKEN_FILE`, default `<repo>/../.prime/forgejo-token`), and
+   a repository whose Releases unit is enabled.
+2. **build** — `build-remote.sh` per arch ([BUILD_REMOTE.md](BUILD_REMOTE.md)).
+3. **provenance** — commit, bytes, zip sha256 and OMP digest are re-read from
+   `release-remote/<arch>/BUILD.json`, never re-derived; every arch must agree on the commit
+   (and on the OMP release when the checkout bundles one).
+4. **signing probe** — identity count and the packaged app's authority are read on the host, so
+   the label cannot be assumed; today it is always `unsigned`.
+5. **stage** — the app zip (published name carries `-unsigned` while unsigned),
+   `BUILD-<arch>.json`, a merged `SHA256SUMS.txt`, and `tuple.json`.
+6. **tag** — annotated, at `HEAD`, default `v<package.json version>+<short sha>`; refused if the
+   tag already exists at a different commit, pushed to `origin` **and** `github` explicitly
+   (this submodule has no fan-out), never forced.
+7. **release** — `POST /api/v1/repos/chatek/vclaw-app/releases`; **draft unless `--publish`**,
+   and the body states `unsigned=yes` and why.
+8. **upload** — each staged asset, checked against the server's reported size.
+9. **verify by re-fetch** — served size equals local size for every asset, and `SHA256SUMS.txt`
+   is re-downloaded and compared byte for byte.
+
+Then hand the release URL to the VizMaster lane. Their intake compares a `handoff.json` against
+the payload `BUILD.json`, mount-asserts, checks identity, and **refuses unsigned input** — see
+§5 and §6. The manual flow has no `handoff.json` producer yet (`publish-member-staging.mjs` is
+called by the GitHub-hosted member job), so a handoff without one gives their intake nothing to
+compare.
+
+`chatek/vclaw-app` is also this checkout's `origin` remote (`BUILD.json` → `source.remote`
+records the URL it fetched, not a claim of canon). GitHub `chatek/vclaw-desktop` receives the
+tag, not the release assets.
+
+## 4 · What "released" means — evidence vs not-evidence
 
 A release is a **triple**, and all three must be reported together:
 
-| part | current value |
+| part | source |
 |---|---|
-| source commit | `f714f43` (product) / `7af39cb` (generic) |
-| pinned CLI | tarball `9c5fab7b…` (927,341 B) · extension `cc3869b9…` (1,004,559 B) |
-| output | dmg + zip sha256 and sizes |
+| source commit | the full 40-hex commit in `release-remote/<arch>/BUILD.json` |
+| output | the uploaded zip's sha256 and byte count, from that same `BUILD.json` |
+| pinned OMP (**only** when the checkout bundles `harness/bin`) | release `v18.16.0`, the `omp-darwin-<arch>` digest in `BUILD.json`; otherwise `BUILD.json` carries `"omp": null` |
 
-## 4b · Who builds and who publishes (corrected 2026-11-01)
+- What counts as evidence — and why a local build, a file name, or a hash from another run does
+  not — is answered once, in [BUILD.md](BUILD.md) §Artefact-of-record rule. Do not restate it
+  per file.
+- The triple above comes from the **uploading run**: **zips are not bit-reproducible**, so a
+  sha256 from an earlier build of the same commit is not this artefact's identity.
+- A clean worktree is not a runnable artefact: mode bits and signing are not in git.
 
-```
- shared upstream repo                vizmaster-lead                         end users
- vclaw-desktop (GitHub + Forgejo)  ──► builds the VizMaster top build ──► assets.vizmaster.app/releases/<version>/
-   branch feat/product-profiles          from that upstream                   (their own R2 bucket)
-   = generic upstream                     publishes + owns the bucket         linked from https://vizmaster.app/
-         │
-         └──► vclaw-desktop/build/   = the desktop lane's REFERENCE artefacts (the bytes this lane verified)
-```
+## 5 · Blocked today
 
-- **`vclaw-desktop` (GitHub + Forgejo) is the upstream generic product.** The product is delivered by a **build-time
-  profile**, not by a patched fork: `feat/product-profiles` carries the profile mechanism, and a VizMaster build passes
-  `"id": "vizmaster"` with `"harnesses": ["omp"]` and `"projects": "single"`.
-- **`vizmaster-lead` builds their own VizMaster top build off that upstream repo** and hosts it in **their own R2
-  bucket**. They own design of the release page at `https://vizmaster.app/`, the upload, and the version they publish.
-- **`vclaw-desktop/build/` holds this lane's verified reference pair.** It is what the desktop lane built and verified
-  (commit · pinned CLI · digests); it is a comparison point and a fallback, **not a gate on the publisher**. If their
-  build differs, the comparison is the digest and the marker, not a filename. Under the two-flow model
-  ([BUILD.md](BUILD.md)) the **artefact of record is the one built on the remote host**
-  ([BUILD_REMOTE.md](BUILD_REMOTE.md)); a local build prints `ARTEFACT(not-evidence)` and is never a reference pair.
-- **Both sides publish a digest.** The filename is stable across builds while the bytes are not — four pairs already
-  shared a `VClaw-1.1.17-*` name in one day.
-- **Unsigned today:** the build host has 0 signing identities, so any build from it (this lane or the publisher's) is a
-  `--qa` artefact and needs a Gatekeeper override. Signing is a prerequisite for a frictionless public download.
+| blocked | why | consequence |
+|---|---|---|
+| Forgejo Actions as a build path | no darwin runner; the instance cannot reach github.com to fetch actions | every build is the manual remote-host flow; do not document a CI path |
+| signing / notarisation | **0 codesigning identities** on the host and on the workstation | `package.mjs --public` refuses; only `--qa` artefacts exist; releases carry `unsigned` and default to draft |
+| cloning Forgejo on the build host | host tailnet does not contain the Forgejo box; the name resolves to a fake-ip | source travels as a git bundle over `tailscale ssh` |
+| member handoff acceptance | the consumer's signature gate refuses unsigned input | a handoff cannot be accepted until §5 row 2 is resolved |
 
-## 5 · What "release ready" requires
+## 6 · Member releases
 
-1. `verify-package --mode qa` **PASSED with the current verifier**, on both archives.
-2. packaged smoke `rc=0` with the marker carrying the expected `product` block (or none, for the generic build).
-3. The extension inside the app equals the pinned bundle digest.
-4. Digest compared **source → destination** before anyone opens the file.
-5. For a public release: a signing identity. There is none on the build host today, so `--public` refuses; only
-   `--qa` artefacts exist.
+A member build is a profile build — `VCLAW_PROFILE=product/<member>.json` for the `.app` flow,
+`package.mjs --member <id> --profile product/<member>.json` for the dmg/zip flow. The member
+rides `main` at a pinned sha, and the payload `BUILD.json` it hands over is produced by the
+member repo, not by this one. Procedure and contract: [MEMBER_BUILD.md](MEMBER_BUILD.md),
+`FORK.md` §"Member integration seam contract (v2)".
+
+**Not covered by the release driver:** `release-forgejo.sh` stages the `.app` zip only, with no
+`.dmg` and no `handoff.json`. A member handoff that mount-asserts a dmg needs the dmg/zip flow
+([RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md)) and a manifest producer
+([RELEASE_HOSTING.md](RELEASE_HOSTING.md) §"Member handoff staging") — that path is not wired
+to the manual publisher yet.

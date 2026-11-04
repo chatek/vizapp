@@ -20,6 +20,7 @@
 #   REMOTE_ROOT       build root, relative to the remote $HOME (default build/vclaw)
 #   LOCAL_OUT         local collect directory (default <repo>/release-remote)
 #   ELECTRON_MIRROR   mirror electron-builder downloads from
+#   ELECTRON_MIRROR_TIMEOUT  seconds for the mirror probe (default 15)
 #   VCLAW_PROFILE      product profile staged as resources/product.json
 #                      (default product/profile.json — the generic vclaw identity;
 #                       product/vizmaster.json for a member build)

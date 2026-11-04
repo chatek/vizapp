@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Member integration seam contract, v1.
+ * Member integration seam contract, v1 (kept for old pins) and v2 (the default).
  *
  * The fork serves member apps (first: VizMaster) that build a branded vertical
  * from a PINNED main commit: they snapshot this tree, copy in their payload,
@@ -13,7 +13,7 @@
  *
  * Zero dependencies: importable (verifyMemberSeams) and CLI-runnable.
  *
- *   node scripts/release/verify-member-seams.mjs [--root <vclaw checkout>]
+ *   node scripts/release/member-seams.mjs [--root <vclaw checkout>] [--contract <1|2>]
  *
  * Change rules:
  *   - An anchor may be renamed only by bumping the contract version and
