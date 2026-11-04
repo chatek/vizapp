@@ -1,9 +1,9 @@
-import { memo, useEffect, useState } from 'react'
+import { memo } from 'react'
 import { Inbox, RefreshCw } from 'lucide-react'
-import type { VclawInboxSnapshot } from '@/types/api'
 import { describeInboxState, INBOX_STATE_LABEL } from '@/lib/inbox-state'
 import { retentionRows } from '@/lib/inbox-retention'
-import { errorMessage } from '@/lib/errors'
+import { INBOX_FIXTURE_OPTIONS } from '@/lib/inbox-fixtures'
+import { useInboxSnapshot } from '@/hooks/useInboxSnapshot'
 import { EmptyState, IconButton } from '../ui'
 
 /**
@@ -13,25 +13,14 @@ import { EmptyState, IconButton } from '../ui'
  * because the fabric grants agents no durable consumer — with the session closed the
  * spool is what was captured, not what was sent. `from`/`fromName` are asserted by the
  * sender and are labelled as a claim, never shown as verified identity.
+ *
+ * In dev builds a fixture bar sits above the header (see `useInboxSnapshot`): it swaps
+ * the data source between the real spool and `INBOX_FIXTURES`, so every world state —
+ * including ones the live pane cannot yet produce, like a divergence note — can be
+ * designed against with hot reload and no backend. It compiles away in production.
  */
 export const InboxPanel = memo(function InboxPanel() {
-  const [snapshot, setSnapshot] = useState<VclawInboxSnapshot | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let live = true
-    window.prime.inbox.read()
-      .then((value) => { if (live) setSnapshot(value) })
-      .catch((reason: unknown) => { if (live) setError(errorMessage(reason)) })
-    const unsubscribe = window.prime.inbox.onChanged((value) => { if (live) { setSnapshot(value); setError('') } })
-    return () => { live = false; unsubscribe() }
-  }, [])
-
-  const refresh = (): void => {
-    window.prime.inbox.read()
-      .then((value) => { setSnapshot(value); setError('') })
-      .catch((reason: unknown) => setError(errorMessage(reason)))
-  }
+  const { snapshot, error, fixture, choose, refresh } = useInboxSnapshot()
 
   if (error) return <EmptyState icon={<Inbox size={22} />} title="Inbox unavailable">{error}</EmptyState>
   if (!snapshot) return <div className="inbox-panel"><p className="inbox-empty">Reading the spool…</p></div>
@@ -45,6 +34,15 @@ export const InboxPanel = memo(function InboxPanel() {
   const { rows, lossLine } = retentionRows({ local: snapshot.messages, expiredThrough: snapshot.expiredThrough })
   return (
     <div className="inbox-panel" data-state={snapshot.state}>
+      {import.meta.env.DEV ? (
+        <div className="inbox-fixture-bar" role="group" aria-label="Prototype fixtures (dev only)">
+          <span className="inbox-fixture-bar__label">fixture</span>
+          <button type="button" className={fixture === null ? 'is-active' : ''} aria-pressed={fixture === null} onClick={() => choose(null)}>spool</button>
+          {INBOX_FIXTURE_OPTIONS.map((option) => (
+            <button type="button" key={option.value} className={fixture === option.value ? 'is-active' : ''} aria-pressed={fixture === option.value} onClick={() => choose(option.value)}>{option.label}</button>
+          ))}
+        </div>
+      ) : null}
       <header className="inbox-header">
         <div>
           <span className={`inbox-badge inbox-badge--${snapshot.state}`}>{INBOX_STATE_LABEL[snapshot.state]}</span>

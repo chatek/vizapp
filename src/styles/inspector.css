@@ -209,3 +209,9 @@
 .inbox-warning { margin: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--warning); color: var(--warning); font-size: 12px; }
 .inbox-loss { margin: 0; padding: 6px 8px; border-radius: 6px; border: 1px dashed var(--border); color: var(--muted); font-size: 12px; }
 .inbox-row__note { margin: 4px 0 0; font-size: 11px; color: var(--warning); }
+
+/* ── inbox prototype fixture bar (dev only; the JSX compiles away in production) ── */
+.inbox-fixture-bar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px 6px; border: 1px dashed var(--border); border-radius: 6px; }
+.inbox-fixture-bar__label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.inbox-fixture-bar button { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+.inbox-fixture-bar button.is-active { border-color: var(--accent); color: var(--accent); }
