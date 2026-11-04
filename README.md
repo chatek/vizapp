@@ -178,15 +178,11 @@ npm run build
 
 See the [validation guide](docs/validation.md) for the source-of-truth checks and reproducible commands.
 
-To make an installable local QA build, run the command for your operating system:
+To build a package, start at [docs/BUILD.md](docs/BUILD.md). macOS app builds run on the
+remote build host, and a local build is a documented fallback whose output is **not evidence**.
 
-```bash
-npm run package:mac:local-qa
-npm run package:linux:local-qa
-npm run package:win:local-qa
-```
-
-Build packages on their target operating system so native dependencies match the release.
+The `npm run package:<platform>:local-qa` commands remain the unsigned local-QA path for
+smoke-testing an installer on its native platform; they are not release artefacts.
 
 ## License
 

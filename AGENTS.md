@@ -8,6 +8,22 @@ When changing an existing production file above the threshold, avoid increasing 
 
 This threshold does not apply to tests, generated files, vendored code, lockfiles, fixtures, or data assets. Correctness, security boundaries, and maintainable ownership take precedence over line count.
 
+## Desktop builds
+
+macOS app builds have two flows; start at [`docs/BUILD.md`](docs/BUILD.md).
+
+- **Remote is primary.** `scripts/release/build-remote.sh` builds on
+  `BUILD_USER_REDACTED` (procedure: `docs/BUILD_REMOTE.md`).
+- **Local is a fallback only.** `scripts/release/build-local.sh` refuses unless
+  `VCLAW_ALLOW_LOCAL_BUILD=1`, and only when that host is unavailable
+  (procedure: `docs/BUILD_LOCAL.md`).
+- **Only the remote host's artefact is evidence.** A local build prints
+  `ARTEFACT(not-evidence)`; never attach one to a release or treat it as equivalent.
+- The dmg/zip, signing, and notarisation path (`package.mjs`) is documented in
+  `docs/RELEASE_BUILD_HOST.md` and runs on that same host.
+
+Do not add another release-packaging procedure to a document: link to `docs/BUILD.md` instead.
+
 ## Cloud Agent environment
 
 Cloud Agents provision this repo with [`.cursor/environment.json`](.cursor/environment.json),

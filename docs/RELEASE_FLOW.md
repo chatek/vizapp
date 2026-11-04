@@ -41,6 +41,10 @@ Rules that are not obvious:
 
 ## 2 · Build
 
+**Canonical procedure:** [BUILD.md](BUILD.md) → [BUILD_REMOTE.md](BUILD_REMOTE.md) (remote,
+primary) with [BUILD_LOCAL.md](BUILD_LOCAL.md) as the explicitly opt-in fallback whose artefacts
+are **not evidence**. The diagram below is orientation, not a command list.
+
 ```
  pick source commit (main, or a profile branch)
       │
@@ -72,6 +76,8 @@ Rules that are not obvious:
 ## 2b · The shared build host (measured 2026-11-01)
 
 Any lane that needs a macOS build uses this host; it is not owned by one lane, it is shared.
+Current host facts and the sanctioned commands live in [BUILD_REMOTE.md](BUILD_REMOTE.md); the
+table below is the 2026-11-01 measurement and will drift (disk, and the node the driver uses).
 
 | fact | value |
 |---|---|
@@ -158,7 +164,9 @@ A release is a **triple**, and all three must be reported together:
   bucket**. They own design of the release page at `https://vizmaster.app/`, the upload, and the version they publish.
 - **`vclaw-desktop/build/` holds this lane's verified reference pair.** It is what the desktop lane built and verified
   (commit · pinned CLI · digests); it is a comparison point and a fallback, **not a gate on the publisher**. If their
-  build differs, the comparison is the digest and the marker, not a filename.
+  build differs, the comparison is the digest and the marker, not a filename. Under the two-flow model
+  ([BUILD.md](BUILD.md)) the **artefact of record is the one built on the remote host**
+  ([BUILD_REMOTE.md](BUILD_REMOTE.md)); a local build prints `ARTEFACT(not-evidence)` and is never a reference pair.
 - **Both sides publish a digest.** The filename is stable across builds while the bytes are not — four pairs already
   shared a `VClaw-1.1.17-*` name in one day.
 - **Unsigned today:** the build host has 0 signing identities, so any build from it (this lane or the publisher's) is a

@@ -17,7 +17,7 @@ each target, what has been verified, and what is still open.
 | `build.productName` | **`VClaw`** (no space — this keeps the upstream `${productName}` filename template safe) |
 | `package.json` `name` | **`vclaw`** — the Electron **state directory follows this**, so data lives in `~/Library/Application Support/vclaw` (macOS) |
 | `build.appId` | `com.vclaw.desktop` |
-| `build.publish` | `{ provider: github, owner: chatek, repo: vclaw-desktop }` — **repointed off upstream**, or the updater would offer upstream builds |
+| `build.publish` | generic provider `https://assets.vclawhub.com/vclaw-desktop/` — **repointed off upstream**, or the updater would offer upstream builds (see `docs/RELEASE_HOSTING.md`) |
 | `build.*.artifactName` | `${productName}-${version}-…` — deliberately the **upstream shape** |
 | `desktopName` / MSIX identity | `vclaw.desktop` / `VClaw` (space-free) |
 | **kept on purpose** | `LICENSE` (upstream MIT), `package.json` `author`/`homepage`, upstream repo URLs, and the sha512-pinned `vendor/prime-agent-*-gooeypi.1.tgz` artefact names |
@@ -27,6 +27,11 @@ The internal namespace is fully renamed (`VCLAW_*` env family, `vclaw_session_*`
 manifest key is read as `vclaw` with a fallback to the legacy `gooeypi`, so packages in the wild keep working.
 
 ## Building
+
+**macOS is the flow in scope of [`docs/BUILD.md`](docs/BUILD.md)** (remote primary, local
+fallback). The Linux and Windows recipes below run on their native hosts and are not
+alternatives to the remote macOS flow; CI packages them through `package.mjs`
+(`.github/workflows/release.yml`).
 
 **Toolchain is pinned**: `.nvmrc` = **node 24.15.0**, `engines.npm` = **npm 12.0.2**. Install both rather than
 trusting "new enough" — the repo's gate only enforces **minimums**, so a newer node passes while the pinned npm says
@@ -43,18 +48,21 @@ npm run build
 
 ### macOS
 
+macOS builds have two flows — **remote primary**, **local fallback** — and one entry point:
+[`docs/BUILD.md`](docs/BUILD.md). Do not run electron-builder by hand here.
+
 ```bash
-# arm64 (Apple silicon)
-node node_modules/electron-builder/cli.js --dir --mac --arm64 --publish=never \
-  --config.directories.output=release/mac/arm64 --config.mac.identity=null --config.mac.notarize=false
-# Intel
-node node_modules/electron-builder/cli.js --dir --mac --x64 --publish=never \
-  --config.directories.output=release/mac/x64 --config.mac.identity=null --config.mac.notarize=false
+bash scripts/release/build-remote.sh --arm64         # primary: builds on _MAC_HOST_, pulls the .app back
+bash scripts/release/build-remote.sh --x64           # Intel artefact from the same host
+bash scripts/release/build-local.sh --check          # fallback preflight (read-only)
 ```
 
-Both have been built and verified on a single Apple-silicon host — the Intel leg is a **cross-build**
-(electron-builder fetches the x64 Electron and rebuilds native modules for it). They are **two per-arch bundles**, which
-is what upstream ships; there is no universal target here. Running the Intel build on Apple silicon needs Rosetta 2.
+Only the remote host's `.app` is evidence. A local `--dir` build prints
+`ARTEFACT(not-evidence)` and must never be shipped; cross-arch local builds are refused because
+`node-pty`, `zeromq`, and `koffi` are host-arch. The dmg/zip + signing path is
+[`docs/RELEASE_BUILD_HOST.md`](docs/RELEASE_BUILD_HOST.md) and needs an Apple Developer ID —
+there is none on the build host today. This is **two per-arch bundles**, which is what upstream
+ships; there is no universal target here (`after-pack.cjs` refuses one).
 
 ### Linux
 
@@ -78,8 +86,9 @@ certificate for the signed leg.
 
 ### Headless limits (measured)
 
-* `npm run package:mac` cannot finish headlessly: it runs `verify-package.mjs`, which requires **exactly one `.dmg`
-  and one `.zip`**, and a DMG needs a GUI session. Use `--dir` on a headless host; the repo's own CI does the same.
+* `npm run package:mac` runs the full `release:verify` aggregate, whose `test:e2e:hermetic` half needs a display, so
+  a headless run must pass `--skip-verify` exactly as CI does. `verify-package.mjs` itself is static and does run over
+  ssh (see `docs/RELEASE_BUILD_HOST.md`); the default `--dir` flow (`docs/BUILD_REMOTE.md`) needs no display at all.
 * The Playwright e2e suite needs a display: fine on Linux under `xvfb-run`, and on a macOS CI runner — not on a
   headless macOS box.
 * Signed/notarized macOS artefacts need an **Apple Developer ID** and the CI secrets; without them the builds here are
