@@ -212,8 +212,12 @@ stamp lives inside the app at `Resources/product/payload/BUILD.json`.
 The **release** `BUILD.json` states the clean-worktree verdict **explicitly** — `"dirty": false`
 plus `"source.worktree": {"clean": true, "from": "git bundle at <40-hex>"}` — because it is written
 by a builder that ships a *commit*: the bundle is cut from the commit, the host checks that commit
-out, and no working-tree edit can reach it. Earlier provenance files omitted the key and an intake
-read the *absence* as `dirty=true`, refusing a clean build; `release-forgejo.sh` now refuses to
+out, and no working-tree edit can reach it. Earlier provenance files omitted the key and VizMaster's publisher
+read the *absence* as `dirty=true`, refusing a clean build (mechanism, measured on their side: the
+gate did `node -p "require(file).dirty"`, which prints the literal string `undefined` for a missing
+key, and the refusal hardcoded `dirty=true` regardless of the value — a permanent false positive for
+any non-member manifest). Their publisher now validates the manifest shape first and prints the
+actual value; `release-forgejo.sh` now refuses to
 stage an arch whose `BUILD.json` does not say `dirty: false`. A consumer still has to treat a
 **missing** key from an older build as "unknown", not as "dirty" — the field is explicit from this
 revision on.
@@ -711,7 +715,10 @@ provenance mode disagrees with the flag it was given.
    `path\0 bytes \0` — so the same value is recomputed *inside the packaged .app* (where it must
    equal the pre-packaging one) and again locally on the pulled `.app` zip (where it must equal
    `BUILD.json`'s `member.payload_sha256`). A payload that changes between the assert and the
-   artefact cannot pass.
+   artefact cannot pass. The handoff directory keeps the member's contract shape: `<arch>/BUILD.json`
+   is this driver's release manifest, and the payload manifest lives **inside** the `.app` at
+   `Contents/Resources/product/payload/BUILD.json` — a publisher reads it from the mounted dmg
+   (VizMaster's publisher does exactly that), so no extra file is emitted beside the artefacts.
 4. **Package with the member profile.** The driver packages `product/profile.active.json` — which
    the v2 integrator already rendered from the payload's release — rather than copying the
    checked-in profile over it (the generic path's behaviour), so the seed and the artefact share
@@ -862,3 +869,27 @@ so it never appears on a command line or in any output.
 | `served size … != local` | the upload truncated; the release is not trustworthy |
 | `POST releases -> HTTP 403 … user should have a permission to write to a repo` | an `FORGEJO_TOKEN` in the environment won the precedence and is read-only (`GET /api/v1/user` returns no login); unset it so the scoped token file is used, or point `FORGEJO_TOKEN_FILE` at the write token |
 | `no Forgejo token: …/.prime/forgejo-token is not readable` after setting `RELEASE_REPO_ROOT` | the token default follows the lane checkout the scripts live in, not the release tree — set `FORGEJO_TOKEN_FILE` explicitly if the two ever differ |
+
+## Handoff boundary (operator rule, 2026-11-05)
+
+**Our responsibility ends the moment the artifacts are on
+`https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app/releases`.** That page is the
+handoff. The downstream lane (VizMaster) takes over from there — fetching, verifying, publishing
+to its own host, and rendering its landing — and owns every step after the release exists.
+
+What this means in practice:
+
+- A build is **done** when the release carries the per-arch assets (dmg + zip +
+  `BUILD-<arch>.json`, merged `SHA256SUMS.txt`, `tuple.json`), the served bytes match what was
+  built, and the URL is recorded here or in the handoff message. Nothing downstream is a
+  precondition for calling it done.
+- **Never ask the downstream lane for anything this side must produce**, and never let a downstream
+  request pull this lane into steps outside its reach: signing identity and notary credentials are
+  estate credentials (0 identities on builder and workstation), not build-lane work; a consumer's
+  intake bugs, manifest-format expectations, pin choices and landing behaviour are theirs.
+- Requests that legitimately come back to this lane are limited to: *build at sha X*, *add arch Y*,
+  *the artifact is broken* (with the failing gate and the bytes). Everything else is answered with
+  the release URL.
+- Drafts are invisible to anonymous fetches; a *published* (or explicitly `prerelease`) release is
+  the only form a downstream consumer can read without credentials. Choose the visibility
+  deliberately and say which one it is.
