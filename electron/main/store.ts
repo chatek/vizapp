@@ -262,7 +262,14 @@ function parseSettings(value: unknown, legacyState = false): AppSettings {
     launchAtLogin: typeof value.launchAtLogin === 'boolean' ? value.launchAtLogin : defaults.launchAtLogin,
     terminalOpen: typeof value.terminalOpen === 'boolean' ? value.terminalOpen : defaults.terminalOpen,
     defaultInspectorTab: value.defaultInspectorTab === 'changes' || value.defaultInspectorTab === 'browser' || value.defaultInspectorTab === 'files' || value.defaultInspectorTab === 'summary' ? value.defaultInspectorTab : defaults.defaultInspectorTab,
-    browserHome: typeof value.browserHome === 'string' ? value.browserHome : defaults.browserHome,
+    // VIZMASTER REBRAND MIGRATION (measured 2026-11-03): both on-disk state files carry
+  // browserHome 'https://www.google.com/' — not because anyone chose it, but because the
+  // OLD default was persisted and a stored value always beats a default. A stored value
+  // that is EXACTLY the previous default therefore means "never chosen": move it to the
+  // new default. Any other value is a deliberate choice and is left alone.
+  browserHome: value.browserHome === 'https://www.google.com/' ? defaults.browserHome
+    : typeof value.browserHome === 'string' ? value.browserHome
+    : defaults.browserHome,
     browserAskForDownloads: typeof value.browserAskForDownloads === 'boolean' ? value.browserAskForDownloads : defaults.browserAskForDownloads,
     terminalShell: typeof value.terminalShell === 'string' ? value.terminalShell : defaults.terminalShell,
     reduceMotion: typeof value.reduceMotion === 'boolean' ? value.reduceMotion : defaults.reduceMotion,

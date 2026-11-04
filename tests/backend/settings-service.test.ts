@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,28 @@ function makeService(validateShell: (shell: unknown) => string = () => '/bin/zsh
   return new SettingsService(new JsonStateStore(join(dir, 'state.json')), validateShell, undefined, onDidUpdate)
 }
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+
+describe('vizmaster browserHome migration', () => {
+  // MEASURED 2026-11-03: both real state files on this machine carry the OLD default
+  // ('https://www.google.com/'). A stored value always beats a default, so changing the
+  // default alone changed nothing for any existing install. The migration moves a stored
+  // value that is EXACTLY the previous default; a deliberate choice is left alone.
+  it('rewrites a stored previous-default home to the new default on read', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prime-work-settings-mig-'))
+    dirs.push(dir)
+    const path = join(dir, 'state.json')
+    writeFileSync(path, JSON.stringify({ version: 4, settings: { browserHome: 'https://www.google.com/' } }))
+    expect(new JsonStateStore(path).getSettings().browserHome).toBe('https://vizmaster.app/')
+  })
+
+  it('leaves a deliberately chosen home exactly as stored', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prime-work-settings-keep-'))
+    dirs.push(dir)
+    const path = join(dir, 'state.json')
+    writeFileSync(path, JSON.stringify({ version: 4, settings: { browserHome: 'https://example.test/wiki' } }))
+    expect(new JsonStateStore(path).getSettings().browserHome).toBe('https://example.test/wiki')
+  })
+})
 
 describe('SettingsService.update', () => {
   it('applies every field of a full valid patch', async () => {
