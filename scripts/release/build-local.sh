@@ -4,7 +4,8 @@
 # The sanctioned builder is the remote host BUILD_HOST_REDACTED; use
 # scripts/release/build-remote.sh and docs/BUILD_REMOTE.md for every real release.
 # This script exists only for when that host is unavailable. Its output is NOT
-# evidence: it proves the tree packages and the bundled omp verifies, nothing more.
+# evidence: it proves the tree packages (and, when the checkout bundles a harness
+# binary, that the bundled omp verifies), nothing more.
 #
 #   bash scripts/release/build-local.sh --check              # read-only preflight
 #   VCLAW_ALLOW_LOCAL_BUILD=1 bash scripts/release/build-local.sh --arm64
@@ -23,6 +24,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENDOR_RELEASE="$(cd "$REPO_ROOT/.." && pwd)/vendors/oh-my-pi/releases/v18.16.0"
 NVMRC="$REPO_ROOT/.nvmrc"
+
+# Does this checkout bundle a harness (omp) binary? A tree that does declares it by
+# mapping build.mac.extraResources -> "harness/bin/omp"; after-pack.cjs is then the gate
+# that verifies it. main does not bundle one; the member/vizmaster tree does. Without it
+# the omp pin/digest checks are vacuous — demanding them would fail a healthy checkout
+# over a binary the tree never ships.
+BUNDLES_HARNESS=0
+HARNESS_EVAL='const p=require(process.argv[1]);const er=p?.build?.mac?.extraResources;process.exit(Array.isArray(er)&&er.some((e)=>typeof e?.to==="string"&&e.to.startsWith("harness/bin"))?0:1)'
+if command -v node >/dev/null 2>&1; then
+  if node -e "$HARNESS_EVAL" "$REPO_ROOT/package.json" 2>/dev/null; then BUNDLES_HARNESS=1; fi
+elif grep -q '"harness/bin' "$REPO_ROOT/package.json"; then
+  # node is reported missing by preflight; this fallback only keeps the verdict honest.
+  BUNDLES_HARNESS=1
+fi
 OUTPUT_DIR="$REPO_ROOT/release"
 MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
 MIRROR_TIMEOUT="${ELECTRON_MIRROR_TIMEOUT:-15}"
@@ -117,34 +132,38 @@ preflight() {
     verdict_fail node_modules "missing — run: npm ci"
   fi
 
-  # 3. bundled omp: present, digest equal to SHA256SUMS.txt, slice matches the arch
-  for arch in "${ARCHES[@]}"; do
-    bin="$VENDOR_RELEASE/omp-darwin-$arch"
-    expected="$(sums_entry "$arch")"
-    if [ -z "$expected" ]; then
-      verdict_fail "omp $arch digest" "no omp-darwin-$arch entry in $VENDOR_RELEASE/SHA256SUMS.txt"
-    fi
-    if [ ! -f "$bin" ]; then
-      verdict_fail "omp $arch binary" "missing $bin — a fresh clone has no release binaries (docs/BUILD_LOCAL.md)"
-      verdict_fail "omp $arch digest" "cannot hash a missing binary"
-      verdict_fail "omp $arch slice" "cannot inspect a missing binary"
-      continue
-    fi
-    verdict_ok "omp $arch binary" "$bin ($(stat -f '%z' "$bin") B)"
-    actual="$(file_sha256 "$bin")"
-    if [ -n "$expected" ] && [ "$actual" = "$expected" ]; then
-      verdict_ok "omp $arch digest" "$actual matches SHA256SUMS.txt"
-    elif [ -n "$expected" ]; then
-      verdict_fail "omp $arch digest" "expected ${expected:0:12}…, got ${actual:0:12}… — delete and re-fetch the binary"
-    fi
-    if command -v lipo >/dev/null 2>&1; then
-      slices="$(lipo -archs "$bin" 2>/dev/null || true)"
-      case " $slices " in
-        *" $(slice_for "$arch") "*) verdict_ok "omp $arch slice" "lipo: ${slices:-?}" ;;
-        *) verdict_fail "omp $arch slice" "lipo reports '${slices:-?}', need $(slice_for "$arch")" ;;
-      esac
-    fi
-  done
+  # 3. bundled omp — only when this checkout actually bundles one
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    for arch in "${ARCHES[@]}"; do
+      bin="$VENDOR_RELEASE/omp-darwin-$arch"
+      expected="$(sums_entry "$arch")"
+      if [ -z "$expected" ]; then
+        verdict_fail "omp $arch digest" "no omp-darwin-$arch entry in $VENDOR_RELEASE/SHA256SUMS.txt"
+      fi
+      if [ ! -f "$bin" ]; then
+        verdict_fail "omp $arch binary" "missing $bin — a fresh clone has no release binaries (docs/BUILD_LOCAL.md)"
+        verdict_fail "omp $arch digest" "cannot hash a missing binary"
+        verdict_fail "omp $arch slice" "cannot inspect a missing binary"
+        continue
+      fi
+      verdict_ok "omp $arch binary" "$bin ($(stat -f '%z' "$bin") B)"
+      actual="$(file_sha256 "$bin")"
+      if [ -n "$expected" ] && [ "$actual" = "$expected" ]; then
+        verdict_ok "omp $arch digest" "$actual matches SHA256SUMS.txt"
+      elif [ -n "$expected" ]; then
+        verdict_fail "omp $arch digest" "expected ${expected:0:12}…, got ${actual:0:12}… — delete and re-fetch the binary"
+      fi
+      if command -v lipo >/dev/null 2>&1; then
+        slices="$(lipo -archs "$bin" 2>/dev/null || true)"
+        case " $slices " in
+          *" $(slice_for "$arch") "*) verdict_ok "omp $arch slice" "lipo: ${slices:-?}" ;;
+          *) verdict_fail "omp $arch slice" "lipo reports '${slices:-?}', need $(slice_for "$arch")" ;;
+        esac
+      fi
+    done
+  else
+    verdict_ok "bundled omp" "n/a — this checkout does not bundle a harness binary"
+  fi
 
   # 4. mirror reachability — github.com is not routable from this workstation
   if ! command -v curl >/dev/null 2>&1; then
@@ -212,34 +231,44 @@ app_bundle() { # app_bundle <arch>
 
 verify_artefact() { # verify_artefact <arch>
   local arch="$1"
-  local app omp exe expected actual app_archs omp_archs
+  local app exe expected actual app_archs omp omp_archs
 
   app="$(app_bundle "$arch")"
-  omp="$app/Contents/Resources/harness/bin/omp"
   exe="$app/Contents/MacOS/VClaw"
 
   [ -d "$app" ] || die "expected app bundle not found: $app"
-  [ -f "$omp" ] || die "packaged omp missing: $omp — after-pack should have failed the build"
-  expected="$(sums_entry "$arch")"
-  [ -n "$expected" ] || die "no SHA256SUMS entry for omp-darwin-$arch"
-  actual="$(file_sha256 "$omp")"
-  [ "$actual" = "$expected" ] ||
-    die "packaged omp sha256 ${actual:0:12}… != ${expected:0:12}… for $arch"
+
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    omp="$app/Contents/Resources/harness/bin/omp"
+    [ -f "$omp" ] || die "packaged omp missing: $omp — after-pack should have failed the build"
+    expected="$(sums_entry "$arch")"
+    [ -n "$expected" ] || die "no SHA256SUMS entry for omp-darwin-$arch"
+    actual="$(file_sha256 "$omp")"
+    [ "$actual" = "$expected" ] ||
+      die "packaged omp sha256 ${actual:0:12}… != ${expected:0:12}… for $arch"
+  else
+    actual="absent"
+  fi
+
   app_archs="$(lipo -archs "$exe" 2>/dev/null || true)"
-  omp_archs="$(lipo -archs "$omp" 2>/dev/null || true)"
   case " $app_archs " in
     *" $(slice_for "$arch") "*) ;;
     *) die "app binary slices '${app_archs:-?}' do not include $(slice_for "$arch")" ;;
   esac
-  case " $omp_archs " in
-    *" $(slice_for "$arch") "*) ;;
-    *) die "packaged omp slices '${omp_archs:-?}' do not include $(slice_for "$arch")" ;;
-  esac
 
   printf '  app      %s\n' "$app"
-  printf '  omp      %s B, mode %s, slices %s\n' \
-    "$(stat -f '%z' "$omp")" "$(stat -f '%Lp' "$omp")" "$omp_archs"
-  printf '  verified sha256 == SHA256SUMS.txt (%s)\n' "${actual:0:12}…"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    omp_archs="$(lipo -archs "$omp" 2>/dev/null || true)"
+    case " $omp_archs " in
+      *" $(slice_for "$arch") "*) ;;
+      *) die "packaged omp slices '${omp_archs:-?}' do not include $(slice_for "$arch")" ;;
+    esac
+    printf '  omp      %s B, mode %s, slices %s\n' \
+      "$(stat -f '%z' "$omp")" "$(stat -f '%Lp' "$omp")" "$omp_archs"
+    printf '  verified sha256 == SHA256SUMS.txt (%s…)\n' "${actual:0:12}…"
+  else
+    printf '  omp      n/a — this checkout does not bundle a harness binary\n'
+  fi
   printf 'ARTEFACT(not-evidence): %s %s %s\n' "$app" "$actual" "$app_archs"
 }
 

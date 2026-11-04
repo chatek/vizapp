@@ -2,9 +2,10 @@
 
 **Where this fits:** the two-flow model and the artefact-of-record rule live in
 [BUILD.md](BUILD.md). This file is the host-side **dmg/zip** variant (signing, notarisation,
-`package.mjs`); the default `--dir` flow that bundles OMP is [BUILD_REMOTE.md](BUILD_REMOTE.md).
-Both run on this host, and **only an artefact produced here is evidence** — a local build is
-never a delivery candidate.
+`package.mjs`); the default `--dir` flow is [BUILD_REMOTE.md](BUILD_REMOTE.md) (it bundles OMP
+only on a checkout that declares `harness/bin` in `build.mac.extraResources`, and says `n/a`
+otherwise). Both run on this host, and **only an artefact produced here is evidence** — a local
+build is never a delivery candidate.
 
 The build runs **on `BUILD_USER_REDACTED`**, never on the workstation
 (repo rule, `AGENTS.md`). This file is the procedure as measured on 2026-11-01, by the

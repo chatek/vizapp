@@ -7,8 +7,9 @@
 #   bash scripts/release/build-remote.sh --arm64 --x64
 #
 # With no arch flag a build defaults to the host's arch. Nothing is packaged on the
-# workstation: this streams a git bundle of the current commit plus the OMP release
-# set to the host, builds there, and pulls the .app back (docs/BUILD_REMOTE.md).
+# workstation: this streams a git bundle of the current commit to the host (plus the OMP
+# release set when — and only when — the checkout bundles a harness binary), builds there,
+# and pulls the .app back (docs/BUILD_REMOTE.md).
 #
 # The remote host is the only sanctioned builder. If it is unreachable this script
 # FAILS — it never falls back to a local build. The local path is a separate,
@@ -37,6 +38,19 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENDOR_RELEASE="$(cd "$REPO_ROOT/.." && pwd)/vendors/oh-my-pi/releases/v18.16.0"
 NODE_VERSION="$(tr -d '[:space:]' <"$REPO_ROOT/.nvmrc")"
 LOCAL_OUT="${LOCAL_OUT:-$REPO_ROOT/release-remote}"
+
+# Does this checkout bundle a harness (omp) binary? A tree that does declares it by
+# mapping build.mac.extraResources -> "harness/bin/omp"; after-pack.cjs is then the gate
+# that verifies it. main does not bundle one; the member/vizmaster tree does. Without it
+# there is no release set to sync and no packaged binary to gate — the OMP steps below
+# are skipped and say so, instead of failing over a binary this tree never ships.
+BUNDLES_HARNESS=0
+HARNESS_EVAL='const p=require(process.argv[1]);const er=p?.build?.mac?.extraResources;process.exit(Array.isArray(er)&&er.some((e)=>typeof e?.to==="string"&&e.to.startsWith("harness/bin"))?0:1)'
+if command -v node >/dev/null 2>&1; then
+  if node -e "$HARNESS_EVAL" "$REPO_ROOT/package.json" 2>/dev/null; then BUNDLES_HARNESS=1; fi
+elif grep -q '"harness/bin' "$REPO_ROOT/package.json"; then
+  BUNDLES_HARNESS=1
+fi
 
 REMOTE_REPO="$REMOTE_ROOT/vclaw-desktop"
 REMOTE_BUNDLE="$REMOTE_ROOT/src.bundle"
@@ -201,27 +215,31 @@ preflight() {
     verdict_fail checkout "no checkout at ~/$REMOTE_REPO — the first build creates it"
   fi
 
-  # 4. OMP release set — present on the host with the digest SHA256SUMS.txt claims
-  if ssh_run "test -f \"\$HOME/$REMOTE_VENDORS/SHA256SUMS.txt\"" >/dev/null 2>&1; then
-    verdict_ok "SHA256SUMS.txt" "present at ~/$REMOTE_VENDORS/SHA256SUMS.txt"
-  else
-    verdict_fail "SHA256SUMS.txt" "missing ~/$REMOTE_VENDORS/SHA256SUMS.txt (after-pack.cjs needs it)"
-  fi
-  for arch in "${ARCHES[@]}"; do
-    expected="$(awk -v want="omp-darwin-$arch" '$2 == want { print $1; exit }' "$VENDOR_RELEASE/SHA256SUMS.txt" 2>/dev/null || true)"
-    if [ -z "$expected" ]; then
-      verdict_fail "omp $arch digest" "no omp-darwin-$arch entry in $VENDOR_RELEASE/SHA256SUMS.txt"
-      continue
-    fi
-    actual="$(ssh_run "test -f \"\$HOME/$REMOTE_VENDORS/omp-darwin-$arch\" && shasum -a 256 \"\$HOME/$REMOTE_VENDORS/omp-darwin-$arch\" | cut -d' ' -f1 || true")"
-    if [ "$actual" = "$expected" ]; then
-      verdict_ok "omp $arch" "$actual (matches SHA256SUMS.txt)"
-    elif [ -z "$actual" ]; then
-      verdict_fail "omp $arch" "missing ~/$REMOTE_VENDORS/omp-darwin-$arch — a build streams it from $VENDOR_RELEASE"
+  # 4. OMP release set — only when this checkout bundles a harness binary
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    if ssh_run "test -f \"\$HOME/$REMOTE_VENDORS/SHA256SUMS.txt\"" >/dev/null 2>&1; then
+      verdict_ok "SHA256SUMS.txt" "present at ~/$REMOTE_VENDORS/SHA256SUMS.txt"
     else
-      verdict_fail "omp $arch" "host has ${actual:0:12}…, SHA256SUMS.txt says ${expected:0:12}… — a build re-streams it"
+      verdict_fail "SHA256SUMS.txt" "missing ~/$REMOTE_VENDORS/SHA256SUMS.txt (after-pack.cjs needs it)"
     fi
-  done
+    for arch in "${ARCHES[@]}"; do
+      expected="$(awk -v want="omp-darwin-$arch" '$2 == want { print $1; exit }' "$VENDOR_RELEASE/SHA256SUMS.txt" 2>/dev/null || true)"
+      if [ -z "$expected" ]; then
+        verdict_fail "omp $arch digest" "no omp-darwin-$arch entry in $VENDOR_RELEASE/SHA256SUMS.txt"
+        continue
+      fi
+      actual="$(ssh_run "test -f \"\$HOME/$REMOTE_VENDORS/omp-darwin-$arch\" && shasum -a 256 \"\$HOME/$REMOTE_VENDORS/omp-darwin-$arch\" | cut -d' ' -f1 || true")"
+      if [ "$actual" = "$expected" ]; then
+        verdict_ok "omp $arch" "$actual (matches SHA256SUMS.txt)"
+      elif [ -z "$actual" ]; then
+        verdict_fail "omp $arch" "missing ~/$REMOTE_VENDORS/omp-darwin-$arch — a build streams it from $VENDOR_RELEASE"
+      else
+        verdict_fail "omp $arch" "host has ${actual:0:12}…, SHA256SUMS.txt says ${expected:0:12}… — a build re-streams it"
+      fi
+    done
+  else
+    verdict_ok "bundled omp" "n/a — this checkout does not bundle a harness binary"
+  fi
 
   # 5. disk — Electron, node_modules and a .app per arch
   free_kb="$(ssh_run "df -Pk \"\$HOME\" | awk 'NR == 2 { print \$4 }'")"
@@ -297,14 +315,19 @@ printf '    host   %s, node %s (%s), arches %s\n' "$HOST" "$REMOTE_NODE" "$HOST_
 printf '    profile %s -> resources/product.json (id %s, %s / %s)\n' \
     "$PROFILE" "${PROFILE_ID:-?}" "$APP_NAME" "${PROFILE_APP_ID:-<default appId>}"
 
-for arch in "${ARCHES[@]}"; do
-  [ -f "$VENDOR_RELEASE/omp-darwin-$arch" ] ||
-    die "missing OMP release binary $VENDOR_RELEASE/omp-darwin-$arch (see docs/BUILD_REMOTE.md)"
-done
-[ -f "$VENDOR_RELEASE/SHA256SUMS.txt" ] || die "missing $VENDOR_RELEASE/SHA256SUMS.txt"
+if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+  for arch in "${ARCHES[@]}"; do
+    [ -f "$VENDOR_RELEASE/omp-darwin-$arch" ] ||
+      die "missing OMP release binary $VENDOR_RELEASE/omp-darwin-$arch (see docs/BUILD_REMOTE.md)"
+  done
+  [ -f "$VENDOR_RELEASE/SHA256SUMS.txt" ] || die "missing $VENDOR_RELEASE/SHA256SUMS.txt"
+fi
 [ -f "$PROFILE_FILE" ] || die "no product profile at $PROFILE_FILE (VCLAW_PROFILE)"
 
-ssh_run "mkdir -p \"\$HOME/$REMOTE_REPO\" \"\$HOME/$REMOTE_VENDORS\""
+ssh_run "mkdir -p \"\$HOME/$REMOTE_REPO\""
+if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+  ssh_run "mkdir -p \"\$HOME/$REMOTE_VENDORS\""
+fi
 
 # --- 1. sync source ----------------------------------------------------------
 step "sync source $BRANCH@${COMMIT:0:12} -> $HOST:$REMOTE_REPO"
@@ -332,7 +355,6 @@ ssh_run "cd \"\$HOME/$REMOTE_REPO\"
 printf '    checkout %s ok\n' "${COMMIT:0:12}"
 
 # --- 2. sync the OMP release set --------------------------------------------
-step "sync OMP release set -> $HOST:$REMOTE_VENDORS"
 sync_file() { # sync_file <local> <remote-relative>
   local src="$1" dst="$2" sum remote_sum
   sum="$(shasum -a 256 "$src" | cut -d' ' -f1)"
@@ -346,11 +368,18 @@ sync_file() { # sync_file <local> <remote-relative>
   remote_sum="$(ssh_run "shasum -a 256 \"\$HOME/$dst\" | cut -d' ' -f1")"
   [ "$sum" = "$remote_sum" ] || die "$(basename "$src"): digest mismatch local ${sum:0:12} remote ${remote_sum:0:12}"
 }
-sync_file "$VENDOR_RELEASE/SHA256SUMS.txt" "$REMOTE_VENDORS/SHA256SUMS.txt"
+if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+  step "sync OMP release set -> $HOST:$REMOTE_VENDORS"
+  sync_file "$VENDOR_RELEASE/SHA256SUMS.txt" "$REMOTE_VENDORS/SHA256SUMS.txt"
+else
+  step "sync OMP release set -> skipped (n/a — this checkout does not bundle a harness binary)"
+fi
 
 # --- 3. build + verify + collect, per arch ----------------------------------
 for arch in "${ARCHES[@]}"; do
-  sync_file "$VENDOR_RELEASE/omp-darwin-$arch" "$REMOTE_VENDORS/omp-darwin-$arch"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    sync_file "$VENDOR_RELEASE/omp-darwin-$arch" "$REMOTE_VENDORS/omp-darwin-$arch"
+  fi
 
   step "npm ci + electron-vite build + electron-builder --mac --$arch --dir (on $HOST)"
   mkdir -p "$LOCAL_OUT/$arch"
@@ -387,9 +416,13 @@ EOF
   ssh_stream "$BUILD_BODY" "$LOG"
   rm -f "$BUILD_BODY"
   [ "$STREAM_RC" = "0" ] || die "build of $arch failed (remote rc=$STREAM_RC, log: $LOG)"
-  grep -qF 'after-pack: bundled omp verified' "$LOG" ||
-    die "after-pack verification line missing from $LOG — the omp bundle was not verified"
-  grep -F 'after-pack: bundled omp verified' "$LOG" | tail -1 | sed 's/^/    /'
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    grep -qF 'after-pack: bundled omp verified' "$LOG" ||
+      die "after-pack verification line missing from $LOG — the omp bundle was not verified"
+    grep -F 'after-pack: bundled omp verified' "$LOG" | tail -1 | sed 's/^/    /'
+  else
+    printf '    after-pack: n/a — this checkout does not bundle a harness binary\n'
+  fi
   printf '    rc=0\n'
 
   # --- verification gates, on the host --------------------------------------
@@ -400,8 +433,13 @@ EOF
     die "no app bundle at $APP_PATH on $HOST"
   EXE_NAME="$(ssh_run "plutil -extract CFBundleExecutable raw \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Info.plist\"")"
   EXE_SLICE="$(ssh_run "lipo -archs \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/MacOS/$EXE_NAME\"")"
-  OMP_SUM_HOST="$(ssh_run "shasum -a 256 \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\" | cut -d' ' -f1")"
-  OMP_SLICE="$(ssh_run "lipo -archs \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\"")"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    OMP_SUM_HOST="$(ssh_run "shasum -a 256 \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\" | cut -d' ' -f1")"
+    OMP_SLICE="$(ssh_run "lipo -archs \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\"")"
+  else
+    OMP_SUM_HOST="absent"
+    OMP_SLICE="absent"
+  fi
   APP_ID="$(ssh_run "plutil -extract CFBundleIdentifier raw \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Info.plist\"")"
   tailscale ssh "$HOST" -- "cat \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/product.json\"" >"$LOCAL_OUT/$arch/product.json"
   PRODUCT_ID="$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$LOCAL_OUT/$arch/product.json" | head -1)"
@@ -410,8 +448,12 @@ EOF
   {
     printf 'app      = %s\n' "$APP_PATH"
     printf 'exe      = %s (%s)\n' "$EXE_NAME" "$EXE_SLICE"
-    printf 'omp      = %s\n' "$OMP_SUM_HOST"
-    printf 'omp-lipo = %s\n' "$OMP_SLICE"
+    if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+      printf 'omp      = %s\n' "$OMP_SUM_HOST"
+      printf 'omp-lipo = %s\n' "$OMP_SLICE"
+    else
+      printf 'omp      = n/a — this checkout does not bundle a harness binary\n'
+    fi
     printf 'product  = %s\n' "$PRODUCT_ID"
     printf 'app_id   = %s\n' "$APP_ID"
     printf 'electron = %s\n' "$ELECTRON_VERSION"
@@ -425,14 +467,18 @@ EOF
   fi
 
   EXPECTED_SLICE="$(slice_for "$arch")"
-  [ "$OMP_SLICE" = "$EXPECTED_SLICE" ] ||
-    die "packaged omp slice is '$OMP_SLICE', expected $EXPECTED_SLICE"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    [ "$OMP_SLICE" = "$EXPECTED_SLICE" ] ||
+      die "packaged omp slice is '$OMP_SLICE', expected $EXPECTED_SLICE"
+  fi
   case " $EXE_SLICE " in
     *" $EXPECTED_SLICE "*) ;;
     *) die "app executable slices are '$EXE_SLICE', expected $EXPECTED_SLICE" ;;
   esac
-  grep -q "^$OMP_SUM_HOST .*omp-darwin-$arch\$" "$VENDOR_RELEASE/SHA256SUMS.txt" ||
-    die "packaged omp sha256 $OMP_SUM_HOST is not in SHA256SUMS.txt for omp-darwin-$arch"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    grep -q "^$OMP_SUM_HOST .*omp-darwin-$arch\$" "$VENDOR_RELEASE/SHA256SUMS.txt" ||
+      die "packaged omp sha256 $OMP_SUM_HOST is not in SHA256SUMS.txt for omp-darwin-$arch"
+  fi
 
   # --- collect --------------------------------------------------------------
   step "collect the $arch app bundle"
@@ -447,6 +493,16 @@ EOF
 
   # Machine-readable provenance for pinning: the commit the artefact was built from
   # and the digests a release manifest can carry. No jq, no extra deps.
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    OMP_BLOCK="  \"omp\": {
+    \"release\": \"v18.16.0\",
+    \"binary\": \"omp-darwin-$arch\",
+    \"sha256\": \"$OMP_SUM_HOST\",
+    \"slices\": \"$OMP_SLICE\"
+  },"
+  else
+    OMP_BLOCK='  "omp": null,'
+  fi
   cat >"$LOCAL_OUT/$arch/BUILD.json" <<EOF
 {
   "schema": 1,
@@ -473,12 +529,7 @@ EOF
     "executable": "$EXE_NAME",
     "executableSlices": "$EXE_SLICE"
   },
-  "omp": {
-    "release": "v18.16.0",
-    "binary": "omp-darwin-$arch",
-    "sha256": "$OMP_SUM_HOST",
-    "slices": "$OMP_SLICE"
-  },
+$OMP_BLOCK
   "electron": "$ELECTRON_VERSION",
   "signing": null
 }
@@ -495,14 +546,18 @@ for arch in "${ARCHES[@]}"; do
   ditto -x -k "$ZIP" "$LOCAL_OUT/$arch/unpacked"
   EXE_NAME="$(plutil -extract CFBundleExecutable raw "$LOCAL_OUT/$arch/unpacked/$APP_NAME.app/Contents/Info.plist")"
   EXE="$LOCAL_OUT/$arch/unpacked/$APP_NAME.app/Contents/MacOS/$EXE_NAME"
-  OMP="$LOCAL_OUT/$arch/unpacked/$APP_NAME.app/Contents/Resources/harness/bin/omp"
   WANT="$(slice_for "$arch")"
   lipo -archs "$EXE" | grep -qw "$WANT" || die "pulled $arch exe is not $WANT: $(lipo -archs "$EXE")"
-  lipo -archs "$OMP" | grep -qw "$WANT" || die "pulled $arch omp is not $WANT: $(lipo -archs "$OMP")"
-  OMP_SUM="$(shasum -a 256 "$OMP" | cut -d' ' -f1)"
-  grep -q "^$OMP_SUM .*omp-darwin-$arch\$" "$VENDOR_RELEASE/SHA256SUMS.txt" ||
-    die "pulled $arch omp sha256 $OMP_SUM is not in SHA256SUMS.txt"
-  printf '    %s: exe %s, omp %s (%s…)\n' "$arch" "$(lipo -archs "$EXE")" "$(lipo -archs "$OMP")" "${OMP_SUM:0:12}"
+  if [ "$BUNDLES_HARNESS" -eq 1 ]; then
+    OMP="$LOCAL_OUT/$arch/unpacked/$APP_NAME.app/Contents/Resources/harness/bin/omp"
+    lipo -archs "$OMP" | grep -qw "$WANT" || die "pulled $arch omp is not $WANT: $(lipo -archs "$OMP")"
+    OMP_SUM="$(shasum -a 256 "$OMP" | cut -d' ' -f1)"
+    grep -q "^$OMP_SUM .*omp-darwin-$arch\$" "$VENDOR_RELEASE/SHA256SUMS.txt" ||
+      die "pulled $arch omp sha256 $OMP_SUM is not in SHA256SUMS.txt"
+    printf '    %s: exe %s, omp %s (%s…)\n' "$arch" "$(lipo -archs "$EXE")" "$(lipo -archs "$OMP")" "${OMP_SUM:0:12}"
+  else
+    printf '    %s: exe %s, omp n/a — this checkout does not bundle a harness binary\n' "$arch" "$(lipo -archs "$EXE")"
+  fi
 done
 
 step "done"

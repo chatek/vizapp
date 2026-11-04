@@ -2,11 +2,18 @@
 
 The macOS app is built **only** on `BUILD_USER_REDACTED`; a local
 `release/` tree is a throwaway, not evidence. This file is the authoritative procedure for the
-flow that bundles OMP into the app (`electron-builder --mac --<arch> --dir`, driver
-`scripts/release/build-remote.sh`). The dmg/zip flow — signing, notarisation, `package.mjs`,
-its npm-12 trap — is a different lane and lives in [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md).
+`electron-builder --mac --<arch> --dir` flow (driver `scripts/release/build-remote.sh`). The
+member/vizmaster tree also bundles OMP into the app; this checkout does not — the driver
+**detects** that from `package.json` → `build.mac.extraResources` containing `harness/bin`, and
+when it is absent every OMP step prints `n/a — this checkout does not bundle a harness binary`
+and skips instead of demanding a release set the tree does not use. The dmg/zip flow — signing,
+notarisation, `package.mjs`, its npm-12 trap — is a different lane and lives in
+[RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md).
 
-Everything below was measured on 2026-11-04/05 on the host, not inferred from the docs.
+Everything below was measured on 2026-11-04/05 on the host, not inferred from the docs. The
+`omp` measurements were taken on a checkout that bundles a harness binary (the member/vizmaster
+tree); on a checkout without that mapping those steps report
+`n/a — this checkout does not bundle a harness binary`.
 
 ## Remote is primary — there is no silent fallback
 
@@ -32,8 +39,8 @@ Two things about the host's network are not negotiable, and both cost a cycle if
 
 * **`github.com` does not resolve to anything routable** — `nslookup github.com` → `198.18.0.11`,
   the fake-ip range a local Clash Verge (`verge-mihomo`) TUN hands out. electron-builder's
-  downloads therefore need `ELECTRON_MIRROR`, and the OMP binaries can never be fetched from a
-  GitHub release URL on this host.
+  downloads therefore need `ELECTRON_MIRROR`, and — on a checkout that bundles a harness
+  binary — the OMP binaries can never be fetched from a GitHub release URL on this host.
 * **The host's tailnet does not contain the Forgejo box.** `tailscale status` on the host lists
   42 peers and no `vmaker-pi`; `vmaker-pi.TAILNET_REDACTED` resolves to the same fake-ip
   `198.18.0.11` and `curl -v` dies in the TLS handshake:
@@ -50,14 +57,15 @@ Two things about the host's network are not negotiable, and both cost a cycle if
 ├── vclaw-desktop/                               # git repo, detached at the built commit
 │   ├── node_modules/                            # `npm ci`, recreated every run
 │   └── release/mac-<arch>/VClaw.app             # the artefact
-└── vendors/oh-my-pi/releases/v18.16.0/
-    ├── omp-darwin-arm64
-    ├── omp-darwin-x64
+└── vendors/oh-my-pi/releases/v18.16.0/          # only when the checkout bundles a harness
+    ├── omp-darwin-arm64                         # binary; absent otherwise (the driver
+    ├── omp-darwin-x64                           # creates and syncs it only in that case)
     └── SHA256SUMS.txt
 ```
 
-`vendors/` is a **sibling of the checkout**, not inside it. `scripts/release/after-pack.cjs`
-resolves the release set as `join(__dirname, '..', '..', '..', 'vendors', …)`, so from
+`vendors/` is a **sibling of the checkout**, not inside it. On a bundling tree
+`scripts/release/after-pack.cjs` resolves the release set as
+`join(__dirname, '..', '..', '..', 'vendors', …)`, so from
 `~/build/vclaw/vclaw-desktop/scripts/release/` that is `~/build/vclaw/vendors/…`. The binaries
 are not in git on purpose (215 MB + 228 MB).
 
@@ -79,11 +87,14 @@ tailscale ssh $H 'mkdir -p ~/build/toolchain && cd ~/build/toolchain &&
 #   The host default stays v25.8.0; build-remote.sh prepends the 24.15.0 bin dir per command.
 
 # 2. layout
-tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop ~/build/vclaw/vendors/oh-my-pi/releases/v18.16.0'
+tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop'
 
-# 3. the OMP release set — streamed from the workstation, digests checked on both sides
-#    (equivalently from Forgejo on a machine that can reach it:
-#     https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/)
+# 3. the OMP release set — ONLY when the checkout bundles a harness binary. The driver
+#    creates ~/build/vclaw/vendors/… and streams the set itself; equivalently from Forgejo
+#    on a machine that can reach it:
+#     https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/
+#    On a checkout without `build.mac.extraResources → harness/bin`, skip this step: the
+#    driver prints `n/a — this checkout does not bundle a harness binary`.
 ```
 
 Nothing in the driver touches `brew`, sudo, npm globals, `PATH` files or shell rc files:
@@ -92,8 +103,9 @@ remote command, so the host's system node stays v25.8.0.
 
 ## Provenance — `BUILD.json`
 
-Every build writes one, next to the zip (arm64 shown; x64 differs only in `arch`, `artifact`,
-`app.path`, `executableSlices` and the `omp` binary/digest):
+Every build writes one, next to the zip. The example below is from a tree that bundles a
+harness binary (x64 differs only in `arch`, `artifact`, `app.path`, `executableSlices` and the
+`omp` binary/digest); on a checkout that does not bundle one, `"omp"` is `null`.
 
 ```json
 {
@@ -138,6 +150,9 @@ on the same host produced 249,687,809 → 249,687,816 → 249,687,818 bytes (arm
 never from a previous build of the same commit.
 
 ### Proof run — both arches, 2026-11-05
+
+Measured on the OMP-bundled (vizmaster) tree; on a checkout without the bundle the `omp` rows
+below are `n/a — this checkout does not bundle a harness binary`.
 
 `bash scripts/release/build-remote.sh --arm64 --x64` → **rc=0**, 2m12s wall (source and release
 set already on the host; a cold run adds the transfer times above).
@@ -188,10 +203,12 @@ bash scripts/release/build-remote.sh                     # no arch flag → the 
 `--check` is read-only and prints one `ok`/`FAIL` line per item, exiting 0 only when none
 failed: ssh reachability, the host's node being exactly `$(cat .nvmrc)` (and what the host's own
 default node is), the checkout being at the workstation's commit, `SHA256SUMS.txt` plus each
-OMP binary present on the host with the digest the sums file claims, free space under `$HOME`
-(> 20 GiB), the Electron mirror answering from the host, `xcode-select -p` and `lipo`. With no
-arch flag it checks both arches. Items that a first build will create are `FAIL` by design —
-that is the point of a preflight, not a bug.
+OMP binary present on the host with the digest the sums file claims (**only when the checkout
+bundles a harness binary**; otherwise the item reads
+`ok bundled omp — n/a — this checkout does not bundle a harness binary`), free space under
+`$HOME` (> 20 GiB), the Electron mirror answering from the host, `xcode-select -p` and `lipo`.
+With no arch flag it checks both arches. Items that a first build will create are `FAIL` by
+design — that is the point of a preflight, not a bug.
 
 Options: `BUILD_HOST`, `REMOTE_ROOT`, `LOCAL_OUT`, `ELECTRON_MIRROR`, `VCLAW_PROFILE` (env).
 Each arch lands in `release-remote/<arch>/` as `VClaw-<arch>-app.zip`, unpacked under `unpacked/`
@@ -202,14 +219,17 @@ What the driver does, in order, failing loudly at each step:
 
 1. **preconditions** — resolves `HEAD` and the branch (refuses a detached HEAD), warns (does not
    fail) if the tree is dirty, and states explicitly that uncommitted changes are *not* in the
-   bundle. Requires `omp-darwin-<arch>` + `SHA256SUMS.txt` locally, `git` on the host, and node
-   `$(cat .nvmrc)` on the host.
+   bundle. Requires `git` on the host and node `$(cat .nvmrc)` on the host; on a bundling tree
+   it also requires `omp-darwin-<arch>` + `SHA256SUMS.txt` locally, and on a non-bundling tree
+   it skips them (`n/a — this checkout does not bundle a harness binary`).
 2. **source** — `git bundle create` of the branch, streamed to `~/build/vclaw/src.bundle`,
    sha256 compared on both sides; skipped entirely when the host already has the commit
    (`git cat-file -e`). Then `git init` (once) → `fetch` → `checkout --force --detach <commit>`
    and `rev-parse HEAD` must equal it.
-3. **release set** — per-arch binary streamed with `gzip -1`, written to `.partial`, moved into
-   place, sha256 compared to the local file. A mismatch aborts; there is no "close enough".
+3. **release set** — *only when the checkout bundles a harness binary*: per-arch binary streamed
+   with `gzip -1`, written to `.partial`, moved into place, sha256 compared to the local file. A
+   mismatch aborts; there is no "close enough". Otherwise the step prints `skipped` with the
+   `n/a` line.
 4. **build** — one remote bash body per arch, streamed to `release-remote/<arch>/build.log`:
    `node -v; npm -v; npm ci --no-audit --no-fund; npm run build:bundle`, a hard
    `test -f out/main/index.js`, staging of `product/profile.active.json` from
@@ -221,15 +241,16 @@ What the driver does, in order, failing loudly at each step:
    ```
    `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` is exported for the run.
    `release/mac-<arch>` is deleted first so a stale `.app` can never be mistaken for the build.
-5. **host gates** — the log must contain `after-pack: bundled omp verified (…)`; the driver then
-   prints the app path, `lipo -archs` of `Contents/MacOS/VClaw`, sha256 + `lipo -archs` of
-   `Contents/Resources/harness/bin/omp`, and the packed `product.json` id
-   (`release-remote/<arch>/verify.txt`).
+5. **host gates** — on a bundling tree the log must contain
+   `after-pack: bundled omp verified (…)`; the driver then prints the app path, `lipo -archs` of
+   the executable, sha256 + `lipo -archs` of `Contents/Resources/harness/bin/omp`, and the packed
+   `product.json` id (`release-remote/<arch>/verify.txt`). Without a bundle it prints
+   `omp = n/a — this checkout does not bundle a harness binary` instead.
 6. **collect** — `ditto -c -k --sequesterRsrc --keepParent VClaw.app` on the host, sha256 taken
    there, file pulled, sha256 recomputed locally and compared.
-7. **local gates** — unzip, then `lipo -archs` must show the requested slice for **both** the app
-   executable and the bundled `omp`, and the pulled `omp` sha256 must appear in `SHA256SUMS.txt`
-   for `omp-darwin-<arch>`.
+7. **local gates** — unzip, then `lipo -archs` must show the requested slice for the app
+   executable — and, on a bundling tree, for the bundled `omp`, whose sha256 must also appear in
+   `SHA256SUMS.txt` for `omp-darwin-<arch>`.
 8. **provenance** — writes `release-remote/<arch>/BUILD.json` (below), so a release manifest or a
    pin bump never has to re-derive what an artefact is from a filename.
 
@@ -262,6 +283,9 @@ flow does not need the npm 12 `install-scripts approve` + `rebuild` dance.
 at it would ship arm64 Electron. Cross-arch builds get their Electron from `ELECTRON_MIRROR`.
 
 ## Failure modes seen (and what they mean)
+
+The `bundled omp` rows below apply only to a checkout that bundles a harness binary; a
+non-bundling checkout never reaches them (the step is skipped with the `n/a` line).
 
 | symptom | cause | action |
 |---|---|---|
@@ -360,9 +384,9 @@ given it, or those keys come out unknown.
 ## x64 on an arm64 host
 
 electron-builder can emit `--x64` from an arm64 host, and it does here — measured on
-2026-11-05: `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`, `lipo -archs` of
-`Contents/MacOS/VClaw` → `x86_64`. Two things differ from an arm64 build and both are easy to
-misread:
+2026-11-05 on a bundling tree: `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`,
+`lipo -archs` of the executable → `x86_64`. Two things differ from an arm64 build and both are
+easy to misread:
 
 * **The output directory has no arch suffix.** electron-builder only suffixes non-x64 targets:
   `--arm64` → `release/mac-arm64/VClaw.app`, `--x64` → `release/mac/VClaw.app`
@@ -383,8 +407,9 @@ lipo -archs release-remote/x64/unpacked/VClaw.app/Contents/Resources/app.asar.un
 ```
 
 So an `--x64` app from this host carries x64 `node-pty` and x64 `zeromq`. The driver's gates
-still only assert the app executable and the bundled `omp`; the addon slices above were checked
-by hand and are worth re-checking if the native dependency set changes.
+still only assert the app executable and, when the tree bundles one, the bundled `omp`; the
+addon slices above were checked by hand and are worth re-checking if the native dependency set
+changes.
 
 ## Not covered here
 

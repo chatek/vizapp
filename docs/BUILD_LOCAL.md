@@ -8,9 +8,10 @@ full local build was deliberately **not** re-run (artefacts are throwaway).
 **The primary flow is [`docs/BUILD_REMOTE.md`](BUILD_REMOTE.md) with
 [`scripts/release/build-remote.sh`](../scripts/release/build-remote.sh).** That host —
 `BUILD_USER_REDACTED` — is the **only sanctioned builder**. This document
-describes a **local fallback for when that host is unavailable**, and artefacts produced
-here are **not evidence** (repo rule, `AGENTS.md`): they may prove the tree packages and the
-bundled `omp` verifies, and nothing about the release.
+describe a **local fallback for when that host is unavailable**, and artefacts produced
+here are **not evidence** (repo rule, `AGENTS.md`): they may prove the tree packages (and,
+when the checkout bundles a harness binary, that the bundled `omp` verifies), and nothing
+about the release.
 
 ```bash
 bash scripts/release/build-local.sh --check                       # read-only preflight
@@ -22,10 +23,14 @@ and points at the remote flow. That is deliberate: a local build that silently s
 how a non-evidence artefact ends up attached to a release.
 
 What a local `--dir` build gives you: `release/mac-arm64/VClaw.app` (`--x64` lands in
-`release/mac` — electron-builder only suffixes non-x64 targets), unsigned (ad-hoc), with
-`Contents/Resources/harness/bin/omp` verified against `SHA256SUMS.txt` by
-`scripts/release/after-pack.cjs`. What it does **not** give you: a `.dmg`/`.zip`, a notarised
-or Developer-ID-signed bundle, a tested update feed, or anything you may ship.
+`release/mac` — electron-builder only suffixes non-x64 targets), unsigned (ad-hoc). When the
+checkout bundles a harness binary (`package.json` → `build.mac.extraResources` containing
+`harness/bin` — the member/vizmaster tree does; this checkout does **not**), the bundle also
+carries `Contents/Resources/harness/bin/omp`, verified against `SHA256SUMS.txt` by
+`scripts/release/after-pack.cjs`; without that mapping the script prints
+`n/a — this checkout does not bundle a harness binary` and skips the OMP checks. What it does
+**not** give you: a `.dmg`/`.zip`, a notarised or Developer-ID-signed bundle, a tested update
+feed, or anything you may ship.
 
 ---
 
@@ -34,7 +39,8 @@ or Developer-ID-signed bundle, a tested update feed, or anything you may ship.
 Only to answer one of these questions while the remote host is down:
 
 - does this commit still package (`npm run build` + `electron-builder --dir` succeed)?
-- does `after-pack` accept the bundled `omp` (present, digest matches, Mach-O slice matches)?
+- when the checkout bundles one, does `after-pack` accept the bundled `omp` (present, digest
+  matches, Mach-O slice matches)?
 - does the packaged app boot far enough to write the readiness marker?
 
 Anything that ends in a release decision — "ship it", "this is the build", "the DMG is ready"
@@ -48,7 +54,7 @@ safe (it is read-only and downloads nothing).
 |---|---|---|
 | node | **major 24** active on `PATH` (`.nvmrc` pins 24.15.0) | `engines.node` and the pinned toolchain; the script never calls `nvm`, it uses what is already active |
 | dependencies | `node_modules/.bin/electron-builder` executable (`npm ci`) | nothing is installed for you |
-| bundled `omp` | `../vendors/oh-my-pi/releases/v18.16.0/omp-darwin-<arch>` + `SHA256SUMS.txt` | `mac.extraResources` copies it; a fresh clone does **not** have it |
+| bundled `omp` | **only when the checkout bundles a harness binary**: `../vendors/oh-my-pi/releases/v18.16.0/omp-darwin-<arch>` + `SHA256SUMS.txt` | `mac.extraResources` copies it; a fresh clone does **not** have it. On a checkout without that mapping the item reads `n/a — this checkout does not bundle a harness binary` |
 | Electron download | `ELECTRON_MIRROR` reachable (HEAD, 15 s timeout) | electron-builder cannot reach github.com from here |
 | Xcode CLT | `xcode-select -p` returns a developer dir | native modules (`node-pty`, `zeromq`, `koffi`) |
 | `lipo` | on `PATH` | arch assertion in preflight **and** in `after-pack` |
@@ -82,11 +88,13 @@ VCLAW_ALLOW_LOCAL_BUILD=1 bash scripts/release/build-local.sh --arm64
 
 That runs, in order: the same preflight · `npm run build` (`tsc --noEmit` × 5 + electron-vite
 build) · `electron-builder --mac --arm64 --dir --publish never` with
-`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` exported · a re-verification of
-`release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp` (sha256 + `lipo`) · one line
+`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` exported · a re-verification of the
+packaged app binary's `lipo` slice, plus — when the checkout bundles a harness binary — a
+re-verification of `release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp` (sha256 +
+`lipo`) · one line
 
 ```
-ARTEFACT(not-evidence): <app path> <sha256 of the bundled omp> <lipo -archs of the app binary>
+ARTEFACT(not-evidence): <app path> <sha256 of the bundled omp, or "absent"> <lipo -archs of the app binary>
 ```
 
 x64 is the same command with `--x64`, and it **only runs on an Intel host** (trap 5). On this
@@ -106,12 +114,14 @@ export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 **A zero exit from `electron-builder` is not the check.** A stale or half-swapped bundle can
 exit 0 while the process ran the wrong thing (the same class of failure as a stale deployed
 bundle that "looks healthy" and writes nothing). `build-local.sh` therefore re-derives the
-facts from the packaged bytes — these four checks, not the exit code, are the result.
+facts from the packaged bytes. When the checkout bundles a harness binary these four checks,
+not the exit code, are the result; without one, the script prints
+`omp      n/a — this checkout does not bundle a harness binary` and checks 3/4 still apply.
 
-1. **`after-pack` line** in the builder output — the build fails if it is missing, the digest
-   differs, or `lipo` reports the wrong slice:
-   `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`.
-2. **Packaged binary on disk** — 215,642,256 B for arm64, mode `0755`:
+1. **`after-pack` line** (only when the checkout bundles a harness binary) in the builder
+   output — the build fails if it is missing, the digest differs, or `lipo` reports the wrong
+   slice: `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`.
+2. **Packaged binary on disk** (only when bundled) — 215,642,256 B for arm64, mode `0755`:
    ```bash
    shasum -a 256 release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp
    stat -f '%z %Lp' release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp
@@ -162,10 +172,11 @@ and then dies. `build-local.sh` exports
 `ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"` (override with the env var) and
 `--check` probes it with a HEAD request first.
 
-### Trap 3 — a fresh clone has no `omp` binaries
+### Trap 3 — a fresh clone has no `omp` binaries (only if the tree bundles one)
 
-`../vendors/oh-my-pi/releases/v18.16.0/` is gitignored, so a fresh clone has the glob but no
-file: `after-pack` then fails the build (`resources/harness/bin/omp is missing — was
+If the checkout maps `harness/bin` in `build.mac.extraResources` (member/vizmaster tree; not
+this one), a fresh clone's `../vendors/oh-my-pi/releases/v18.16.0/` is gitignored and empty:
+`after-pack` then fails the build (`resources/harness/bin/omp is missing — was
 mac.extraResources applied?`). A stale or truncated binary fails there too, on the sha256 or
 the `lipo` slice, so the failure is loud — what it does *not* catch is a *correct* binary for
 the wrong arch, which trap 5 turns into a broken bundle. Both binaries are published at
@@ -189,9 +200,10 @@ with no Developer ID identity and no notarisation credentials. Only `--dir --pub
 is the local target: it produces the `.app`, runs `after-pack`, and stops. Do not "fix" a
 notarisation error by adding credentials locally; that is the remote flow's job.
 
-Related: `after-pack.cjs` reads `context.arch` as electron-builder's numeric enum
-(ia32=0, x64=1, armv7l=2, arm64=3, universal=4). This was a real bug, fixed in `cabbc52`;
-on an older tree the arch assertion misfires and universal builds are refused outright.
+Related: on a tree that bundles a harness binary, `after-pack.cjs` reads `context.arch` as
+electron-builder's numeric enum (ia32=0, x64=1, armv7l=2, arm64=3, universal=4) to pick the
+expected slice. This checkout does not bundle one, so its `after-pack.cjs` only flips fuses;
+no arch-enum assertion runs here.
 
 ### Trap 5 — cross-arch builds are refused on purpose
 

@@ -62,7 +62,8 @@ Only the remote host's `.app` is evidence. A local `--dir` build prints
 `node-pty`, `zeromq`, and `koffi` are host-arch. The dmg/zip + signing path is
 [`docs/RELEASE_BUILD_HOST.md`](docs/RELEASE_BUILD_HOST.md) and needs an Apple Developer ID —
 there is none on the build host today. This is **two per-arch bundles**, which is what upstream
-ships; there is no universal target here (`after-pack.cjs` refuses one).
+ships; there is no universal target here (only the harness-bundling tree's `after-pack.cjs`
+refuses one).
 
 ### Linux
 
