@@ -13,6 +13,19 @@ Each refresh checks, in order:
 5. Official harness-specific installer locations.
 6. Shared system and package-manager locations for npm, Bun, pnpm, mise, Volta, Homebrew, and Linuxbrew. NVM version-manager directories are bounded to 64 entries and sorted by descending version.
 
+## Bundled OMP on the `vizmaster` branch (2026-11-04)
+
+The `vizmaster` branch bundles OMP into the app: `mac.extraResources` copies
+`../vendors/oh-my-pi/releases/v18.16.0/omp-darwin-${arch}` to `resources/harness/bin/omp`, the
+omp descriptor carries `bundledResourceDirs: [['harness', 'bin']]`, and order **3** therefore
+finds the bundled binary before PATH — VClaw always launches the OMP version it validated,
+regardless of the host install. The vendored binaries come from the oh-my-pi fork's release set
+(`vendors/oh-my-pi/releases/v18.16.0/`, digests pinned in its `SHA256SUMS.txt`, which
+`scripts/release/after-pack.cjs` verifies against the packaged file and `lipo`-checks per arch).
+Prime and Pi remain host-installed only. The OMP *capability layer* (skills, MCP, extensions)
+is built by the `agent-sdk` `omp` branch (`agent-sdk@omp`, `docs/OMP_BRANCH.md`) and is a
+separate artifact from the runtime binary.
+
 Candidates are deduplicated and must be executable. VClaw then runs a bounded `--version` probe with no shell; only an exit-zero candidate is published to the renderer. A broken override therefore falls through to later automatic candidates, but its own missing, permission, spawn, exit, timeout, or output-limit reason is retained for the settings card. If no candidate works, the card reports the configured override's reason when present, otherwise the last probed candidate's reason. Probe stderr is control-character-stripped and byte-capped before it crosses IPC.
 
 The relevant upstream install layouts are documented by [Pi](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md), [OMP](https://github.com/can1357/oh-my-pi), [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent#readme), [npm](https://docs.npmjs.com/files/folders.html), [Bun](https://bun.sh/docs/installation), [pnpm](https://pnpm.io/settings/other#globalbindir), [mise](https://mise.jdx.dev/dev-tools/shims.html), and [Volta](https://docs.volta.sh/guide/getting-started).

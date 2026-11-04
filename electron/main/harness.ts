@@ -46,7 +46,11 @@ export const HARNESSES: Record<HarnessId, HarnessDescriptor> = {
     agentName: 'OMP',
     executableName: (platform) => platform === 'win32' ? 'omp.exe' : 'omp',
     binaryEnvVar: 'OMP_BINARY',
-    bundledResourceDirs: [],
+    // vizmaster (mac-only) bundles the OMP binary from the vendored oh-my-pi fork's release
+    // set: ../vendors/oh-my-pi/releases/<pin>/omp-darwin-${arch}, wired through
+    // build.mac.extraResources as resources/harness/bin/omp. Discovery order #3 (packaged
+    // resources) finds it before PATH, so VClaw always launches the OMP version it validated.
+    bundledResourceDirs: [['harness', 'bin']],
     candidateDirs: (platform, _home, env) => {
       if (platform === 'win32') return env.LOCALAPPDATA ? [win32.join(env.LOCALAPPDATA, 'omp')] : []
       return env.PI_INSTALL_DIR ? [env.PI_INSTALL_DIR] : []
