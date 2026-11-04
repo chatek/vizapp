@@ -8,7 +8,11 @@
 #
 # With no arch flag a build defaults to the host's arch. Nothing is packaged on the
 # workstation: this streams a git bundle of the current commit plus the OMP release
-# set to the host, builds there, and pulls the .app back (docs/BUILD_REMOTE.md).
+# set to the host, builds there, and pulls the .dmg and the .app .zip back
+# (docs/BUILD_REMOTE.md). The host runs
+# `electron-builder --mac --<arch> dmg zip --publish never --config.mac.identity=null
+#  --config.mac.notarize=false`, so every artefact it produces is unsigned and
+# unnotarised by construction, and `hdiutil verify` must pass on both copies of the dmg.
 #
 # The remote host is the only sanctioned builder. If it is unreachable this script
 # FAILS — it never falls back to a local build. The local path is a separate,
@@ -132,6 +136,13 @@ transfer_up() {
       die "transfer of $(basename "$src") to $HOST:~/$rel failed (stream rc=$rc): ${out:-<no output>}"
       ;;
   esac
+}
+
+# pull_down <path-relative-to-remote-$HOME> <local-file> — streams one file back over
+# tailscale ssh. The ssh status is not trustworthy, so every caller compares the sha256
+# the host reported with the local file (a truncated stream then fails the gate).
+pull_down() {
+  tailscale ssh "$HOST" -- "cat \"\$HOME/$1\"" >"$2"
 }
 
 # electron-builder only suffixes the output directory for non-x64 targets:
@@ -403,7 +414,7 @@ sync_file "$VENDOR_RELEASE/SHA256SUMS.txt" "$REMOTE_VENDORS/SHA256SUMS.txt"
 for arch in "${ARCHES[@]}"; do
   sync_file "$VENDOR_RELEASE/omp-darwin-$arch" "$REMOTE_VENDORS/omp-darwin-$arch"
 
-  step "npm ci + electron-vite build + electron-builder --mac --$arch --dir (on $HOST)"
+  step "npm ci + electron-vite build + electron-builder --mac --$arch dmg zip (on $HOST)"
   mkdir -p "$LOCAL_OUT/$arch"
   LOG="$LOCAL_OUT/$arch/build.log"
   BUILD_BODY="$(mktemp "${TMPDIR:-/tmp}/vclaw-build-body.XXXXXX")"
@@ -432,7 +443,10 @@ test -f out/main/index.js || { echo 'electron-vite produced no out/main/index.js
 cp "$PROFILE" product/profile.active.json
 trap 'rm -f product/profile.active.json' EXIT
 rm -rf "${OUT_DIR:?}"
-./node_modules/.bin/electron-builder --mac --$arch --dir --publish never \\
+# Artifacts are written to the project output dir (release/<product>-<version>-<arch>.<ext>),
+# not into the per-arch app dir; a stale one from an earlier run must not be collectable.
+rm -f release/*-$arch.dmg release/*-$arch.zip release/*-$arch.dmg.blockmap release/*-$arch.zip.blockmap
+./node_modules/.bin/electron-builder --mac dmg zip --$arch --publish never \\
   --config.mac.identity=null --config.mac.notarize=false $IDENTITY_ARGS $EXTRA
 EOF
   ssh_stream "$BUILD_BODY" "$LOG"
@@ -457,6 +471,8 @@ EOF
   OMP_SUM_HOST="$(ssh_run "shasum -a 256 \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\" | cut -d' ' -f1")"
   OMP_SLICE="$(ssh_run "lipo -archs \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/harness/bin/omp\"")"
   APP_ID="$(ssh_run "plutil -extract CFBundleIdentifier raw \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Info.plist\"")"
+  APP_VERSION="$(ssh_run "plutil -extract CFBundleShortVersionString raw \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Info.plist\"")"
+  [ -n "$APP_VERSION" ] || die "cannot read CFBundleShortVersionString from $APP_PATH — electron-builder names its artefacts <product>-<version>-<arch>.<ext>"
   tailscale ssh "$HOST" -- "cat \"\$HOME/$REMOTE_REPO/$APP_REL/Contents/Resources/product.json\"" >"$LOCAL_OUT/$arch/product.json"
   PRODUCT_ID="$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$LOCAL_OUT/$arch/product.json" | head -1)"
   ELECTRON_VERSION="$(grep -o 'electron=[0-9][0-9.]*' "$LOG" | tail -1 | cut -d= -f2)"
@@ -489,15 +505,48 @@ EOF
     die "packaged omp sha256 $OMP_SUM_HOST is not in SHA256SUMS.txt for omp-darwin-$arch"
 
   # --- collect --------------------------------------------------------------
-  step "collect the $arch app bundle"
-  ZIP="$APP_NAME-$arch-app.zip"
-  REMOTE_SUM="$(ssh_run "cd \"\$HOME/$REMOTE_REPO/$OUT_DIR\" && rm -f /tmp/$ZIP && ditto -c -k --sequesterRsrc --keepParent \"$APP_NAME.app\" /tmp/$ZIP && shasum -a 256 /tmp/$ZIP | cut -d' ' -f1")"
-  printf '    pulling %s\n' "$ZIP"
-  tailscale ssh "$HOST" -- "cat /tmp/$ZIP" >"$LOCAL_OUT/$arch/$ZIP"
+  # electron-builder names both artefacts from mac.artifactName
+  # (${productName}-${version}-${arch}.${ext}) and writes them to the project output
+  # dir `release/`, one level above the per-arch app dir. The version comes from the
+  # packaged Info.plist, so a profile/version change cannot silently pick up a stale file.
+  step "collect the $arch dmg + app zip"
+  ZIP="$APP_NAME-$APP_VERSION-$arch.zip"
+  DMG="$APP_NAME-$APP_VERSION-$arch.dmg"
+  ART_DIR="release"
+  for f in "$ZIP" "$DMG"; do
+    ssh_run "test -f \"\$HOME/$REMOTE_REPO/$ART_DIR/$f\"" >/dev/null 2>&1 ||
+      die "electron-builder produced no $ART_DIR/$f on $HOST — see $LOG"
+  done
+  ZIP_SUM_REMOTE="$(ssh_run "shasum -a 256 \"\$HOME/$REMOTE_REPO/$ART_DIR/$ZIP\" | cut -d' ' -f1")"
+  DMG_SUM_REMOTE="$(ssh_run "shasum -a 256 \"\$HOME/$REMOTE_REPO/$ART_DIR/$DMG\" | cut -d' ' -f1")"
+  DMG_VERIFY_OUT="$(ssh_run "hdiutil verify \"\$HOME/$REMOTE_REPO/$ART_DIR/$DMG\" 2>&1 | tail -2 | tr '\n' ' '")"
+  case "$DMG_VERIFY_OUT" in
+    *VALID*) DMG_VERIFY_REMOTE=VALID ;;
+    *) DMG_VERIFY_REMOTE=INVALID ;;
+  esac
+  [ "$DMG_VERIFY_REMOTE" = VALID ] ||
+    die "hdiutil verify of $DMG on $HOST did not report VALID: ${DMG_VERIFY_OUT:-<no output>}"
+  printf '    hdiutil verify (host)  %s\n' "$DMG_VERIFY_OUT"
+
+  for f in "$ZIP" "$DMG"; do
+    printf '    pulling %s\n' "$f"
+    pull_down "$REMOTE_REPO/$ART_DIR/$f" "$LOCAL_OUT/$arch/$f"
+  done
   LOCAL_SUM="$(shasum -a 256 "$LOCAL_OUT/$arch/$ZIP" | cut -d' ' -f1)"
-  [ "$LOCAL_SUM" = "$REMOTE_SUM" ] || die "$ZIP: transfer digest mismatch (local ${LOCAL_SUM:0:12} remote ${REMOTE_SUM:0:12})"
-  printf '    %s\n' "$LOCAL_OUT/$arch/$ZIP"
-  printf '    sha256 %s\n' "$LOCAL_SUM"
+  [ "$LOCAL_SUM" = "$ZIP_SUM_REMOTE" ] || die "$ZIP: transfer digest mismatch (local ${LOCAL_SUM:0:12} remote ${ZIP_SUM_REMOTE:0:12})"
+  LOCAL_DMG_SUM="$(shasum -a 256 "$LOCAL_OUT/$arch/$DMG" | cut -d' ' -f1)"
+  [ "$LOCAL_DMG_SUM" = "$DMG_SUM_REMOTE" ] || die "$DMG: transfer digest mismatch (local ${LOCAL_DMG_SUM:0:12} remote ${DMG_SUM_REMOTE:0:12})"
+  # The pulled dmg is the file a user mounts, so it is verified here too — not only on
+  # the host whose sha256 we just compared. A stream that preserved the digest but
+  # produced a structurally broken image cannot happen, but this is the cheap proof.
+  DMG_VERIFY_LOCAL_OUT="$(hdiutil verify "$LOCAL_OUT/$arch/$DMG" 2>&1 | tail -2 | tr '\n' ' ')"
+  case "$DMG_VERIFY_LOCAL_OUT" in
+    *VALID*) ;;
+    *) die "hdiutil verify of the pulled $DMG failed: ${DMG_VERIFY_LOCAL_OUT:-<no output>}" ;;
+  esac
+  printf '    hdiutil verify (local) %s\n' "$DMG_VERIFY_LOCAL_OUT"
+  printf '    %s\n    sha256 %s\n' "$LOCAL_OUT/$arch/$ZIP" "$LOCAL_SUM"
+  printf '    %s\n    sha256 %s\n' "$LOCAL_OUT/$arch/$DMG" "$LOCAL_DMG_SUM"
 
   # Machine-readable provenance for pinning: the commit the artefact was built from
   # and the digests a release manifest can carry. No jq, no extra deps.
@@ -523,6 +572,12 @@ EOF
     "bytes": $(stat -f '%z' "$LOCAL_OUT/$arch/$ZIP"),
     "sha256": "$LOCAL_SUM"
   },
+  "dmg": {
+    "file": "$DMG",
+    "bytes": $(stat -f '%z' "$LOCAL_OUT/$arch/$DMG"),
+    "sha256": "$LOCAL_DMG_SUM",
+    "hdiutilVerify": "$DMG_VERIFY_REMOTE"
+  },
   "app": {
     "path": "$APP_PATH",
     "executable": "$EXE_NAME",
@@ -544,7 +599,11 @@ done
 # --- 4. prove the pulled artefacts ------------------------------------------
 step "verify collected artefacts locally"
 for arch in "${ARCHES[@]}"; do
-  ZIP="$LOCAL_OUT/$arch/$APP_NAME-$arch-app.zip"
+  ZIP="$LOCAL_OUT/$arch/$APP_NAME-$APP_VERSION-$arch.zip"
+  DMG="$LOCAL_OUT/$arch/$APP_NAME-$APP_VERSION-$arch.dmg"
+  [ -f "$ZIP" ] || die "no pulled app zip at $ZIP"
+  [ -f "$DMG" ] || die "no pulled dmg at $DMG"
+  hdiutil verify "$DMG" >/dev/null 2>&1 || die "hdiutil verify failed for the pulled $DMG"
   rm -rf "$LOCAL_OUT/$arch/unpacked"
   mkdir -p "$LOCAL_OUT/$arch/unpacked"
   ditto -x -k "$ZIP" "$LOCAL_OUT/$arch/unpacked"
@@ -557,7 +616,8 @@ for arch in "${ARCHES[@]}"; do
   OMP_SUM="$(shasum -a 256 "$OMP" | cut -d' ' -f1)"
   grep -q "^$OMP_SUM .*omp-darwin-$arch\$" "$VENDOR_RELEASE/SHA256SUMS.txt" ||
     die "pulled $arch omp sha256 $OMP_SUM is not in SHA256SUMS.txt"
-  printf '    %s: exe %s, omp %s (%s…)\n' "$arch" "$(lipo -archs "$EXE")" "$(lipo -archs "$OMP")" "${OMP_SUM:0:12}"
+  printf '    %s: exe %s, omp %s (%s…), dmg hdiutil verify VALID\n' \
+    "$arch" "$(lipo -archs "$EXE")" "$(lipo -archs "$OMP")" "${OMP_SUM:0:12}"
 done
 
 step "done"

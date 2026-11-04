@@ -15,22 +15,23 @@
 #                 `build-remote.sh --check` for the requested arches, a readable token,
 #                 and a reachable repo whose Releases unit is enabled
 #   2. build      build-remote.sh for the requested arches
-#   3. provenance commit, bytes, zip sha256 and omp digest re-read from
+#   3. provenance commit, bytes, dmg/zip sha256 and omp digest re-read from
 #                 release-remote/<arch>/BUILD.json — never re-derived here — and every
 #                 arch must agree on the commit and on the omp release
 #   4. signing    probed on the host: identity count + the packaged app's authority
-#   5. stage      app zip, BUILD-<arch>.json, merged SHA256SUMS.txt, tuple.json
+#   5. stage      dmg, app zip, BUILD-<arch>.json, merged SHA256SUMS.txt, tuple.json
 #   6. tag        annotated tag at HEAD (default v<package.json version>+<short sha>),
 #                 refused if it exists anywhere at a different commit, pushed to
 #                 `origin` AND `github` explicitly (this submodule has no fan-out),
 #                 never forced
 #   7. release    POST /api/v1/repos/chatek/vclaw-app/releases; draft unless --publish
 #   8. upload     each staged asset, size-checked against the server's reply
-#   9. verify     re-fetch the release: served size == local size for every asset, and
-#                 SHA256SUMS.txt re-downloaded and compared byte for byte
+#   9. verify     re-fetch the release: served size == local size for every asset,
+#                 SHA256SUMS.txt re-downloaded and compared byte for byte, and each dmg
+#                 re-downloaded, re-hashed and `hdiutil verify`d from the served bytes
 #
-# Unsigned is unmistakable: the zip asset names carry `-unsigned` and the body states
-# `unsigned=yes` unless the host has a Developer ID identity AND the packaged app
+# Unsigned is unmistakable: the dmg and zip asset names carry `-unsigned` and the body
+# states `unsigned=yes` unless the host has a Developer ID identity AND the packaged app
 # carries that authority (build-remote.sh passes --config.mac.identity=null, so every
 # artefact built today is unsigned). `--dry-run` does steps 1-5 and then prints the
 # exact tag commands, the release JSON payload and every upload call it would make.
@@ -75,7 +76,9 @@ cleanup() {
 }
 # bash 3.2 also runs the ERR trap inside a command-substitution subshell, where the
 # caller handles the status on purpose (`A="$(cmd)" || …`); report only from the shell
-# that owns the script, so a handled failure never prints a "FAILED" line.
+# that owns the script, so a handled failure never prints a "FAILED" line. The rule for
+# later edits is the same as build-remote.sh's: an expected-to-fail pipeline either gets
+# its own `|| true`/`|| rc=$?` at the call site, or it inherits this guard — never neither.
 trap 'RC=$?; [ "${BASH_SUBSHELL:-0}" -eq 0 ] || exit "$RC"
 printf "release-forgejo: FAILED at line %s (rc=%s): %s\n" "$LINENO" "$RC" "$BASH_COMMAND" >&2
 exit "$RC"' ERR
@@ -193,6 +196,17 @@ pub_zip() {
     *) die "$LOCAL_OUT/$arch/BUILD.json artifact.file is '$file', expected *.zip" ;;
   esac
   if [ "$UNSIGNED" -eq 1 ]; then printf '%s-unsigned.zip' "${file%.zip}"; else printf '%s' "$file"; fi
+}
+
+# Published name for the arch's dmg: same unsigned-suffix contract as the zip.
+pub_dmg() {
+  local arch="$1" file
+  file="$(json_get "$LOCAL_OUT/$arch/BUILD.json" dmg.file)"
+  case "$file" in
+    *.dmg) ;;
+    *) die "$LOCAL_OUT/$arch/BUILD.json dmg.file is '$file', expected *.dmg" ;;
+  esac
+  if [ "$UNSIGNED" -eq 1 ]; then printf '%s-unsigned.dmg' "${file%.dmg}"; else printf '%s' "$file"; fi
 }
 
 # --- 0. resolve the release identity -----------------------------------------
@@ -325,6 +339,19 @@ for arch in "${ARCHES[@]}"; do
   bytes="$(json_get "$j" artifact.bytes)"
   actual_bytes="$(stat -f '%z' "$LOCAL_OUT/$arch/$zip")"
   [ "$bytes" = "$actual_bytes" ] || die "$LOCAL_OUT/$arch/$zip is $actual_bytes bytes, BUILD.json says $bytes"
+  zip_sha="$(json_get "$j" artifact.sha256)"
+  [ "$zip_sha" = "$(shasum -a 256 "$LOCAL_OUT/$arch/$zip" | cut -d' ' -f1)" ] ||
+    die "$LOCAL_OUT/$arch/$zip does not hash to the sha256 BUILD.json records ($zip_sha)"
+  dmg="$(json_get "$j" dmg.file)"
+  [ -f "$LOCAL_OUT/$arch/$dmg" ] || die "$j names '$dmg' but $LOCAL_OUT/$arch/$dmg does not exist"
+  dmg_bytes="$(json_get "$j" dmg.bytes)"
+  dmg_actual_bytes="$(stat -f '%z' "$LOCAL_OUT/$arch/$dmg")"
+  [ "$dmg_bytes" = "$dmg_actual_bytes" ] || die "$LOCAL_OUT/$arch/$dmg is $dmg_actual_bytes bytes, BUILD.json says $dmg_bytes"
+  dmg_sha="$(json_get "$j" dmg.sha256)"
+  [ "$dmg_sha" = "$(shasum -a 256 "$LOCAL_OUT/$arch/$dmg" | cut -d' ' -f1)" ] ||
+    die "$LOCAL_OUT/$arch/$dmg does not hash to the sha256 BUILD.json records ($dmg_sha)"
+  [ "$(json_get "$j" dmg.hdiutilVerify)" = "VALID" ] ||
+    die "$j does not record a VALID hdiutil verify for $dmg"
   omp="$(json_get "$j" omp.release)"
   [ -z "$OMP_RELEASE" ] || [ "$OMP_RELEASE" = "$omp" ] ||
     die "the arches disagree on the omp release ($OMP_RELEASE vs $omp)"
@@ -335,7 +362,7 @@ for arch in "${ARCHES[@]}"; do
   BUILT_ON="$host"
   at="$(json_get "$j" builtAt)"
   if [ -z "$BUILT_AT" ] || [[ "$at" > "$BUILT_AT" ]]; then BUILT_AT="$at"; fi
-  say "$arch $actual_bytes bytes, sha256 $(json_get "$j" artifact.sha256), omp $omp"
+  say "$arch zip $actual_bytes bytes, sha256 $zip_sha; dmg $dmg_actual_bytes bytes, sha256 $dmg_sha; omp $omp"
 done
 PRODUCT_NAME="$(json_get "$LOCAL_OUT/${ARCHES[0]}/BUILD.json" product.name)"
 [ -n "$PRODUCT_NAME" ] || PRODUCT_NAME="VClaw"
@@ -393,28 +420,34 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 ASSETS=()
 for arch in "${ARCHES[@]}"; do
-  name="$(pub_zip "$arch")"
-  stage_file "$LOCAL_OUT/$arch/$(json_get "$LOCAL_OUT/$arch/BUILD.json" artifact.file)" "$STAGE/$name"
+  zip="$(pub_zip "$arch")"
+  dmg="$(pub_dmg "$arch")"
+  stage_file "$LOCAL_OUT/$arch/$(json_get "$LOCAL_OUT/$arch/BUILD.json" artifact.file)" "$STAGE/$zip"
+  stage_file "$LOCAL_OUT/$arch/$(json_get "$LOCAL_OUT/$arch/BUILD.json" dmg.file)" "$STAGE/$dmg"
   cp "$LOCAL_OUT/$arch/BUILD.json" "$STAGE/BUILD-$arch.json"
-  ASSETS+=("$name" "BUILD-$arch.json")
+  ASSETS+=("$dmg" "$zip" "BUILD-$arch.json")
 done
 : >"$STAGE/SHA256SUMS.txt"
 for name in "${ASSETS[@]}"; do
   printf '%s  %s\n' "$(shasum -a 256 "$STAGE/$name" | cut -d' ' -f1)" "$name" >>"$STAGE/SHA256SUMS.txt"
 done
 TUPLE_ARGS=()
-for arch in "${ARCHES[@]}"; do TUPLE_ARGS+=("$arch=$(pub_zip "$arch")"); done
+for arch in "${ARCHES[@]}"; do TUPLE_ARGS+=("$arch=$(pub_dmg "$arch")=$(pub_zip "$arch")"); done
 python3 -c '
-import json, sys
+import json, os, sys
 commit, branch, built_at, sums_path = sys.argv[1:5]
 sums = {}
 for line in open(sums_path):
     digest, name = line.split()
     sums[name] = digest
+stage = os.path.dirname(sums_path)
 arches = {}
 for pair in sys.argv[5:]:
-    arch, name = pair.split("=", 1)
-    arches[arch] = {"zip": name, "sha256": sums[name]}
+    arch, dmg, zipname = pair.split("=", 2)
+    arches[arch] = {
+        "dmg": {"file": dmg, "bytes": os.path.getsize(os.path.join(stage, dmg)), "sha256": sums[dmg]},
+        "zip": {"file": zipname, "bytes": os.path.getsize(os.path.join(stage, zipname)), "sha256": sums[zipname]},
+    }
 print(json.dumps({"commit": commit, "branch": branch, "dirty": False,
                   "builtAt": built_at, "arches": arches}, indent=2))
 ' "$COMMIT" "$BRANCH" "$BUILT_AT" "$STAGE/SHA256SUMS.txt" "${TUPLE_ARGS[@]}" >"$STAGE/tuple.json"
@@ -432,13 +465,16 @@ BODY_FILE="$STAGE/release-body.md"
   printf -- '- built: %s\n' "$BUILT_AT"
   printf -- '- arches: %s\n' "${ARCHES[*]}"
   printf -- '- omp: release %s, shipped as `Contents/Resources/harness/bin/omp`\n' "$OMP_RELEASE"
+  printf -- '- artefacts per arch: `%s-<version>-<arch>-unsigned.dmg` (mountable installer, contains the same `%s.app`) and `%s-<version>-<arch>-unsigned.zip` (the `.app`); both unsigned and unnotarised\n' \
+    "$PRODUCT_NAME" "$PRODUCT_NAME" "$PRODUCT_NAME"
   printf -- '%s\n\n' "$SIGN_BODY"
   printf '| arch | asset | bytes | sha256 |\n|---|---|---|---|\n'
   for arch in "${ARCHES[@]}"; do
-    name="$(pub_zip "$arch")"
-    printf '| %s | `%s` | %s | `%s` |\n' "$arch" "$name" \
-      "$(stat -f '%z' "$STAGE/$name")" \
-      "$(awk -v n="$name" '$2 == n { print $1 }' "$STAGE/SHA256SUMS.txt")"
+    for name in "$(pub_dmg "$arch")" "$(pub_zip "$arch")"; do
+      printf '| %s | `%s` | %s | `%s` |\n' "$arch" "$name" \
+        "$(stat -f '%z' "$STAGE/$name")" \
+        "$(awk -v n="$name" '$2 == n { print $1 }' "$STAGE/SHA256SUMS.txt")"
+    done
   done
   printf '\n'
   for arch in "${ARCHES[@]}"; do
@@ -448,7 +484,8 @@ BODY_FILE="$STAGE/release-body.md"
   done
   printf '\n`SHA256SUMS.txt` carries those digests — `shasum -a 256 -c SHA256SUMS.txt` (or `sha256sum -c`).\n'
   printf '`BUILD-<arch>.json` is the builder'"'"'s own provenance record; `tuple.json` is the flat\n'
-  printf '`{commit, branch, dirty, builtAt, arches}` pin for a consumer.\n'
+  printf '`{commit, branch, dirty, builtAt, arches}` pin for a consumer, where each arch names\n'
+  printf 'its `dmg` and `zip` asset with bytes and sha256.\n'
   if [ "$DRAFT" -eq 1 ]; then
     printf '\nThis release is a **draft**: the assets stay visible to the token holder until it is published.\n'
   fi
@@ -570,6 +607,15 @@ for a in json.load(sys.stdin).get("assets") or []:
         print(a["size"]); break
 ' "$1"
 }
+asset_url() {
+  printf '%s' "$SERVED_JSON" | python3 -c '
+import json, sys
+want = sys.argv[1]
+for a in json.load(sys.stdin).get("assets") or []:
+    if a["name"] == want:
+        print(a["browser_download_url"]); break
+' "$1"
+}
 printf '  %-42s %12s %12s  %s\n' "asset" "served" "local" "sha256"
 for name in "${ASSETS[@]}"; do
   served="$(asset_size "$name")"
@@ -579,12 +625,7 @@ for name in "${ASSETS[@]}"; do
   printf '  %-42s %12s %12s  %s\n' "$name" "$served" "$local_bytes" \
     "$(awk -v n="$name" '$2 == n { print $1; exit }' "$STAGE/SHA256SUMS.txt" | cut -c1-16)"
 done
-SUMS_URL="$(printf '%s' "$SERVED_JSON" | python3 -c '
-import json, sys
-for a in json.load(sys.stdin).get("assets") or []:
-    if a["name"] == "SHA256SUMS.txt":
-        print(a["browser_download_url"]); break
-')"
+SUMS_URL="$(asset_url SHA256SUMS.txt)"
 [ -n "$SUMS_URL" ] || die "the release lists no SHA256SUMS.txt download URL"
 SERVED_SUMS="$STAGE/.served-SHA256SUMS.txt"
 curl -K "$CURL_CFG" -sSL --max-time 300 --retry 2 -o "$SERVED_SUMS" "$SUMS_URL" ||
@@ -593,6 +634,26 @@ cmp -s "$STAGE/SHA256SUMS.txt" "$SERVED_SUMS" ||
   die "the served SHA256SUMS.txt differs from the local one — do not trust this release"
 rm -f "$SERVED_SUMS"
 say "SHA256SUMS.txt re-downloaded and identical (cmp)"
+
+# The dmg is what a user mounts, so it is proven from the bytes the server serves —
+# not from the local copy: the served file must hash to the digest SHA256SUMS.txt
+# carries and `hdiutil verify` must accept it. A truncated or re-encoded upload dies here.
+for arch in "${ARCHES[@]}"; do
+  name="$(pub_dmg "$arch")"
+  url="$(asset_url "$name")"
+  [ -n "$url" ] || die "the release lists no download URL for $name"
+  served_dmg="$STAGE/.served-$name"
+  curl -K "$CURL_CFG" -sSL --max-time "$API_TIMEOUT" --retry 2 -o "$served_dmg" "$url" ||
+    die "cannot re-download $name from $url"
+  want_sha="$(awk -v n="$name" '$2 == n { print $1; exit }' "$STAGE/SHA256SUMS.txt")"
+  got_sha="$(shasum -a 256 "$served_dmg" | cut -d' ' -f1)"
+  [ "$got_sha" = "$want_sha" ] ||
+    die "$name: the served bytes hash to $got_sha, SHA256SUMS.txt says $want_sha"
+  hdiutil verify "$served_dmg" >/dev/null 2>&1 ||
+    die "$name: hdiutil verify rejects the served dmg"
+  say "$name: served sha256 $got_sha, hdiutil verify VALID (re-downloaded)"
+  rm -f "$served_dmg"
+done
 
 step "done"
 printf '    release  %s\n' "$RELEASE_URL" >&2

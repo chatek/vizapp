@@ -7,12 +7,12 @@ below has exactly one procedure document.
 
 | flow | use it for | procedure | driver |
 |---|---|---|---|
-| **remote (primary)** | every artefact of record — the `.app` (OMP is bundled only in a checkout that declares `harness/bin` in `build.mac.extraResources`) | [BUILD_REMOTE.md](BUILD_REMOTE.md) | `scripts/release/build-remote.sh` |
+| **remote (primary)** | every artefact of record — the unsigned `.dmg` and the `.app` `.zip` (OMP is bundled only in a checkout that declares `harness/bin` in `build.mac.extraResources`) | [BUILD_REMOTE.md](BUILD_REMOTE.md) | `scripts/release/build-remote.sh` |
 | **local (fallback)** | only when that host is unavailable: does the tree still package? (when the tree bundles a harness binary) does the bundled `omp` verify? | [BUILD_LOCAL.md](BUILD_LOCAL.md) | `scripts/release/build-local.sh` |
-| **dmg/zip installers** | `.dmg`/`.zip` via `package.mjs`, on that same host and toolchain | [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md) | `npm run package:mac[:local-qa]` |
+| **dmg/zip via `package.mjs`** | the signing/notarisation lane on that same host and toolchain — blocked while no Developer ID exists; the remote flow already emits an unsigned dmg, so this is not needed for an unsigned release | [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md) | `npm run package:mac[:local-qa]` |
 
 ```bash
-# primary — builds on the host, pulls the .app back to release-remote/<arch>/
+# primary — builds on the host, pulls the .dmg and the .app .zip back to release-remote/<arch>/
 bash scripts/release/build-remote.sh --arm64
 
 # fallback — refuses unless explicitly acknowledged; output is not evidence
