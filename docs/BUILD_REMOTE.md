@@ -302,13 +302,26 @@ member build from this tree — measured, rc=0, 1m06s:
 | collected zip | `VClaw-arm64-app.zip` | `VizMaster-arm64-app.zip` (249,691,722 B, sha256 `bc3b25054ec5…`) |
 
 > **2026-11-05 operator ruling — the member profile keeps the GENERIC identity.**
-> `product/vizmaster.json` now carries `productName: "VClaw"` / `appId: "com.vclaw.desktop"`. The
+> `product/vizmaster.json` must carry `productName: "VClaw"` / `appId: "com.vclaw.desktop"`. The
 > member build is meant to install **over** a generic install: same userData, one updater channel,
 > in-place upgrade, and the existing `~/VizMaster` workspace preserved. The member row above is the
 > **pre-ruling** measurement; `product.json` id stays `vizmaster` (it names the artifact and the
-> profile), while the bundle/executable/`CFBundleIdentifier` are now `VClaw.app` / `VClaw` /
-> `com.vclaw.desktop`. `package.mjs` derives exactly the generic build's identity, so the packaged
-> `CFBundleIdentifier` must equal the generic artifact's.
+> profile), and once the profile change is committed the bundle/executable/`CFBundleIdentifier`
+> become `VClaw.app` / `VClaw` / `com.vclaw.desktop`. `package.mjs` derives exactly the generic
+> build's identity, so the packaged `CFBundleIdentifier` must equal the generic artifact's.
+>
+> **State at the time of writing:** the ruling is applied in the working tree but **not committed**,
+> and this driver builds the *commit* — so a build of the current HEAD still packages the pre-ruling
+> profile (`VizMaster` / `app.vizmaster.desktop`). The driver now refuses that divergence: a profile
+> that differs from HEAD aborts with `product profile … has uncommitted changes, but this build
+> packages the profile committed at <sha>`, and `--check` reports `FAIL profile — … differs from
+> HEAD`. Re-measure the member build once the profile change is committed.
+
+For the seeded project, `defaultProject.from` is `vizmaster` — the Resources directory the
+integrator's `{from: 'vendor/vizmaster', to: 'vizmaster'}` entry produces — not the README-only
+`product/payload`. `defaultProject.version` is checked in as `0.0.0+unrendered` and is rendered by
+`package.mjs` from `vendor/<member>/BUILD.json`'s `release`; otherwise one artifact would carry two
+release ids and the seeded project's `BUILD.json` would name a stale one.
 
 The profile's `identity.productName` / `identity.appId` are passed as
 `--config.productName=…` / `--config.appId=…`, exactly as `package.mjs` does, and the driver
@@ -326,7 +339,10 @@ mismatch aborts. Two traps made that assertion earn its keep:
   `VClaw.app` hardcode would break any member that later selects a different `productName`. Both are
   derived now: the bundle from the profile, the executable from `CFBundleExecutable` via `plutil`.
 
-Only the generic default was proven for x64; the member profile was proven for arm64.
+Only the generic default was proven for x64; the member profile was proven for arm64 **pre-ruling**.
+Post-ruling values follow from the same mechanism (`APP_NAME` from the profile, so the bundle is
+`VClaw.app`, executable `VClaw`, `CFBundleIdentifier com.vclaw.desktop`, `product.json` id still
+`vizmaster`) but are unmeasured until that profile change is committed.
 
 ### What `VCLAW_PROFILE` does **not** do
 
@@ -341,9 +357,11 @@ what writes the member overlay (`Resources/<MEMBER_ID>/`, payload dist, agent ex
 checkout; a `--dir` build without it cannot satisfy the mounted-dmg assert.
 
 `package.mjs --member` now fails closed **before** electron-builder when `vendor/<MEMBER_ID>/dist`
-is absent or `product/payload` still carries only `README.md`, so a missing or early integrate can
-no longer produce a plausible artifact with no member content. The mounted-dmg assert in
-`release.yml` then re-checks the payload inside the built dmg.
+is absent, when the payload directory named by the profile's `defaultProject.from` carries only
+`README.md`, or when `vendor/<MEMBER_ID>/BUILD.json` has no `release` id. A missing or early
+integrate therefore cannot produce a plausible artifact with no member content, and the packaged
+profile cannot stamp a placeholder release. The mounted-dmg assert in `release.yml` then re-checks
+the payload inside the built dmg.
 
 The payload `BUILD.json` itself is emitted by the **member** repo (`scripts/build-info.mjs`,
 copied in by `bundle-vizmaster.mjs`), and `release.yml` only validates it. The bundler fails
@@ -402,7 +420,11 @@ mounted-dmg assert would reject the artifact. After the dmg is verified, the mem
 payload `BUILD.json` beside the dmg (`release/mac/<arch>/BUILD.json`), adds it to `SHA256SUMS`, and
 uploads it — so the handoff directory carries the vclaw sha under named keys
 (`vclawCommit`/`vclawVersion`) instead of requiring it to be inferred from the artifact tuple's
-ordering.
+ordering. The same job then publishes that directory to the public staging prefix
+`vclaw-desktop/member/<member>/<release>/<vclaw-sha>/<arch>/` (dmg, zip, `BUILD.json`,
+`SHA256SUMS`, `tuple.json`) with `scripts/release/publish-member-staging.mjs`: the prefix is
+append-only (an existing key is refused), and a dirty `BUILD.json` is a refusal, so the tuple can
+only say clean. See `RELEASE_HOSTING.md` §"Member handoff staging".
 
 ## x64 on an arm64 host
 

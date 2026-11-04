@@ -147,6 +147,18 @@ PROFILE_NAME="$(sed -n 's/.*"productName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/
 PROFILE_APP_ID="$(sed -n 's/.*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PROFILE_FILE" 2>/dev/null | head -1)"
 APP_NAME="${PROFILE_NAME:-VClaw}"
 
+# ok | dirty | untracked — a profile that differs from HEAD cannot be what the
+# remote checkout packages, so building it would silently use the committed file.
+profile_state() {
+  if ! git -C "$REPO_ROOT" ls-files --error-unmatch "$PROFILE" >/dev/null 2>&1; then
+    echo untracked
+  elif git -C "$REPO_ROOT" diff --quiet HEAD -- "$PROFILE"; then
+    echo ok
+  else
+    echo dirty
+  fi
+}
+
 COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 BRANCH="$(git -C "$REPO_ROOT" symbolic-ref --short -q HEAD)" ||
   die "detached HEAD in $REPO_ROOT — check out the branch you intend to build"
@@ -187,6 +199,11 @@ preflight() {
   else
     verdict_fail node "missing ~/build/toolchain/node-v$want-darwin-arm64/bin/node — see one-time setup in docs/BUILD_REMOTE.md"
   fi
+  case "$(profile_state)" in
+    ok) verdict_ok profile "$PROFILE matches HEAD (built from ${COMMIT:0:12})" ;;
+    dirty) verdict_fail profile "$PROFILE differs from HEAD — the build packages the committed profile, not this edit" ;;
+    untracked) verdict_fail profile "$PROFILE is not tracked — it cannot be in the commit the host builds" ;;
+  esac
   verdict_ok "host node (default)" "$(ssh_run "export PATH=/opt/homebrew/bin:/usr/bin:/bin; node -v 2>/dev/null || echo 'none on PATH'") — never used for builds"
 
   # 3. checkout — present, and at the commit this workstation is on
@@ -303,6 +320,15 @@ for arch in "${ARCHES[@]}"; do
 done
 [ -f "$VENDOR_RELEASE/SHA256SUMS.txt" ] || die "missing $VENDOR_RELEASE/SHA256SUMS.txt"
 [ -f "$PROFILE_FILE" ] || die "no product profile at $PROFILE_FILE (VCLAW_PROFILE)"
+case "$(profile_state)" in
+  ok) ;;
+  dirty)
+    die "product profile $PROFILE has uncommitted changes, but this build packages the
+       profile committed at ${COMMIT:0:12} — the artefact must come from a commit.
+       Commit the profile change (or build the commit that contains it), then rerun."
+    ;;
+  untracked) die "$PROFILE is not tracked by git, so the remote checkout cannot contain it" ;;
+esac
 
 ssh_run "mkdir -p \"\$HOME/$REMOTE_REPO\" \"\$HOME/$REMOTE_VENDORS\""
 
