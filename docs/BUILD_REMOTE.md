@@ -414,6 +414,13 @@ dirty flag is the **string** `"false"` passes a gate meant to refuse dirty build
 today (the member emitter writes real booleans), but any second producer that stringifies the field
 walks through. Do not "simplify" the stricter assert to match `:320`.
 
+The short-sha gap is closed on the producer side: `build-info.mjs` emits
+`vizmasterCommitFull` / `vclawCommitFull` (40 hex), and when both the payload and the pin carry full
+shas the assert compares them **exactly** — `FAIL: vizmasterCommitFull <full> != pinned <full>`,
+rc=1 — keeping the prefix rule for short pins (verified in the member tree at `59bac6b`:
+`assert-member-dmg.sh:91-93`, `build-info.mjs:118-119`). A pin can therefore name the exact commit;
+the short keys remain for display and for the in-tree `:326` prefix check.
+
 **Member-repo source of truth.** Measured 2026-11-05: the Forgejo mirror `chatek/vizmaster` is at
 `a77a74ef` (2026-10-26) while GitHub and the local working tree are at `800a9e5` (2026-11-05) —
 ten days stale. A payload cut from the mirror would carry a stamp naming code that is not there,
@@ -433,10 +440,12 @@ payload `BUILD.json` beside the dmg (`release/mac/<arch>/BUILD.json`), adds it t
 uploads it — so the handoff directory carries the vclaw sha under named keys
 (`vclawCommit`/`vclawVersion`) instead of requiring it to be inferred from the artifact tuple's
 ordering. The same job then publishes that directory to the public staging prefix
-`vclaw-desktop/member/<member>/<release>/<vclaw-sha>/<arch>/` (dmg, zip, `BUILD.json`,
-`SHA256SUMS`, `tuple.json`) with `scripts/release/publish-member-staging.mjs`: the prefix is
+`staging/member/<member>/<release>/<vclaw-sha>/<arch>/` (dmg, zip, `BUILD.json`,
+`SHA256SUMS`, `handoff.json`, `tuple.json`) with `scripts/release/publish-member-staging.mjs`: the prefix is
 append-only (an existing key is refused), and a dirty `BUILD.json` is a refusal, so the tuple can
-only say clean. See `RELEASE_HOSTING.md` §"Member handoff staging".
+only say clean. `handoff.json` is the flat manifest the consumer validates
+(`{vizmasterSha, vclawSha, arch, dirty, builtAt}`); it is written from the payload's full-sha keys.
+See `RELEASE_HOSTING.md` §"Member handoff staging".
 
 ## x64 on an arm64 host
 
