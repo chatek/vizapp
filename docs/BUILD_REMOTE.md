@@ -132,16 +132,19 @@ digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is t
 | file | written by | contents | meaning |
 |---|---|---|---|
 | `release-remote/<arch>/BUILD.json` (**release**) | this driver, beside the artefact, never inside the app | full 40-char commit, branch, product id/appId, zip bytes+sha256, `omp` digest+slices, electron version, `signing` | what these exact bytes are |
-| `VizMaster.app/Contents/Resources/<MEMBER_ID>/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and `.github/workflows/release.yml:312-327` asserts it afterwards | eight keys incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` — **short shas** | which member/vclaw pair the payload was cut from |
+| `VizMaster.app/Contents/Resources/<MEMBER_ID>/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and `.github/workflows/release.yml:312-330` asserts it afterwards | eight-key contract incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` (short shas), plus `vizmasterCommitFull` / `vclawCommitFull` (40 chars) in the current producer | which member/vclaw pair the payload was cut from |
 | `~/<Name>/BUILD.json` (**runtime seed**) | the app itself, `writeBuildJson()` in `electron/main/default-project.ts:186-203`, at first-launch project seed; skipped when the installed `release` already matches | `{release, name, seededAt}` merged over keys the payload already carried | which payload release a user's project was seeded from |
 
 Attribution matters: `electron/main/product-profile.ts:55` is the JSDoc on
 `DefaultProjectSpec.version` that *documents* the stamp — it writes nothing. The in-bundle payload
 file comes from the member repo, the `~/<Name>` file from the runtime seeder, and neither is
 produced by this packaging step. `release.yml` therefore validates a stamp it did not emit
-(including `dirty`/`vclawDirty` and short-sha *prefix* comparison); a pin auto-bump that reads it
-inherits that format and that producer, so if full shas are wanted the producer has to change —
-not the assertion.
+(including `dirty`/`vclawDirty` and short-sha *prefix* comparison). The producer already emits the
+full-length companions — `vizmasterCommitFull` / `vclawCommitFull` (40 chars) sit beside the
+eight-key contract — and `assert-member-dmg.sh` exact-matches a full-length pin
+(`vizmasterCommitFull <a> != pinned <b>`). So pinning a full sha needs a CI step that reads those
+keys; it does **not** need a change to the producer, and the existing prefix assert in
+`release.yml` accepts a 40-char pin unchanged.
 
 **The zip is not bit-reproducible across runs.** Three builds of the same commit (`cabbc52495bb…`)
 on the same host produced 249,687,809 → 249,687,816 → 249,687,818 bytes (arm64) and 260,078,847 →
