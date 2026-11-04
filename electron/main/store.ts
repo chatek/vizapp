@@ -112,7 +112,7 @@ export function defaultSettings(): AppSettings {
     launchAtLogin: false,
     terminalOpen: false,
     defaultInspectorTab: 'summary',
-    browserHome: 'https://www.google.com/',
+    browserHome: 'https://vizmaster.app/', // VizMaster: the marketplace IS the home page (was google)
     browserAskForDownloads: true,
     terminalShell: defaultShell,
     reduceMotion: false,

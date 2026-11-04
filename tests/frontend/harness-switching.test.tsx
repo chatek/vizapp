@@ -444,22 +444,25 @@ describe('sidebar brand switcher', () => {
     const menu = container.querySelector('[role="menu"]')
     expect(menu).not.toBeNull()
     const options = [...menu!.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
-    expect(options.map((option) => option.textContent)).toEqual(['Prime Work'])
-    expect(options[0].getAttribute('aria-checked')).toBe('true')
-
-    await click(options[0])
-    expect(onSelectHarness).not.toHaveBeenCalled()
-    expect(container.querySelector('[role="menu"]')).toBeNull()
+    // VIZMASTER POSTURE: only OMP is listed; with just Prime detected the menu is empty,
+    // because detection still filters — the ORDER restricts, it does not fabricate.
+    expect(options.map((option) => option.textContent)).toEqual([])
+    expect(container.querySelector('[role="menu"]')).not.toBeNull()
   })
 
-  it('switches to Pi from the brand switcher', async () => {
+  // VIZMASTER POSTURE: the brand switcher offers OMP Work only — even with Prime and Pi
+  // both detected on the host (allDetectedMeta). The original test switched to Pi; this
+  // branch removed the option, so the honest assertion is that Pi is NOT offered.
+  it('does not offer Pi or Prime on the vizmaster branch, even when both are detected', async () => {
     const onSelectHarness = vi.fn()
     await renderSidebar(onSelectHarness, 'prime', allDetectedMeta)
 
     await click(container.querySelector('.brand-switcher__trigger')!)
     const options = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+    expect(options.map((option) => option.textContent)).toEqual(['OMP Work'])
+    expect(options[0].getAttribute('aria-checked')).toBe('false')
     await click(options[0])
-    expect(onSelectHarness).toHaveBeenCalledWith('pi')
+    expect(onSelectHarness).toHaveBeenCalledWith('omp')
     expect(container.querySelector('[role="menu"]')).toBeNull()
   })
 

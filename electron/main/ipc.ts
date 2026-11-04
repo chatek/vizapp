@@ -1,5 +1,5 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import type { ApplicationMenuName, AppMeta, HarnessId, SessionChangeEvent, ThemeMode } from '../../src/types/api'
+import type { ApplicationMenuName, AppMeta, HarnessId, SessionChangeEvent, TitleBarTheme } from '../../src/types/api'
 import type { AgentRpcManager } from './agent-rpc'
 import type { GitService } from './git'
 import type { CuaDriverService } from './cua-driver'
@@ -24,7 +24,7 @@ interface Services {
   meta: AppMeta
   refreshHarnesses(): Promise<{ meta: AppMeta; settings: ReturnType<SettingsService['get']> }>
   popupApplicationMenu(sender: WebContents, menu: ApplicationMenuName, x: number, y: number): boolean
-  setTitleBarTheme(sender: WebContents, theme: Exclude<ThemeMode, 'system'>): boolean
+  setTitleBarTheme(sender: WebContents, theme: TitleBarTheme): boolean
   projects: ProjectService
   checkouts: Record<HarnessId, CheckoutService>
   sessions: SessionService
@@ -76,9 +76,9 @@ function requireMenuCoordinate(value: unknown): number {
   return Math.round(value)
 }
 
-function requireResolvedTheme(value: unknown): Exclude<ThemeMode, 'system'> {
+function requireTitleBarTheme(value: unknown): TitleBarTheme {
   if (value === 'light' || value === 'dark') return value
-  throw new TypeError('Invalid resolved theme')
+  throw new TypeError('Invalid title-bar theme (expected light|dark)')
 }
 
 type IpcEvent = IpcMainInvokeEvent | IpcMainEvent
@@ -194,7 +194,7 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
   })
   handle('app:refresh-harnesses', () => services.refreshHarnesses())
   handle('app:popup-menu', (event, menu, x, y) => services.popupApplicationMenu(event.sender, requireApplicationMenu(menu), requireMenuCoordinate(x), requireMenuCoordinate(y)))
-  handle('app:set-title-bar-theme', (event, theme) => services.setTitleBarTheme(event.sender, requireResolvedTheme(theme)))
+  handle('app:set-title-bar-theme', (event, theme) => services.setTitleBarTheme(event.sender, requireTitleBarTheme(theme)))
   handle('app:open-external', async (_event, url) => {
     try { await shell.openExternal(requireWebUrl(url, { mailto: true }), { activate: true }); return true } catch (error) {
       console.warn('Rejected app:open-external:', error instanceof Error ? error.message : error)

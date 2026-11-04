@@ -5,7 +5,14 @@
  */
 export const BROWSER_PARTITION = 'persist:prime-work-browser'
 
-export type ThemeMode = 'system' | 'light' | 'dark'
+export type ThemeMode = 'system' | 'light' | 'dark' | 'catppuccin-mocha'
+
+/**
+ * What the NATIVE chrome understands. A named theme (e.g. catppuccin-mocha) never crosses
+ * this boundary as itself: the renderer resolves it to its family ('light' | 'dark') for
+ * the Windows title-bar overlay, while the DOM carries the full id in `data-theme`.
+ */
+export type TitleBarTheme = 'light' | 'dark'
 export type WorkspaceView = 'session' | 'projects' | 'activity' | 'scheduled' | 'plugins' | 'settings'
 export type InspectorTab = 'summary' | 'changes' | 'browser' | 'files' | 'inbox'
 export type SessionStatus = 'idle' | 'running' | 'waiting' | 'complete' | 'failed' | 'unknown'
@@ -819,7 +826,7 @@ export interface AgentBrowserPointerEvent {
 }
 
 export interface PrimeWorkApi {
-  app: { getMeta(): Promise<AppMeta>; refreshHarnesses(): Promise<{ meta: AppMeta; settings: AppSettings }>; openExternal(url: string): Promise<boolean>; revealPath(path: string): Promise<boolean>; popupMenu(menu: ApplicationMenuName, x: number, y: number): Promise<boolean>; setTitleBarTheme(theme: Exclude<ThemeMode, 'system'>): Promise<boolean>; onOpenSettings(callback: () => void): () => void }
+  app: { getMeta(): Promise<AppMeta>; refreshHarnesses(): Promise<{ meta: AppMeta; settings: AppSettings }>; openExternal(url: string): Promise<boolean>; revealPath(path: string): Promise<boolean>; popupMenu(menu: ApplicationMenuName, x: number, y: number): Promise<boolean>; setTitleBarTheme(theme: TitleBarTheme): Promise<boolean>; onOpenSettings(callback: () => void): () => void }
   updates: {
     getState(): Promise<AppUpdateState>
     check(): Promise<AppUpdateState>

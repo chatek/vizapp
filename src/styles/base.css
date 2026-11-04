@@ -149,6 +149,65 @@ select, option, optgroup { color-scheme: light; }
 option, optgroup { color: var(--text); background-color: var(--surface-raised); }
 option:disabled { color: var(--text-tertiary); }
 :root[data-theme="dark"] select, :root[data-theme="dark"] option, :root[data-theme="dark"] optgroup { color-scheme: dark; }
+
+/* ── named theme: Catppuccin Mocha (vizmaster) ──────────────────────────────────
+   One block, ~40 tokens, zero component edits. Every value below is a Catppuccin Mocha
+   palette entry mapped onto this app's existing token names (base/mantle/crust,
+   surface0/1, text/subtext0/overlay0, mauve/blue/green/yellow/red). The terminal reads
+   the same tokens at runtime, so it re-skins with the observer it already has. */
+:root[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+  --canvas: #1e1e2e;
+  --sidebar: #181825;
+  --surface-subtle: #181825;
+  --surface-hover: #313244;
+  --surface-selected: #45475a;
+  --surface-raised: #1e1e2e;
+  --text: #cdd6f4;
+  --text-secondary: #a6adc8;
+  --text-tertiary: #6c7086;
+  --border: #313244;
+  --border-strong: #45475a;
+  --focus: #89b4fa;
+  --prime: #cba6f7;
+  --prime-soft: #30243f;
+  --success: #a6e3a1;
+  --success-soft: #26302a;
+  --warning: #f9e2af;
+  --warning-soft: #383223;
+  --danger: #f38ba8;
+  --danger-soft: #3a2a30;
+  --diff-add: #253326;
+  --diff-add-line: #a6e3a1;
+  --diff-remove: #3a2a2c;
+  --diff-remove-line: #f38ba8;
+  --annotation: #89b4fa;
+  --terminal-bg: #11111b;
+  --terminal-text: #cdd6f4;
+  --terminal-toolbar-bg: #181825;
+  --terminal-border: #313244;
+  --terminal-control: #a6adc8;
+  --terminal-control-active: #cdd6f4;
+  --terminal-control-bg: #313244;
+  --terminal-control-hover: #45475a;
+  --terminal-resize: #585b70;
+  --terminal-selection: #45475a99;
+  --terminal-black: #45475a;
+  --terminal-red: #f38ba8;
+  --terminal-green: #a6e3a1;
+  --terminal-yellow: #f9e2af;
+  --terminal-blue: #89b4fa;
+  --terminal-magenta: #cba6f7;
+  --terminal-cyan: #94e2d5;
+  --terminal-white: #bac2de;
+  --terminal-bright-black: #585b70;
+  --terminal-bright-red: #eba0ac;
+  --terminal-bright-green: #94e2d5;
+  --terminal-bright-yellow: #f5e0dc;
+  --terminal-bright-blue: #74c7ec;
+}
+:root[data-theme="catppuccin-mocha"] select, :root[data-theme="catppuccin-mocha"] option, :root[data-theme="catppuccin-mocha"] optgroup { color-scheme: dark; }
+
 button { border: 0; }
 button, select { cursor: default; }
 button:disabled { opacity: .38; pointer-events: none; }

@@ -5,7 +5,8 @@ import {
   PANEL_SETTING_KEYS,
   type PanelSettingKey,
 } from '@/lib/settings-state'
-import type { AppSettings, InspectorTab, PrimeWorkApi } from '@/types/api'
+import { dataThemeOf, titleBarThemeOf } from '@/lib/theme'
+import type { AppSettings, InspectorTab, PrimeWorkApi, ThemeMode } from '@/types/api'
 
 interface UseAppSettingsOptions {
   bridge: PrimeWorkApi | null
@@ -118,14 +119,14 @@ export function useAppSettings({ bridge, reportError }: UseAppSettingsOptions) {
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const applyTheme = (theme: 'light' | 'dark') => {
-      document.documentElement.dataset.theme = theme
-      void bridge?.app?.setTitleBarTheme?.(theme)?.catch(() => undefined)
+    const applyTheme = (mode: ThemeMode, systemPrefersDark: boolean) => {
+      document.documentElement.dataset.theme = dataThemeOf(mode, systemPrefersDark)
+      void bridge?.app?.setTitleBarTheme?.(titleBarThemeOf(mode, systemPrefersDark))?.catch(() => undefined)
     }
-    applyTheme(settings.theme === 'system' ? media.matches ? 'dark' : 'light' : settings.theme)
+    applyTheme(settings.theme, media.matches)
     document.documentElement.classList.toggle('reduce-motion', settings.reduceMotion)
     const sync = () => {
-      if (settings.theme === 'system') applyTheme(media.matches ? 'dark' : 'light')
+      if (settings.theme === 'system') applyTheme(settings.theme, media.matches)
     }
     media.addEventListener('change', sync)
     return () => media.removeEventListener('change', sync)

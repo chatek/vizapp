@@ -21,7 +21,7 @@ export class SettingsService {
     // never be silently rejected or silently dropped.
     const validators: { [K in keyof AppSettings]: (value: unknown) => AppSettings[K] } = {
       theme: (value) => {
-        if (value !== 'system' && value !== 'light' && value !== 'dark') throw new TypeError('Invalid theme')
+        if (value !== 'system' && value !== 'light' && value !== 'dark' && value !== 'catppuccin-mocha') throw new TypeError('Invalid theme')
         return value
       },
       locale: (value) => {

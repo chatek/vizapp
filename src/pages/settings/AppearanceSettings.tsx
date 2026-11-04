@@ -1,6 +1,7 @@
-import { Check, Laptop, Moon, Sun } from 'lucide-react'
+import { Check, Laptop, Moon, Palette, Sun } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 import { useI18n, type MessageKey } from '@/lib/i18n'
+import { NAMED_THEMES } from '@/lib/theme'
 import type { InterfaceFontScale, LocalePreference, ThemeMode } from '@/types/api'
 import type { SettingsSectionProps } from './contracts'
 import { SettingsToggle } from './SettingsToggle'
@@ -9,6 +10,9 @@ const themes: Array<{ id: ThemeMode; label: MessageKey; icon: typeof Sun }> = [
   { id: 'system', label: 'appearance.theme.system', icon: Laptop },
   { id: 'light', label: 'appearance.theme.light', icon: Sun },
   { id: 'dark', label: 'appearance.theme.dark', icon: Moon },
+  // Named themes are appended, so a new palette is one entry in NAMED_THEMES + one CSS
+  // block — the settings UI never needs a per-theme edit.
+  ...NAMED_THEMES.map((theme) => ({ id: theme.id as ThemeMode, label: theme.label, icon: Palette })),
 ]
 
 const fontScales: Array<{ value: InterfaceFontScale; label: MessageKey }> = [

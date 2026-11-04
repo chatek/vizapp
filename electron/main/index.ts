@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { assertNoMcpAuthenticationCommand } from '../../src/lib/mcp-policy'
-import { BROWSER_PARTITION, HARNESS_IDS, type ApplicationMenuName, type AppMeta, type AppUpdateState, type HarnessId, type PrimeEventEnvelope, type ProviderAuthEvent, type RuntimeInfo, type ThemeMode } from '../../src/types/api'
+import { BROWSER_PARTITION, HARNESS_IDS, type ApplicationMenuName, type AppMeta, type AppUpdateState, type HarnessId, type PrimeEventEnvelope, type ProviderAuthEvent, type RuntimeInfo, type ThemeMode, type TitleBarTheme } from '../../src/types/api'
 import { AgentRpcManager, OMP_RPC_ADAPTER, PI_RPC_ADAPTER } from './agent-rpc'
 import { installApplicationMenu } from './application-menu'
 import { MacBackgroundController, shouldStartInBackground } from './background'
@@ -304,7 +304,7 @@ function applyInterfaceZoom(scale: number): void {
   }
 }
 
-type ResolvedTheme = Exclude<ThemeMode, 'system'>
+type ResolvedTheme = TitleBarTheme
 
 function windowsTitleBarOverlay(theme: ResolvedTheme): { color: string; symbolColor: string; height: number } {
   return theme === 'dark'
@@ -313,9 +313,11 @@ function windowsTitleBarOverlay(theme: ResolvedTheme): { color: string; symbolCo
 }
 
 function resolvedWindowTheme(theme: ThemeMode | undefined): ResolvedTheme {
-  if (theme === 'dark') return 'dark'
-  if (theme === 'system' && nativeTheme.shouldUseDarkColors) return 'dark'
-  return 'light'
+  // 'light' is the only light-family mode today; every named theme (catppuccin-mocha) is
+  // dark-family. When a light-family named theme lands, this becomes a family map.
+  if (theme === 'light') return 'light'
+  if (theme === 'system' && !nativeTheme.shouldUseDarkColors) return 'light'
+  return 'dark'
 }
 
 export function mainWindowChromeOptions(platform: NodeJS.Platform = process.platform, theme: ResolvedTheme = 'light'): BrowserWindowConstructorOptions {

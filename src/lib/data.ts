@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launchAtLogin: false,
   terminalOpen: false,
   defaultInspectorTab: 'summary',
-  browserHome: 'http://localhost:3000',
+  browserHome: 'https://vizmaster.app/', // vizmaster: keep in lockstep with electron/main/store.ts (two defaults, one intent)
   browserAskForDownloads: true,
   terminalShell: '/bin/zsh',
   reduceMotion: false,
