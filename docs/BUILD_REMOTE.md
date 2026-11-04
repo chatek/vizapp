@@ -1,0 +1,394 @@
+# Remote build — VClaw desktop, `electron-builder --dir` flow
+
+The macOS app is built **only** on `BUILD_USER_REDACTED`; a local
+`release/` tree is a throwaway, not evidence. This file is the authoritative procedure for the
+flow that bundles OMP into the app (`electron-builder --mac --<arch> --dir`, driver
+`scripts/release/build-remote.sh`). The dmg/zip flow — signing, notarisation, `package.mjs`,
+its npm-12 trap — is a different lane and lives in [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md).
+
+Everything below was measured on 2026-11-04/05 on the host, not inferred from the docs.
+
+## Remote is primary — there is no silent fallback
+
+`scripts/release/build-remote.sh` builds **only** on the host. If the host is unreachable it
+exits non-zero and prints the pointer to `scripts/release/build-local.sh` /
+[BUILD_LOCAL.md](BUILD_LOCAL.md); it never switches to a local build on its own, and a local
+build is never evidence for a release. The local path is a separate, explicitly opt-in script
+(`VCLAW_ALLOW_LOCAL_BUILD=1`) for the case where the host is genuinely unavailable.
+
+## Host facts
+
+| | before setup | after setup |
+|---|---|---|
+| node (PATH) | **v25.8.0** (`/opt/homebrew/bin/node`) | v25.8.0 — untouched; the driver prepends **v24.15.0** for the build |
+| npm | 11.11.0 (from node 25) | 11.12.1 (ships inside node 24.15.0) |
+| bun / nvm / fnm / mise | absent | absent (not needed) |
+| Xcode | Command Line Tools only, `/Library/Developer/CommandLineTools`; `xcodebuild -version` → `xcode-select: error: tool 'xcodebuild' requires Xcode` | same — CLT is sufficient, no Xcode.app |
+| OS / CPU | macOS 26.3.1 (25D2128), arm64, Apple M4 | same |
+| disk | 198 GiB free on `/System/Volumes/Data` | 198 GiB free before the build |
+| code-signing identities | 0 → `--config.mac.identity=null` in the driver | same |
+
+Two things about the host's network are not negotiable, and both cost a cycle if discovered late:
+
+* **`github.com` does not resolve to anything routable** — `nslookup github.com` → `198.18.0.11`,
+  the fake-ip range a local Clash Verge (`verge-mihomo`) TUN hands out. electron-builder's
+  downloads therefore need `ELECTRON_MIRROR`, and the OMP binaries can never be fetched from a
+  GitHub release URL on this host.
+* **The host's tailnet does not contain the Forgejo box.** `tailscale status` on the host lists
+  42 peers and no `vmaker-pi`; `vmaker-pi.TAILNET_REDACTED` resolves to the same fake-ip
+  `198.18.0.11` and `curl -v` dies in the TLS handshake:
+  `LibreSSL SSL_connect: SSL_ERROR_SYSCALL`. Measured — so this host **cannot clone from
+  Forgejo**, even though the workstation can (`curl -o /dev/null -w %{http_code}` → `200`,
+  `TAILNET_IP_REDACTED`). Source therefore arrives as a **git bundle streamed over `tailscale ssh`**,
+  which is also why the driver never needs a GitHub or Forgejo credential.
+
+## Directory layout on the host
+
+```
+~/build/vclaw/
+├── src.bundle                                   # last transferred bundle (kept for reuse)
+├── vclaw-desktop/                               # git repo, detached at the built commit
+│   ├── node_modules/                            # `npm ci`, recreated every run
+│   └── release/mac-<arch>/VClaw.app             # the artefact
+└── vendors/oh-my-pi/releases/v18.16.0/
+    ├── omp-darwin-arm64
+    ├── omp-darwin-x64
+    └── SHA256SUMS.txt
+```
+
+`vendors/` is a **sibling of the checkout**, not inside it. `scripts/release/after-pack.cjs`
+resolves the release set as `join(__dirname, '..', '..', '..', 'vendors', …)`, so from
+`~/build/vclaw/vclaw-desktop/scripts/release/` that is `~/build/vclaw/vendors/…`. The binaries
+are not in git on purpose (215 MB + 228 MB).
+
+## One-time setup (run once per host)
+
+```bash
+H=BUILD_USER_REDACTED
+
+# 1. node 24.15.0 — from the official tarball, into ~/build/toolchain.
+#    Do NOT use homebrew's node v25.8.0 as the build node: `.nvmrc` pins 24.15.0 and
+#    25.x is not the toolchain this branch was validated on. Do NOT `brew install node@24`
+#    either — it rewrites the host's default node for every other lane on the box.
+tailscale ssh $H 'mkdir -p ~/build/toolchain && cd ~/build/toolchain &&
+  curl -fSL -o node24.tar.gz https://nodejs.org/dist/v24.15.0/node-v24.15.0-darwin-arm64.tar.gz &&
+  shasum -a 256 node24.tar.gz && tar -xzf node24.tar.gz'
+#   measured: 51,450,940 B in 3m06s over the host's uplink,
+#             sha256 372331b969779ab5d15b949884fc6eaf88d5afe87bde8ba881d6400b9100ffc4
+#   → ~/build/toolchain/node-v24.15.0-darwin-arm64/bin/node = v24.15.0, npm 11.12.1
+#   The host default stays v25.8.0; build-remote.sh prepends the 24.15.0 bin dir per command.
+
+# 2. layout
+tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop ~/build/vclaw/vendors/oh-my-pi/releases/v18.16.0'
+
+# 3. the OMP release set — streamed from the workstation, digests checked on both sides
+#    (equivalently from Forgejo on a machine that can reach it:
+#     https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/)
+```
+
+Nothing in the driver touches `brew`, sudo, npm globals, `PATH` files or shell rc files:
+it exports `PATH="$HOME/build/toolchain/node-v24.15.0-darwin-arm64/bin:$PATH"` inside each
+remote command, so the host's system node stays v25.8.0.
+
+## Provenance — `BUILD.json`
+
+Every build writes one, next to the zip (arm64 shown; x64 differs only in `arch`, `artifact`,
+`app.path`, `executableSlices` and the `omp` binary/digest):
+
+```json
+{
+  "schema": 1,
+  "builtAt": "2026-11-04T16:15:50Z",
+  "host": "BUILD_USER_REDACTED",
+  "source": { "repo": "vclaw-desktop", "branch": "vizmaster", "commit": "cabbc52495bb8174b344599312b2911c50f6a2cd" },
+  "arch": "arm64",
+  "product": { "id": "vclaw", "name": "VClaw", "appId": "com.vclaw.desktop" },
+  "artifact": { "file": "VClaw-arm64-app.zip", "bytes": 249687816, "sha256": "e4780cb30a63272a25af02a1f2ab1adb75b7d8d1808cffdce8bd14dab9d3b247" },
+  "app": { "path": "/Users/chance/build/vclaw/vclaw-desktop/release/mac-arm64/VClaw.app", "executable": "VClaw", "executableSlices": "arm64" },
+  "omp": { "release": "v18.16.0", "binary": "omp-darwin-arm64", "sha256": "d4a10d97488d6054d2b18198bd24f461079952c7e0fb75ba66336ca0df0cb99e", "slices": "arm64" },
+  "electron": "43.4.0",
+  "signing": null
+}
+```
+
+`build-remote.sh --check` can be run on the receiving side to re-prove a host still matches; the
+digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is taken on the host
+*before* transfer and re-computed locally after it).
+
+### Three different files are called `BUILD.json`
+
+| file | written by | contents | meaning |
+|---|---|---|---|
+| `release-remote/<arch>/BUILD.json` (**release**) | this driver, beside the artefact, never inside the app | full 40-char commit, branch, product id/appId, zip bytes+sha256, `omp` digest+slices, electron version, `signing` | what these exact bytes are |
+| `VizMaster.app/Contents/Resources/<MEMBER_ID>/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and `.github/workflows/release.yml:312-327` asserts it afterwards | eight keys incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` — **short shas** | which member/vclaw pair the payload was cut from |
+| `~/<Name>/BUILD.json` (**runtime seed**) | the app itself, `writeBuildJson()` in `electron/main/default-project.ts:186-203`, at first-launch project seed; skipped when the installed `release` already matches | `{release, name, seededAt}` merged over keys the payload already carried | which payload release a user's project was seeded from |
+
+Attribution matters: `electron/main/product-profile.ts:55` is the JSDoc on
+`DefaultProjectSpec.version` that *documents* the stamp — it writes nothing. The in-bundle payload
+file comes from the member repo, the `~/<Name>` file from the runtime seeder, and neither is
+produced by this packaging step. `release.yml` therefore validates a stamp it did not emit
+(including `dirty`/`vclawDirty` and short-sha *prefix* comparison); a pin auto-bump that reads it
+inherits that format and that producer, so if full shas are wanted the producer has to change —
+not the assertion.
+
+**The zip is not bit-reproducible across runs.** Three builds of the same commit (`cabbc52495bb…`)
+on the same host produced 249,687,809 → 249,687,816 → 249,687,818 bytes (arm64) and 260,078,847 →
+260,078,851 → 260,078,857 bytes (x64), each with a different sha256. So a pin must name the **commit**, and any artifact hash in
+`latest.json`/`app-release.json` must come from the `BUILD.json` of the run that was uploaded —
+never from a previous build of the same commit.
+
+### Proof run — both arches, 2026-11-05
+
+`bash scripts/release/build-remote.sh --arm64 --x64` → **rc=0**, 2m12s wall (source and release
+set already on the host; a cold run adds the transfer times above).
+
+| step | command | result |
+|---|---|---|
+| preflight | `build-remote.sh --check` | final state: `preflight: PASS (arm64 x64)`, 11 `ok`; before the x64 binary was on the host the same command exited 1 with `FAIL omp x64 — missing …` |
+| node on host | `~/build/toolchain/node-v24.15.0-darwin-arm64/bin/node -v` | `v24.15.0`, npm `11.12.1`; host default node still `v25.8.0` |
+| source | `git bundle` → `tailscale ssh` → `git fetch` → `checkout --detach` | `cabbc52495bb8174b344599312b2911c50f6a2cd`, `rev-parse HEAD` matched |
+| deps | `npm ci --no-audit --no-fund` | 719 packages, `npm warn EBADENGINE` only (npm 11 vs pinned 12) |
+| bundle | `npm run build:bundle` | `out/` produced; `out/main/index.js` present |
+| package arm64 | `electron-builder --mac --arm64 --dir` | `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`, `skipped macOS code signing` |
+| package x64 | `electron-builder --mac --x64 --dir` | `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`, Electron fetched from the mirror |
+| host gates arm64 | `lipo` / `shasum` on `release/mac-arm64/VClaw.app` | exe `arm64`, omp `arm64`, omp sha256 `d4a10d97488d6054d2b18198bd24f461079952c7e0fb75ba66336ca0df0cb99e`, `product.json` id `vclaw` |
+| host gates x64 | same on `release/mac/VClaw.app` | exe `x86_64`, omp `x86_64`, omp sha256 `abd62d315b66314f0f635d537407037e7b0d06782513d8035669db5ef744242d`, `product.json` id `vclaw` |
+| collect arm64 | `ditto -c -k --sequesterRsrc --keepParent` → pull | `release-remote/arm64/VClaw-arm64-app.zip`, 249,687,818 B, sha256 `b92fb509570e062a81f44209423a48e5a1b311bfb202317c32aa1fcd33ae5d1b` + `BUILD.json` |
+| collect x64 | same | `release-remote/x64/VClaw-x64-app.zip`, 260,078,857 B, sha256 `630a5824f38f966eea83e862aef2227335f44a5e12fc9ea040a30e07d345868f` + `BUILD.json` |
+| local gates | unzip + `lipo -archs` + `SHA256SUMS.txt` | arm64: exe `arm64`, omp `arm64`; x64: exe `x86_64`, omp `x86_64`; both omp digests found in `SHA256SUMS.txt` |
+
+**Nothing was built on the workstation.** It produced a git bundle and read the pulled `.app`s;
+the packages come from `~/build/vclaw/vclaw-desktop/release/{mac-arm64,mac}` on the host, and the
+workstation has no `release/` tree of its own (`ls -d vclaw-desktop/release` → no such file).
+
+### What a first run measured
+
+| step | measured |
+|---|---|
+| source → host | 96,902,342 B bundle, `9m53s` at ~163 KB/s, digest `b2c87f46…` identical on both sides |
+| `omp-darwin-arm64` | 215,642,256 B, sha256 `d4a10d97…`, gzip-streamed |
+| `omp-darwin-x64` | 227,570,128 B, sha256 `abd62d31…`, gzip-streamed |
+
+The host link is slow (single stream ~1.3 MB/s on a 2 MB probe, 0.8 MB/s aggregate for four
+parallel streams), so the driver streams **one gzip -1 connection at a time** and skips a
+binary whose remote sha256 already matches. Parallel streams were measured and are slower;
+do not "optimise" this into fan-out.
+
+## Per-release build
+
+```bash
+cd vclaw-desktop
+bash scripts/release/build-remote.sh --check             # read-only preflight, changes nothing
+bash scripts/release/build-remote.sh --arm64             # one arch
+bash scripts/release/build-remote.sh --x64
+bash scripts/release/build-remote.sh --arm64 --x64       # both, sequentially
+bash scripts/release/build-remote.sh                     # no arch flag → the host's arch
+```
+
+`--check` is read-only and prints one `ok`/`FAIL` line per item, exiting 0 only when none
+failed: ssh reachability, the host's node being exactly `$(cat .nvmrc)` (and what the host's own
+default node is), the checkout being at the workstation's commit, `SHA256SUMS.txt` plus each
+OMP binary present on the host with the digest the sums file claims, free space under `$HOME`
+(> 20 GiB), the Electron mirror answering from the host, `xcode-select -p` and `lipo`. With no
+arch flag it checks both arches. Items that a first build will create are `FAIL` by design —
+that is the point of a preflight, not a bug.
+
+Options: `BUILD_HOST`, `REMOTE_ROOT`, `LOCAL_OUT`, `ELECTRON_MIRROR`, `VCLAW_PROFILE` (env).
+Each arch lands in `release-remote/<arch>/` as `VClaw-<arch>-app.zip`, unpacked under `unpacked/`
+for verification, beside `build.log` (the full remote build log), `verify.txt` (the host-side gate
+output), `product.json` (lifted out of the app) and `BUILD.json` (provenance, see below).
+
+What the driver does, in order, failing loudly at each step:
+
+1. **preconditions** — resolves `HEAD` and the branch (refuses a detached HEAD), warns (does not
+   fail) if the tree is dirty, and states explicitly that uncommitted changes are *not* in the
+   bundle. Requires `omp-darwin-<arch>` + `SHA256SUMS.txt` locally, `git` on the host, and node
+   `$(cat .nvmrc)` on the host.
+2. **source** — `git bundle create` of the branch, streamed to `~/build/vclaw/src.bundle`,
+   sha256 compared on both sides; skipped entirely when the host already has the commit
+   (`git cat-file -e`). Then `git init` (once) → `fetch` → `checkout --force --detach <commit>`
+   and `rev-parse HEAD` must equal it.
+3. **release set** — per-arch binary streamed with `gzip -1`, written to `.partial`, moved into
+   place, sha256 compared to the local file. A mismatch aborts; there is no "close enough".
+4. **build** — one remote bash body per arch, streamed to `release-remote/<arch>/build.log`:
+   `node -v; npm -v; npm ci --no-audit --no-fund; npm run build:bundle`, a hard
+   `test -f out/main/index.js`, staging of `product/profile.active.json` from
+   `$VCLAW_PROFILE` (default `product/profile.json`; a member profile also supplies
+`productName`/`appId` — see *Member profiles* below), then
+   ```
+   ./node_modules/.bin/electron-builder --mac --<arch> --dir --publish never \
+     --config.mac.identity=null --config.mac.notarize=false [--config.electronDist=…]
+   ```
+   `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` is exported for the run.
+   `release/mac-<arch>` is deleted first so a stale `.app` can never be mistaken for the build.
+5. **host gates** — the log must contain `after-pack: bundled omp verified (…)`; the driver then
+   prints the app path, `lipo -archs` of `Contents/MacOS/VClaw`, sha256 + `lipo -archs` of
+   `Contents/Resources/harness/bin/omp`, and the packed `product.json` id
+   (`release-remote/<arch>/verify.txt`).
+6. **collect** — `ditto -c -k --sequesterRsrc --keepParent VClaw.app` on the host, sha256 taken
+   there, file pulled, sha256 recomputed locally and compared.
+7. **local gates** — unzip, then `lipo -archs` must show the requested slice for **both** the app
+   executable and the bundled `omp`, and the pulled `omp` sha256 must appear in `SHA256SUMS.txt`
+   for `omp-darwin-<arch>`.
+8. **provenance** — writes `release-remote/<arch>/BUILD.json` (below), so a release manifest or a
+   pin bump never has to re-derive what an artefact is from a filename.
+
+Two prerequisites are easy to miss and both were hit on the first real run:
+
+* **`npm run build:bundle` (`electron-vite build`) is what creates `out/`.** `npm ci` does not,
+  and `package.json` ships `files: ["out/**/*", …]`, so packaging without it produces an
+  `app.asar` with no entry point. electron-builder then exits **1** with
+  `⨯ Application entry file "out/main/index.js" in the ".../app.asar" is corrupted: Error:
+  "out/main/index.js" was not found in this archive`. The driver runs the bundle and asserts the
+  file exists before packaging.
+* **`product/profile.active.json` is generated, not tracked** (`.gitignore:29`). `package.mjs`
+  writes it from the chosen profile so electron-builder can copy it to `resources/product.json`,
+  then deletes it. The driver stages `$VCLAW_PROFILE` (default `product/profile.json` = the
+  generic `vclaw` profile; `product/vizmaster.json` for a member build) and removes it afterwards.
+  Without it electron-builder only *warns* (`file source doesn't exist from=…/product/profile.active.json`)
+  and the app ships without `resources/product.json` — the build is green and the product is
+  unnamed.
+
+`npm ci` is deliberate: `node_modules` is thrown away each run, so a stale native module can
+never be packaged. It also runs the repo's `postinstall`
+(`scripts/release/install-app-deps.mjs`), which logs
+`• executing @electron/rebuild … arch=arm64` — i.e. `node-pty` is rebuilt against this Electron
+before electron-builder ever starts, and electron-builder rebuilds it again per target arch. The one expected warning is `prime-agent`'s blocked install script — see
+RELEASE_BUILD_HOST.md; with the tarball's **npm 11** the scripts run normally, which is why this
+flow does not need the npm 12 `install-scripts approve` + `rebuild` dance.
+
+`--config.electronDist` is applied **only when the build arch equals the host arch**
+(`arm64:arm64` and `x64:x86_64`; on this arm64 box only the first ever matches). `node_modules/electron/dist` is a single-arch tree; pointing an x64 build
+at it would ship arm64 Electron. Cross-arch builds get their Electron from `ELECTRON_MIRROR`.
+
+## Failure modes seen (and what they mean)
+
+| symptom | cause | action |
+|---|---|---|
+| `⨯ connect EADDRNOTAVAIL 198.18.0.11:443 - Local (0.0.0.0:0)` | electron-builder downloading from github.com; the Clash TUN fake-ip is not routed | export `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` (the driver always does), or build the host arch where `electronDist` applies |
+| `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to vmaker-pi.TAILNET_REDACTED:443` | the host is not in the Forgejo box's tailnet; the name resolves to `198.18.0.11` | do not clone from Forgejo on this host — the driver streams a bundle |
+| `node -v` → `v25.8.0` and the build then behaves differently from the validated toolchain | homebrew node on `PATH` | prepend `~/build/toolchain/node-v24.15.0-darwin-arm64/bin`; the driver refuses to start if that node is missing or not `v24.15.0` |
+| `Error: bundled omp: resources/harness/bin/omp is missing — was mac.extraResources applied?` | the release set is not at `../vendors/oh-my-pi/releases/v18.16.0/` relative to the checkout | create the sibling `vendors/` tree |
+| electron-builder `⨯ Application entry file "out/main/index.js" … was not found in this archive` | `out/` was never built — `npm ci` alone does not produce it | run `npm run build:bundle` first; the driver does, and asserts `out/main/index.js` |
+| electron-builder `• file source doesn't exist  from=…/product/profile.active.json` (**warning only**) | the generated profile was never staged | stage `$VCLAW_PROFILE` → `product/profile.active.json` before packaging; otherwise the app has no `resources/product.json` |
+| a failing remote command looks successful — the build exits 0 and the driver carries on | **`tailscale ssh` always returns 0**: `tailscale ssh host -- 'exit 5'` → local `rc=0` | every remote invocation in the driver carries an in-band `__VCLAW_RC__=<n>` marker and reads the status from it; never trust the ssh exit code, and never write a driver without this |
+| driver verifies `release/mac-x64/VClaw.app` and reports `missing …/release/mac-x64/VClaw.app` although the build was green | electron-builder puts x64 in `release/mac`, only non-x64 arches get a suffix | map the dir per arch (`out_dir_for()`); never assume `release/mac-<arch>` |
+| a member build has `product.json` id `vizmaster` but `CFBundleIdentifier com.vclaw.desktop` and a `VClaw.app` bundle | the profile's identity was never passed to electron-builder | pass `--config.productName/--config.appId` from the profile and assert the packaged appId (the driver does) |
+| `lipo: can't open input file …/Contents/MacOS/VClaw` on a member build | the executable is named after `productName` (`VizMaster`), not `VClaw` | derive the executable from `CFBundleExecutable`, never hardcode it |
+| `omp-darwin-x64` missing on the host and an `--x64` build requested | the release set is synced per arch right before that arch builds | the driver syncs it; `--check` reports it as `FAIL omp x64 — missing …` before you spend a build |
+| `Error: bundled omp: no SHA256SUMS entry for omp-darwin-<arch>` | binary present, `SHA256SUMS.txt` stale | re-copy the release set together, never a lone binary |
+| `Error: bundled omp: sha256 mismatch — expected … got …` | truncated/partial transfer | both sides are hashed during sync; a partial reaches `.partial` and never lands |
+| `Error: bundled omp: Mach-O does not contain the <arch> slice (lipo: …)` | wrong-arch binary for the requested `--arch` | copy the matching `omp-darwin-<arch>` |
+| `Error: bundled omp: universal mac builds are not supported` | `--universal` | build `--arm64` and `--x64` separately |
+| `Packaging failed: npm >=12.0.2 is required (found 11.x)` | only the `package.mjs` flow enforces the pinned npm | unrelated to this flow; see RELEASE_BUILD_HOST.md |
+| `npm warn EBADENGINE … required: { npm: '>=12.0.2' } current: { npm: '11.12.1' }` | node 24.15.0 ships npm 11, the repo pins npm 12 for `package.mjs` | expected here and **not** a failure: this flow calls electron-builder directly, and npm 11 runs the install scripts the way the lockfile expects |
+| `  • skipped macOS code signing  reason=identity explicitly is set to null` | no signing identity on the host (0 valid) | expected; this flow produces unsigned `--dir` artefacts only |
+
+Anchored rsync excludes (`--exclude='/release'`, not `--exclude='release'`) and the
+`build/` `buildResources` trap are documented in RELEASE_BUILD_HOST.md and apply to any
+rsync-based sync; the driver avoids rsync entirely.
+
+## Member profiles (`VCLAW_PROFILE`)
+
+`VCLAW_PROFILE=product/vizmaster.json bash scripts/release/build-remote.sh --arm64` packages the
+member build from this tree — measured, rc=0, 1m06s:
+
+| | generic (default `product/profile.json`) | member (`product/vizmaster.json`) |
+|---|---|---|
+| app bundle on the host | `release/mac-arm64/VClaw.app` | `release/mac-arm64/VizMaster.app` |
+| executable (`CFBundleExecutable`) | `VClaw` | `VizMaster` |
+| `Resources/product.json` id | `vclaw` | `vizmaster` |
+| `CFBundleIdentifier` | `com.vclaw.desktop` | `app.vizmaster.desktop` |
+| collected zip | `VClaw-arm64-app.zip` | `VizMaster-arm64-app.zip` (249,691,722 B, sha256 `bc3b25054ec5…`) |
+
+The profile's `identity.productName` / `identity.appId` are passed as
+`--config.productName=…` / `--config.appId=…`, exactly as `package.mjs` does, and the driver
+**asserts** the packaged `CFBundleIdentifier` and `product.json` id against the profile — a
+mismatch aborts. Two traps made that assertion earn its keep:
+
+* **Without those flags the payload ships as VClaw.** Measured: `product.json` said `vizmaster`
+  while `CFBundleIdentifier` was still `com.vclaw.desktop` and the bundle was still `VClaw.app` —
+  every gate green, wrong product identity.
+* **App and executable names follow `productName`.** Any hardcoded `VClaw.app` /
+  `Contents/MacOS/VClaw` in a gate breaks a member build (`lipo` on a nonexistent path → the gate
+  fails, which is how this was found). Both are derived now: the bundle from the profile, the
+  executable from `CFBundleExecutable` via `plutil`.
+
+Only the generic default was proven for x64; the member profile was proven for arm64.
+
+### What `VCLAW_PROFILE` does **not** do
+
+It selects identity and `resources/product.json` — it does **not** produce the member payload
+layout. Measured on the pulled member bundle: `Contents/Resources/` holds
+`product/payload/{README.md}` (the generic `extraResources` mapping) and there is **no**
+`Contents/Resources/vizmaster/` and no payload `BUILD.json`. A real member release is the CI
+`member` job (`.github/workflows/release.yml`): checkout the member repo at the pinned 40-hex sha →
+`npm run bundle:<member>` → `npm run integrate:<member> -- --vclaw "$GITHUB_WORKSPACE"` →
+`integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID"`. The **integrate** step is
+what writes the member overlay (`Resources/<MEMBER_ID>/`, payload dist, agent extension) into this
+checkout; a `--dir` build without it cannot satisfy the mounted-dmg assert.
+
+The payload `BUILD.json` itself is emitted by the **member** repo (`scripts/build-info.mjs`,
+copied in by `bundle-vizmaster.mjs`), and `release.yml` only validates it. The bundler fails
+closed **before** it touches the payload: no `BUILD.json` in its `--out` dir → rc=1 with a
+three-line refusal and nothing written (a late refusal would leave a half-written bundle).
+
+The handed-over post-packaging assert (`chatek/vizmaster` `scripts/assert-member-dmg.sh`, eight
+keys, prefix compare, `dirty`/`vclawDirty`, payload `dist/`, `Resources/extensions/vclaw-agent.js`)
+was run here against a dmg built from this driver's member bundle with a **synthetic** payload
+(labelled synthetic — not a release):
+
+| case | result |
+|---|---|
+| matching pin | `BUILD.json OK …` then `PASS`, rc=0 |
+| wrong pin | `FAIL: vizmasterCommit 772f4bb is not a prefix of the pinned deadbeef…`, rc=1 |
+| `dirty: true` | `FAIL: artifact carries a dirty build`, rc=1 |
+| payload `BUILD.json` removed | `FAIL: missing vizmaster/BUILD.json in the .app`, rc=1 |
+
+On this driver's real member output (no payload integration) it fails at the last check, which is
+the correct verdict: `--dir` cannot substitute for the member job.
+
+**Member-repo source of truth.** Measured 2026-11-05: the Forgejo mirror `chatek/vizmaster` is at
+`a77a74ef` (2026-10-26) while GitHub and the local working tree are at `800a9e5` (2026-11-05) —
+ten days stale. A payload cut from the mirror would carry a stamp naming code that is not there,
+so mirror reads are NOT-EVIDENCE for a pin until the sync is fixed.
+
+Separately, as of 2026-11-05 the workflow runs those bundle/integrate steps but sets no `VCLAW_SRC` anywhere
+(`grep VCLAW_SRC` → no matches), so whatever produces the `vclawVersion`/`vclawCommit` keys must be
+given it, or those keys come out unknown.
+
+## x64 on an arm64 host
+
+electron-builder can emit `--x64` from an arm64 host, and it does here — measured on
+2026-11-05: `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`, `lipo -archs` of
+`Contents/MacOS/VClaw` → `x86_64`. Two things differ from an arm64 build and both are easy to
+misread:
+
+* **The output directory has no arch suffix.** electron-builder only suffixes non-x64 targets:
+  `--arm64` → `release/mac-arm64/VClaw.app`, `--x64` → `release/mac/VClaw.app`
+  (log: `appOutDir=release/mac`). The driver maps this with `out_dir_for()`.
+* **Electron is downloaded, not copied from `node_modules`.** `node_modules/electron/dist` is the
+  host's arm64 tree, so the x64 build logs `• downloaded label=electron progress=100%` from
+  `ELECTRON_MIRROR` — the one path that needs the mirror, since github.com is unroutable.
+
+Native modules are rebuilt per arch by electron-builder's `@electron/rebuild`
+(`• preparing moduleName=node-pty arch=x64` / `• finished`). Verified in the pulled bundles,
+not assumed:
+
+```bash
+file release-remote/x64/unpacked/VClaw.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node
+#   Mach-O 64-bit bundle x86_64        (arm64 bundle: Mach-O 64-bit bundle arm64)
+lipo -archs release-remote/x64/unpacked/VClaw.app/Contents/Resources/app.asar.unpacked/node_modules/zeromq/build/darwin/x64/node/*-Release/addon.node
+#   x86_64                             (arm64 bundle: build/darwin/arm64/..., arm64)
+```
+
+So an `--x64` app from this host carries x64 `node-pty` and x64 `zeromq`. The driver's gates
+still only assert the app executable and the bundled `omp`; the addon slices above were checked
+by hand and are worth re-checking if the native dependency set changes.
+
+## Not covered here
+
+* dmg/zip targets, signing and notarisation — RELEASE_BUILD_HOST.md.
+* The `--packaged-smoke` runtime proof — RELEASE_BUILD_HOST.md; it works over ssh and should be
+  run on the `.app` this driver produces.
+* Forgejo clone/fetch from the host — impossible on this host today (netmap, see above).

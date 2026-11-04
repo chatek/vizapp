@@ -6,25 +6,27 @@ See the [source setup](README.md#run-from-source) and
 ## Local macOS development without release credentials
 
 You do not need access to the signing and notarization credentials for the
-production `app.vclaw.desktop` bundle. Use `npm run dev` while developing and
+production `com.vclaw.desktop` bundle. Use `npm run dev` while developing and
 run the relevant checks from the validation guide before submitting a change.
 
-To exercise the normal local packaging pipeline without release credentials,
-run:
+Packaging has two flows; start at [docs/BUILD.md](docs/BUILD.md). macOS builds of
+record run on the remote build host ([docs/BUILD_REMOTE.md](docs/BUILD_REMOTE.md));
+a local build is only a fallback for when that host is unavailable
+([docs/BUILD_LOCAL.md](docs/BUILD_LOCAL.md)) and its output is **not evidence**.
 
-```bash
-npm run package:mac:local-qa
-```
-
-This creates unsigned, unnotarized local-QA artifacts. It does not establish
-that a build is ready for public distribution; `npm run package:mac` is reserved
-for maintainers with the release credentials.
+`npm run package:mac:local-qa` creates unsigned, unnotarized local-QA artifacts.
+It does not establish that a build is ready for public distribution, and it is not
+a substitute for the remote flow; `npm run package:mac` is reserved for maintainers
+with the release credentials.
 
 As an optional development convenience, use a separate app identity and
-Electron data directory when keeping a local package alongside VClaw:
+Electron data directory when keeping a local package alongside VClaw. This is a
+local-only build (`ARTEFACT(not-evidence)`), and electron-builder cannot reach
+github.com from this workstation, so the mirror is required:
 
 ```bash
 npm run build
+export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 npx electron-builder --mac dir --arm64 --publish never \
   --config.mac.identity=null \
   --config.mac.notarize=false \

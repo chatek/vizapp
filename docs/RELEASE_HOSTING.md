@@ -2,12 +2,15 @@
 
 **Changed 2026-11-02 (operator instruction): desktop builds are hosted on R2, not only on GitHub Releases.**
 
+Only artefacts built on the remote build host are upload candidates — see [BUILD.md](BUILD.md). A
+local build prints `ARTEFACT(not-evidence)` and must never be published here.
+
 | | |
 |---|---|
 | bucket / prefix | `vclawhub-assets` / `vclaw-desktop/` |
 | **feed** | `https://assets.vclawhub.com/vclaw-desktop/latest.yml` (and `latest-mac.yml`, `latest-linux.yml`) |
 | artefacts | `https://assets.vclawhub.com/vclaw-desktop/VClaw-<version>-<...>` |
-| uploader | `scripts/publish-r2.sh [dist-dir]` |
+| uploader | `scripts/publish-r2.sh <electron-builder output dir>` — pass it explicitly, e.g. `release/mac/arm64`; the script's built-in default `dist` predates `build.directories.output=release` |
 
 `package.json` → `build.publish` is now the **generic** provider pointing at that base. That is what electron-builder
 bakes into `app-update.yml` inside the app, so **new builds check R2**.

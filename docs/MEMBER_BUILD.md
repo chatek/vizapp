@@ -61,9 +61,11 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
 
 1. **Pin.** Choose a `main` commit; record it in your repo (release identity, build metadata).
    Verify: `node scripts/release/member-seams.mjs --root <checkout>` → exit 0.
-2. **Snapshot.** rsync the checkout into a cache workdir (exclude `.git`, `node_modules`,
-   `out`, `release`). Never integrate into the canonical checkout; keep it clean — a dirty
-   tracked tree must fail the build, not be stamped silently.
+2. **Snapshot.** rsync the checkout into a cache workdir with **anchored** excludes:
+   `--exclude=/.git --exclude=/node_modules --exclude=/out --exclude=/release`. An unanchored
+   `release` also drops `scripts/release/` and every later step fails (see
+   `docs/RELEASE_BUILD_HOST.md`, trap 1). Never integrate into the canonical checkout; keep it
+   clean — a dirty tracked tree must fail the build, not be stamped silently.
 3. **Payload.** Bundle your member app (your `dist/`, your payload `package.json`) in your repo.
 4. **Integrate** (in the snapshot, idempotently): copy payload → `product/payload/`; write your
    product profile → `product/<member>.json` (id, identity, harnesses, defaultProject); copy overlay
@@ -76,7 +78,9 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
 6. **Identity.** `productName` / `appId` now come from the profile's `identity`, applied by
    `package.mjs`; a member build must still never inherit the generic publish target — the
    auto-updater would offer someone else's builds.
-7. **Package.** `node scripts/release/package.mjs --qa --platform mac --arch <arch> --profile product/<member>.json`
+7. **Package.** Run this **on the remote build host** (`docs/BUILD_REMOTE.md`; a local artefact is
+   not evidence, `docs/BUILD.md`):
+   `node scripts/release/package.mjs --qa --platform mac --arch <arch> --profile product/<member>.json`
    (the script derives the artifact name from the profile id and refuses a name/profile mismatch)
    (Windows: Windows-only runner; Linux targets per `FORK.md`). Verify the artifact
    (layout, identity, your release stamp `<memberVersion>+<date>.<shortSha>`), write
@@ -85,8 +89,10 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    your CI so a contract change is caught before a release, not during one.
 
 Estate rules that bind every member build: macOS app builds of record run **only on the
-remote build host** (`_MAC_HOST_`) — local unsigned `--dir` builds are smoke/QA only;
-signed/notarized artifacts need the CI secrets (Apple Developer ID — open item in `FORK.md`).
+remote build host** (`_MAC_HOST_`, `docs/BUILD_REMOTE.md`) — local unsigned `--dir` builds are
+smoke/QA only and print `ARTEFACT(not-evidence)` (`docs/BUILD_LOCAL.md`); the two-flow entry
+point is `docs/BUILD.md`. Signed/notarized artifacts need the CI secrets (Apple Developer ID —
+open item in `FORK.md`).
 
 ## If a seam breaks
 

@@ -39,6 +39,7 @@ gh api repos/am-will/gooey-pi/branches/main/protection \
 | Aggregate commands and toolchain policy | [`package.json`](../package.json) and [`.nvmrc`](../.nvmrc) |
 | Resolved dependency graph | [`package-lock.json`](../package-lock.json) |
 | Dependency-install lifecycle | [`package.json`](../package.json) and [`install-app-deps.mjs`](../scripts/release/install-app-deps.mjs) |
+| Desktop build flows (remote primary, local fallback) | [`docs/BUILD.md`](BUILD.md), [`docs/BUILD_REMOTE.md`](BUILD_REMOTE.md), [`scripts/release/build-remote.sh`](../scripts/release/build-remote.sh), and [`scripts/release/build-local.sh`](../scripts/release/build-local.sh) |
 | Package and post-package guarantees | [`scripts/release/package.mjs`](../scripts/release/package.mjs), [`verify-package.mjs`](../scripts/release/verify-package.mjs), and [`verify-cross-platform-package.mjs`](../scripts/release/verify-cross-platform-package.mjs) |
 | Audit policy and accepted risk | [`docs/security.md`](security.md), [`audit-production.mjs`](../scripts/release/audit-production.mjs), and [`audit-exceptions.json`](../scripts/release/audit-exceptions.json) |
 | Vendored agent SDK (shipped as an injected harness extension) | [`vendor/vclawhub-agent-<version>.md`](../vendor/), `artifacts.vclawhub-agent` in [`dependency-pins.json`](../scripts/release/dependency-pins.json), and [`vendor-agent-pins.mjs`](../scripts/release/vendor-agent-pins.mjs) |
@@ -109,6 +110,8 @@ Use focused tests while developing, then choose the aggregate that matches the c
 | `npm run package:win:local-qa` | On Windows, runs the package-verification aggregate, creates the configured Windows artifacts, and verifies their runtime layout in QA mode. |
 
 Packaging is native: run each platform command on its matching operating system and architecture. The public `package:mac`, `package:linux`, and `package:win` commands use distribution mode; macOS and Windows distribution checks require their external signing configuration. A successful local-QA command must not be described as a public trust check.
+
+Local packaging is also **not release evidence**. macOS app builds of record run on the remote host — start at [`BUILD.md`](BUILD.md). [`build-local.sh`](../scripts/release/build-local.sh) is an explicitly opt-in fallback and prints `ARTEFACT(not-evidence)`; a local `package:*:local-qa` installer never becomes a release artefact.
 
 ## Dependency audit policy
 

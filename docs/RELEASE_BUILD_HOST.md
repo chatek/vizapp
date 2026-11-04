@@ -1,7 +1,13 @@
-# Producing a VClaw desktop build (macOS)
+# Producing a VClaw desktop build (macOS, dmg/zip)
+
+**Where this fits:** the two-flow model and the artefact-of-record rule live in
+[BUILD.md](BUILD.md). This file is the host-side **dmg/zip** variant (signing, notarisation,
+`package.mjs`); the default `--dir` flow that bundles OMP is [BUILD_REMOTE.md](BUILD_REMOTE.md).
+Both run on this host, and **only an artefact produced here is evidence** — a local build is
+never a delivery candidate.
 
 The build runs **on `BUILD_USER_REDACTED`**, never on the workstation
-(repo rule, `deploy/nodes.md`). This file is the procedure as measured on 2026-11-01, by the
+(repo rule, `AGENTS.md`). This file is the procedure as measured on 2026-11-01, by the
 builder who took the lane over; every command below was run, and the two traps cost real time.
 
 ## Host facts (measured 2026-11-01)
@@ -10,7 +16,7 @@ builder who took the lane over; every command below was run, and the two traps c
 |---|---|
 | hardware / OS | Apple M4, 16 GiB, Darwin arm64, headless over ssh |
 | disk | 460 GiB, **201 Gi free** |
-| node | **v25.8.0** — satisfies `engines.node: >=24.15.0`, and is *outside* npm 12.0.2's own supported set |
+| node | **v25.8.0** — satisfies `engines.node: >=24.15.0`, and is *outside* npm 12.0.2's own supported set. The `--dir` flow does **not** use it: `build-remote.sh` prepends `~/build/toolchain/node-v24.15.0-darwin-arm64` (BUILD_REMOTE.md) |
 | npm | 11.11.0 shipped; **12.0.2 installed by `toolchain:bootstrap`** (required) |
 | Xcode | Command Line Tools only (`/Library/Developer/CommandLineTools`) — fine for native modules |
 | code-signing identities | **0 valid** — see *Signing* below |
@@ -172,7 +178,8 @@ patterns but **not** the plists — never `git add build/` wholesale.
 
 Copy the DMG and ZIP back, then confirm the transfer with `shasum -a 256` on **both** sides
 before anyone opens the file. Report the triple with every delivery: source commit, pinned CLI
-digest, artefact digest.
+digest, artefact digest. Only an artefact built on this host is evidence; a local build
+(`BUILD_LOCAL.md`) is marked `not-evidence` and never enters `build/` or a release.
 
 ## Trap 5 — a platform `artifactName` silently beats the generic one
 

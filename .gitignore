@@ -2,6 +2,8 @@ node_modules
 /out/
 /dist/
 /release/
+# Remote build collect dir (scripts/release/build-remote.sh writes release-remote/<arch>/).
+/release-remote/
 /coverage/
 playwright-report
 test-results
