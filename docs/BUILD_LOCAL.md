@@ -1,9 +1,11 @@
 # Building VClaw locally — the fallback
 
-**Status:** measured 2026-11-04 on an Apple Silicon workstation (arm64, node 22.22.2 from
-Homebrew, nvm `v24.19.0`, electron-builder 26.15.7). The numbers come from one proven
-`--dir` run on this tree; this revision was verified with `build-local.sh --check` only — a
-full local build was deliberately **not** re-run (artefacts are throwaway).
+**Status:** measured 2026-11-04 and re-measured 2026-11-05 on an Apple Silicon workstation
+(arm64, Homebrew node 22.22.2; nvm `v24.19.0` activated for the build, electron-builder
+26.15.7). The 2026-11-05 run was a full `--arm64` build from a dirty tree: 120 s wall,
+`ARTEFACT(not-evidence)` printed, bundled `omp` digest/slice/mode verified, the packaged app
+smoked far enough to write its readiness marker, `release/` deleted afterwards. Artefacts
+are throwaway, so these numbers describe the toolchain, not a shippable build.
 
 **The primary flow is [`docs/BUILD_REMOTE.md`](BUILD_REMOTE.md) with
 [`scripts/release/build-remote.sh`](../scripts/release/build-remote.sh).** That host —
@@ -106,12 +108,15 @@ export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 **A zero exit from `electron-builder` is not the check.** A stale or half-swapped bundle can
 exit 0 while the process ran the wrong thing (the same class of failure as a stale deployed
 bundle that "looks healthy" and writes nothing). `build-local.sh` therefore re-derives the
-facts from the packaged bytes — these four checks, not the exit code, are the result.
+facts from the packaged bytes. Checks 1 and 2 are automated — the script dies on any
+mismatch; 3 and 4 are manual. The exit code is not the result.
 
 1. **`after-pack` line** in the builder output — the build fails if it is missing, the digest
    differs, or `lipo` reports the wrong slice:
    `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`.
-2. **Packaged binary on disk** — 215,642,256 B for arm64, mode `0755`:
+2. **Packaged binary on disk** — 215,642,256 B for arm64, mode `0755` (the script asserts the
+   digest, the Mach-O slice, and the executable bit; a mode-`0644` copy — what a skipped
+   `after-pack` chmod leaves, since the vendored file is `0644` — fails the build):
    ```bash
    shasum -a 256 release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp
    stat -f '%z %Lp' release/mac-arm64/VClaw.app/Contents/Resources/harness/bin/omp
@@ -123,8 +128,9 @@ facts from the packaged bytes — these four checks, not the exit code, are the 
    release/mac-arm64/VClaw.app/Contents/MacOS/VClaw \
      --packaged-smoke="$M/ready.json" --user-data-dir="$M/ud" ; echo "rc=$?"
    ```
-   The marker fires at ~1.4 s. A `providers:catalog … status -1` line in that run is a
-   shutdown race in the smoke harness, not a defect (`omp models` needs ~2.5 s).
+   The marker fires at ~1.4 s. A `providers:catalog …` error with a non-zero exit status
+   (`143`/SIGTERM in the 2026-11-05 run; earlier notes showed `-1`) is a shutdown race in
+   the smoke harness, not a defect (`omp models` needs ~2.5 s).
 4. **Cleanup** — `release/` is gitignored and throwaway: `rm -rf release`. Do not carry it
    forward; there is no supported path from a local `.app` to a release.
 

@@ -87,15 +87,25 @@ ssh_run() {
 STREAM_RC=255
 ssh_stream() {
   local body="$1" log="$2"
+  # `|| true`: this function's contract is "always return 0, report through
+  # STREAM_RC". Without it a local pipeline member failing (tee cannot open $log,
+  # the ssh transport dying mid-run) trips the ERR trap *after* the remote build has
+  # already been paid for and aborts the run with a raw `FAILED at line …: tee "$log"`
+  # dump instead of the step diagnosis below. Measured: `$log` as a directory → tee
+  # exits 1 at once, the build still finishes green, driver dies at rc=1.
   {
     printf 'set -uo pipefail\n(\nset -euo pipefail\n'
     cat "$body"
     printf '\n)\nprintf %s"%%s\\n" "$?"\n' "'$RC_MARK'"
-  } | tailscale ssh "$HOST" -- 'bash -s' 2>&1 | tee "$log"
-  STREAM_RC="$(grep -o "${RC_MARK}[0-9]*" "$log" | tail -1 | cut -d= -f2)"
+  } | tailscale ssh "$HOST" -- 'bash -s' 2>&1 | tee "$log" || true
+  STREAM_RC=""
+  if [ -f "$log" ]; then
+    STREAM_RC="$(grep -o "${RC_MARK}[0-9]*" "$log" | tail -1 | cut -d= -f2)" || true
+    grep -v -F "$RC_MARK" "$log" >"$log.clean" || true
+    if [ -f "$log.clean" ]; then mv -f "$log.clean" "$log"; fi
+  fi
   [ -n "$STREAM_RC" ] || STREAM_RC=255
   STREAM_RC="${STREAM_RC//[[:space:]]/}"
-  grep -v -F "$RC_MARK" "$log" >"$log.clean" && mv "$log.clean" "$log"
   return 0
 }
 
@@ -103,11 +113,24 @@ ssh_stream() {
 # proves the remote write completed, and the caller still compares sha256 on both
 # sides. tailscale ssh cannot report the failure itself.
 transfer_up() {
-  local src="$1" rel="$2" out
-  out="$(gzip -1 -c "$src" | tailscale ssh "$HOST" -- "gunzip -c > \"\$HOME/$rel.partial\" && mv \"\$HOME/$rel.partial\" \"\$HOME/$rel\" && printf '$RC_MARK'0")" || true
+  local src="$1" rel="$2" out rc=0
+  # The pipeline is expected to fail whenever the remote write does, so it must not
+  # reach the ERR trap: `set -E` hands the trap to subshells and it used to fire
+  # inside this command substitution, printing `FAILED at line … (rc=141)` (gzip's
+  # SIGPIPE) *before* the real diagnosis. `|| rc=$?` records the status instead, and
+  # ssh's stderr is folded into `out` so the remote shell's own message ("permission
+  # denied: …partial") survives into the FAILED line instead of only the terminal.
+  out="$(
+    trap - ERR
+    gzip -1 -c "$src" | tailscale ssh "$HOST" -- \
+      "gunzip -c > \"\$HOME/$rel.partial\" && mv \"\$HOME/$rel.partial\" \"\$HOME/$rel\" && printf '$RC_MARK'0" 2>&1
+  )" || rc=$?
   case "$out" in
     *"${RC_MARK}0") ;;
-    *) die "transfer of $(basename "$src") to $HOST:~/$rel did not confirm (ssh said: ${out:-<no output>})" ;;
+    *)
+      ssh_run "rm -f \"\$HOME/$rel.partial\"" >/dev/null 2>&1 || true
+      die "transfer of $(basename "$src") to $HOST:~/$rel failed (stream rc=$rc): ${out:-<no output>}"
+      ;;
   esac
 }
 
@@ -414,7 +437,10 @@ rm -rf "${OUT_DIR:?}"
 EOF
   ssh_stream "$BUILD_BODY" "$LOG"
   rm -f "$BUILD_BODY"
-  [ "$STREAM_RC" = "0" ] || die "build of $arch failed (remote rc=$STREAM_RC, log: $LOG)"
+  [ "$STREAM_RC" = "0" ] ||
+    die "build of $arch failed (remote rc=$STREAM_RC, log: $LOG)
+       rc=255 means the run produced no in-band status marker at all — the transport or
+       the log file failed, not the build; anything else is the remote bash status."
   grep -qF 'after-pack: bundled omp verified' "$LOG" ||
     die "after-pack verification line missing from $LOG — the omp bundle was not verified"
   grep -F 'after-pack: bundled omp verified' "$LOG" | tail -1 | sed 's/^/    /'

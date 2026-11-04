@@ -128,9 +128,11 @@ consumer should therefore resolve repo+sha against the designated record, and us
 **`main`** — the single long-lived branch; `origin/vizmaster` is legacy and retiring — so a
 `BUILD.json` naming `vizmaster` is a historical measurement, not an instruction.
 
-The example above is from the run at `cabbc52…`; a build of HEAD `346127d…` emits that commit and
-the same shape. The `release-remote/{arm64,x64}/BUILD.json` currently on disk predate the
-`source.remote` field and that tip — regenerate rather than hand them over.
+The example above is from the run at `cabbc52…`. The `release-remote/{arm64,x64}/BUILD.json` on
+disk were regenerated at `9d2e9b76f164…` on 2026-11-05 and do carry `source.remote`; both were
+re-checked field by field against the pulled zips (see *Proof run*). A rebuild of the same commit
+is still a **new** artefact — `ditto` records timestamps, so `artifact.sha256` differs — so
+regenerate, never hand over an older file.
 
 `build-remote.sh --check` can be run on the receiving side to re-prove a host still matches; the
 digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is taken on the host
@@ -158,29 +160,62 @@ on the same host produced 249,687,809 → 249,687,816 → 249,687,818 bytes (arm
 `latest.json`/`app-release.json` must come from the `BUILD.json` of the run that was uploaded —
 never from a previous build of the same commit.
 
-### Proof run — both arches, 2026-11-05
+### Proof run — 2026-11-05, commit `9d2e9b7`
 
-`bash scripts/release/build-remote.sh --arm64 --x64` → **rc=0**, 2m12s wall (source and release
-set already on the host; a cold run adds the transfer times above).
+Two separate runs (`--arm64`, then `--x64`) on an already-warm host: source and release set
+present, so no transfer happens (a cold run adds the transfer times below).
+
+| arch | wall | result |
+|---|---|---|
+| arm64 | 64 s | rc=0, `release/mac-arm64/VClaw.app` |
+| x64 | 83 s | rc=0, `release/mac/VClaw.app` — x64 gets **no** suffix |
 
 | step | command | result |
 |---|---|---|
-| preflight | `build-remote.sh --check` | final state: `preflight: PASS (arm64 x64)`, 11 `ok`; before the x64 binary was on the host the same command exited 1 with `FAIL omp x64 — missing …` |
+| preflight | `build-remote.sh --check` | `preflight: PASS (arm64 x64)`, 12 `ok`; on a host without the x64 binary it exits 1 with `FAIL omp x64 — missing …` |
 | node on host | `~/build/toolchain/node-v24.15.0-darwin-arm64/bin/node -v` | `v24.15.0`, npm `11.12.1`; host default node still `v25.8.0` |
-| source | `git bundle` → `tailscale ssh` → `git fetch` → `checkout --detach` | `cabbc52495bb8174b344599312b2911c50f6a2cd`, `rev-parse HEAD` matched |
-| deps | `npm ci --no-audit --no-fund` | 719 packages, `npm warn EBADENGINE` only (npm 11 vs pinned 12) |
-| bundle | `npm run build:bundle` | `out/` produced; `out/main/index.js` present |
-| package arm64 | `electron-builder --mac --arm64 --dir` | `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`, `skipped macOS code signing` |
-| package x64 | `electron-builder --mac --x64 --dir` | `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`, Electron fetched from the mirror |
+| source | `git bundle` → `tailscale ssh` → `git fetch` → `checkout --detach` | `9d2e9b76f164b3fb513dc20e4d1a74c71eeace51`, `rev-parse HEAD` matched (already on host → `no transfer`) |
+| deps | `npm ci --no-audit --no-fund` | 719 packages in 8–9 s, `npm warn EBADENGINE` only (npm 11 vs pinned 12) |
+| bundle | `npm run build:bundle` | `out/` produced; `out/main/index.js` 541.63 kB |
+| package arm64 | `electron-builder --mac --arm64 --dir` | `after-pack: bundled omp verified (sha256 d4a10d97488d…, arm64)`, `using custom unpacked Electron distribution electronDist=node_modules/electron/dist`, `skipped macOS code signing` |
+| package x64 | `electron-builder --mac --x64 --dir` | `after-pack: bundled omp verified (sha256 abd62d315b66…, x64)`, `downloaded label=electron progress=100%` — the x64 Electron came from `ELECTRON_MIRROR`, not github |
 | host gates arm64 | `lipo` / `shasum` on `release/mac-arm64/VClaw.app` | exe `arm64`, omp `arm64`, omp sha256 `d4a10d97488d6054d2b18198bd24f461079952c7e0fb75ba66336ca0df0cb99e`, `product.json` id `vclaw` |
 | host gates x64 | same on `release/mac/VClaw.app` | exe `x86_64`, omp `x86_64`, omp sha256 `abd62d315b66314f0f635d537407037e7b0d06782513d8035669db5ef744242d`, `product.json` id `vclaw` |
-| collect arm64 | `ditto -c -k --sequesterRsrc --keepParent` → pull | `release-remote/arm64/VClaw-arm64-app.zip`, 249,687,818 B, sha256 `b92fb509570e062a81f44209423a48e5a1b311bfb202317c32aa1fcd33ae5d1b` + `BUILD.json` |
-| collect x64 | same | `release-remote/x64/VClaw-x64-app.zip`, 260,078,857 B, sha256 `630a5824f38f966eea83e862aef2227335f44a5e12fc9ea040a30e07d345868f` + `BUILD.json` |
+| collect arm64 | `ditto -c -k --sequesterRsrc --keepParent` → pull | `release-remote/arm64/VClaw-arm64-app.zip`, 249,687,802 B, sha256 `eb2e3b6cb83108dbb3c4a468f1a9bd28b2d761cd3a3bafe3914af748b3c5addb` + `BUILD.json` |
+| collect x64 | same | `release-remote/x64/VClaw-x64-app.zip`, 260,078,847 B, sha256 `3177631df55c6bc95dbc42a6cd74d422a350aae10ea9d6d916d3d97932ca16f8` + `BUILD.json` |
 | local gates | unzip + `lipo -archs` + `SHA256SUMS.txt` | arm64: exe `arm64`, omp `arm64`; x64: exe `x86_64`, omp `x86_64`; both omp digests found in `SHA256SUMS.txt` |
+| provenance | `BUILD.json` re-read against the pulled file | `source.commit` full 40 chars `9d2e9b76f164b3fb513dc20e4d1a74c71eeace51`, `artifact.bytes`/`sha256` == `ls`/`shasum` of the zip, `omp.sha256` == `SHA256SUMS.txt`, `arch` == the directory, `app.path` == `release/mac[-arm64]/VClaw.app` |
+
+The same commit built twice gave **different** zips that day: arm64 249,687,818 B / `5d39a1da…`
+first, 249,687,802 B / `eb2e3b6c…` on the repeat. Bytes and sha256 in `BUILD.json` describe *that
+run's file*; pin the commit, hash the run you ship.
 
 **Nothing was built on the workstation.** It produced a git bundle and read the pulled `.app`s;
 the packages come from `~/build/vclaw/vclaw-desktop/release/{mac-arm64,mac}` on the host, and the
 workstation has no `release/` tree of its own (`ls -d vclaw-desktop/release` → no such file).
+
+### Forced failures — proven, not assumed
+
+`tailscale ssh` cannot report a status: measured `tailscale ssh $H -- 'exit 5'` → local **`rc=0`**.
+That is why every remote call carries `__VCLAW_RC__=<n>`; both failure paths were then injected on
+purpose, observed, and undone:
+
+| injection | what the driver printed | local rc |
+|---|---|---|
+| `mv` the host's `omp-darwin-arm64` aside and `chmod 500` the release set — the remote write fails | step `==> sync OMP release set …`, `omp-darwin-arm64  sending 206M`, then one line: `build-remote: FATAL: transfer of omp-darwin-arm64 to … failed (stream rc=141): zsh:1: permission denied: …/omp-darwin-arm64.partial` | 1, before any packaging |
+| `$LOCAL_OUT/arm64/build.log` created as a **directory** — `tee` cannot open the log | `tee: … Is a directory`; the remote build still finished green (`__VCLAW_RC__=0`), then `build-remote: FATAL: build of arm64 failed (remote rc=255, log: …)` plus the note that 255 means "no in-band marker — transport or log, not a build verdict" | 1, nothing collected |
+
+Restored afterwards: `chmod 755`, binary moved back, `shasum -a 256` → `d4a10d97…` again, and the
+green proof run above was taken **after** the restore.
+
+The second row is a defect this proved and the driver now handles: `ssh_stream` wraps its pipeline
+in `|| true` and re-checks the log, because otherwise the ERR trap fired on `tee` *after* the build
+had been paid for and the run died with a raw `FAILED at line 88 (rc=1): tee "$log"` — no step, no
+log path, no verdict. `transfer_up` is guarded the same way (`trap - ERR` inside the substitution,
+`|| rc=$?`, ssh stderr folded into the message): before the fix the trap printed
+`FAILED at line 107 (rc=141)` (gzip's SIGPIPE) *before* the real diagnosis and the remote's own
+error text only reached the terminal. Any new expected-to-fail pipeline in this driver needs the
+same treatment.
 
 ### What a first run measured
 
@@ -518,8 +553,9 @@ Order: preflight (clean tracked tree, HEAD == `origin/<branch>` tip, `--check`, 
 unit) → `build-remote.sh` → provenance re-read from `release-remote/<arch>/BUILD.json` → annotated
 tag `v<version>+<short sha>` pushed to `origin` **and** `github` (this submodule has no fan-out) →
 `POST /api/v1/repos/chatek/vclaw-app/releases` → upload the zip, `BUILD-<arch>.json`, merged
-`SHA256SUMS.txt`, `tuple.json` → re-fetch and compare served sizes and `SHA256SUMS.txt`. Unsigned
-is always stated: `-unsigned` in the zip asset name, `unsigned=yes` in the body. The token comes
+`SHA256SUMS.txt`, `tuple.json` → re-fetch and compare served sizes and `SHA256SUMS.txt`. Signing is
+unavailable (the host reports `identities=0`), so the zip asset name carries `-unsigned`, the body
+says `unsigned=yes`, and the release stays a draft unless `--publish` is passed. The token comes
 from `FORGEJO_TOKEN` or `<superproject>/.prime/forgejo-token`; it is handed to curl in a 0600 config
 so it never appears on a command line or in any output.
 

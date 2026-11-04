@@ -220,6 +220,10 @@ verify_artefact() { # verify_artefact <arch>
 
   [ -d "$app" ] || die "expected app bundle not found: $app"
   [ -f "$omp" ] || die "packaged omp missing: $omp — after-pack should have failed the build"
+  # The vendored binary is mode 0644; only after-pack's chmod makes it 0755. Digest and
+  # slice both survive a lost exec bit, so assert it here rather than trust the packaging.
+  [ -x "$omp" ] ||
+    die "packaged omp is not executable (mode $(stat -f '%Lp' "$omp")) — after-pack must chmod it 0755"
   expected="$(sums_entry "$arch")"
   [ -n "$expected" ] || die "no SHA256SUMS entry for omp-darwin-$arch"
   actual="$(file_sha256 "$omp")"
