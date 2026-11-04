@@ -367,10 +367,22 @@ was run here against a dmg built from this driver's member bundle with a **synth
 On this driver's real member output (no payload integration) it fails at the last check, which is
 the correct verdict: `--dir` cannot substitute for the member job.
 
-It is also **stricter than `release.yml:320`** on two points: the six consumed keys
-(`release`, `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`) must be
-non-empty strings, and `dirty`/`vclawDirty` must be real booleans — a string `'false'` fails. If
-this assert is ever made primary, expect it to reject a payload the in-tree check accepts.
+**Measured divergence from `release.yml:320-327`.** Both programs were run on the *same* fixture
+`BUILD.json` (the workflow's inline node program extracted from the YAML and invoked exactly as the
+workflow invokes it: `node -e '<program>' "$BUILD" "$MEMBER_REF" "$SHA"`):
+
+| fixture mutation | `release.yml:320-327` | member assert |
+|---|---|---|
+| all keys valid, pin matches | accepts (`payload pins ok: …`) | `PASS`, rc=0 |
+| `release: ""` | **accepts** | `FAIL: BUILD.json has empty/non-string values: release`, rc=1 |
+| `release` deleted | **accepts** | `FAIL: BUILD.json missing keys: release`, rc=1 |
+| `vclawDirty: "false"` (string) | **accepts** | `FAIL: BUILD.json dirty/vclawDirty must be booleans`, rc=1 |
+| `vclawVersion: null` | rejects (`::error::BUILD.json missing vclawVersion`) | `FAIL: BUILD.json has empty/non-string values: vclawVersion`, rc=1 |
+
+The third row is the one that matters: the in-tree gate tests `dirty === true`, so a payload whose
+dirty flag is the **string** `"false"` passes a gate meant to refuse dirty builds. It is latent
+today (the member emitter writes real booleans), but any second producer that stringifies the field
+walks through. Do not "simplify" the stricter assert to match `:320`.
 
 **Member-repo source of truth.** Measured 2026-11-05: the Forgejo mirror `chatek/vizmaster` is at
 `a77a74ef` (2026-10-26) while GitHub and the local working tree are at `800a9e5` (2026-11-05) —
