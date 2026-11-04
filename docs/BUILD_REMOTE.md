@@ -16,6 +16,13 @@ the app zip, `BUILD-<arch>.json`, `SHA256SUMS.txt` and `tuple.json` to a draft F
 `chatek/vclaw-app` and re-fetches to verify (served sizes, `cmp` of the sums file, and
 `hdiutil verify` on each re-downloaded dmg) ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3).
 
+The asset set is fixed and **the zip is not optional**: per arch
+`<product>-<version>-<arch>-unsigned.dmg` **and** `<product>-<version>-<arch>-unsigned.zip`, plus
+`BUILD-<arch>.json` per arch (one per arch, not a single `BUILD.json`), the merged
+`SHA256SUMS.txt` and `tuple.json` — 2 + 2·arch assets. A consumer or a stale-asset pruner that
+expects `dmg, BUILD.json, SHA256SUMS, tuple.json` will delete or flag the zips; the dmg is the
+installer, the zip is the only asset an updater or a non-mounting verifier can consume.
+
 Everything below was measured on 2026-11-04/05 on the host, not inferred from the docs.
 
 ## Remote is primary — there is no silent fallback
@@ -110,11 +117,13 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
   "schema": 1,
   "builtAt": "2026-11-04T18:06:31Z",
   "host": "BUILD_USER_REDACTED",
+  "dirty": false,
   "source": {
     "repo": "vclaw-desktop",
     "remote": "https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app",
     "branch": "vizmaster",
-    "commit": "ee212d9810741a7d8094fa8ef99907d2222f1902"
+    "commit": "ee212d9810741a7d8094fa8ef99907d2222f1902",
+    "worktree": { "clean": true, "from": "git bundle at ee212d9810741a7d8094fa8ef99907d2222f1902" }
   },
   "arch": "arm64",
   "product": { "id": "vclaw", "name": "VClaw", "appId": "com.vclaw.desktop" },
@@ -123,9 +132,32 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
   "app": { "path": "/Users/chance/build/vclaw/vclaw-desktop/release/mac-arm64/VClaw.app", "executable": "VClaw", "executableSlices": "arm64" },
   "omp": { "release": "v18.16.0", "binary": "omp-darwin-arm64", "sha256": "d4a10d97488d6054d2b18198bd24f461079952c7e0fb75ba66336ca0df0cb99e", "slices": "arm64" },
   "electron": "43.4.0",
-  "signing": null
+  "signing": null,
+  "build": "generic"
 }
 ```
+
+A **member** build adds one block and says so in `build`. Nothing else changes shape:
+
+```json
+  "build": "member",
+  "member": {
+    "repo": "git@github.com:chatek/vizmaster.git",
+    "sha": "2a896d80fbbec4fb6b816a0de69a0a0f08356bf2",
+    "payload_sha256": "46726ef78f7e505cd949624daa725e6ee75a6a7a492dd505024a64593cbb5367",
+    "layout": "product/payload",
+    "carrier": "v2",
+    "integrate": "v2-local",
+    "release": "1.0.0+20261104.2a896d8",
+    "files": 103,
+    "bytes": 7540417,
+    "bundle": "git bundle at 2a896d80fbbec4fb6b816a0de69a0a0f08356bf2"
+  }
+```
+
+Measured values from draft release #518. `payload_sha256` changes between builds of the same
+commits: the payload's own `BUILD.json` carries `builtAt`, so the tree digest is a per-build
+fingerprint (like `artifact.sha256`), not a commit hash.
 
 `source.remote` is `git remote get-url origin`. In this clone that is the **Forgejo mirror**
 (`chatek/vclaw-app`), not the record repo (GitHub `chatek/vclaw-desktop`), so treat the field as a
@@ -153,9 +185,38 @@ digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is t
 
 | file | written by | contents | meaning |
 |---|---|---|---|
-| `release-remote/<arch>/BUILD.json` (**release**) | this driver, beside the artefacts, never inside the app | full 40-char commit, branch, product id/appId, zip bytes+sha256, dmg bytes+sha256+`hdiutilVerify`, `omp` digest+slices, electron version, `signing` | what these exact bytes are |
+| `release-remote/<arch>/BUILD.json` (**release**) | this driver, beside the artefacts, never inside the app | full 40-char commit, branch, **`dirty: false` + `source.worktree`**, product id/appId, zip bytes+sha256, dmg bytes+sha256+`hdiutilVerify`, `omp` digest+slices, electron version, `signing`, `build` (`generic`/`member`) and, for a member build, the `member` block (repo, 40-hex sha, payload sha256/layout/carrier/release/files/bytes) | what these exact bytes are, and which commit + payload they came from |
 | `VClaw.app/Contents/Resources/product/payload/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and the mounted-dmg assert in `release.yml` reads it afterwards | eight keys incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` — **short shas** | which member/vclaw pair the payload was cut from |
 | `~/<Name>/BUILD.json` (**runtime seed**) | the app itself, `writeBuildJson()` in `electron/main/default-project.ts:186-203`, at first-launch project seed; skipped when the installed `release` already matches | `{release, name, seededAt}` merged over keys the payload already carried | which payload release a user's project was seeded from |
+
+### Which manifest is a consumer looking at?
+
+The two are told apart by **shape**, not by filename — same basename, different producer, different
+vocabulary:
+
+| | release manifest (this driver) | payload manifest (member `build-info.mjs`) |
+|---|---|---|
+| top-level keys | `schema`, `builtAt`, `host`, `dirty`, `source{repo,remote,branch,commit,worktree}`, `arch`, `product`, `artifact`, `dmg`, `app`, `omp`, `electron`, `signing`, `build`, `member` | `release`, `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `vclawDirty`, `builtAt`, `dirty` (+ `vizmasterCommitFull`/`vclawCommitFull`) |
+| clean-state evidence | `dirty: false` + `source.worktree.clean` | `dirty: false` + `vclawDirty: false` |
+| member tuple | `member.{repo,sha,payload_sha256,layout,carrier,integrate,release,files,bytes,bundle}` | the eight keys above |
+
+A consumer that validates **shape first** is right, and it must refuse the release manifest as a
+payload stamp: measured against VizMaster's publisher, the release manifest yields
+`refusing: BUILD.json is not a member payload manifest — missing keys: release, vizmasterVersion,
+vizmasterCommit, vclawVersion, vclawCommit, vclawDirty, dirty (this looks like the builder release
+manifest; the payload stamp is produced by the member integrate step)`, rc 3 — the intended verdict,
+not a regression. The member tuple a handoff consumer needs (`vclawCommitFull`, payload digest,
+layout, integrate mode) lives in *this* manifest's `member` block and in `tuple.json`; the payload
+stamp lives inside the app at `Resources/product/payload/BUILD.json`.
+
+The **release** `BUILD.json` states the clean-worktree verdict **explicitly** — `"dirty": false`
+plus `"source.worktree": {"clean": true, "from": "git bundle at <40-hex>"}` — because it is written
+by a builder that ships a *commit*: the bundle is cut from the commit, the host checks that commit
+out, and no working-tree edit can reach it. Earlier provenance files omitted the key and an intake
+read the *absence* as `dirty=true`, refusing a clean build; `release-forgejo.sh` now refuses to
+stage an arch whose `BUILD.json` does not say `dirty: false`. A consumer still has to treat a
+**missing** key from an older build as "unknown", not as "dirty" — the field is explicit from this
+revision on.
 
 Attribution matters: `electron/main/product-profile.ts:55` is the JSDoc on
 `DefaultProjectSpec.version` that *documents* the stamp — it writes nothing. The in-bundle payload
@@ -464,10 +525,10 @@ Post-ruling values follow from the same mechanism (`APP_NAME` from the profile, 
 `VClaw.app`, executable `VClaw`, `CFBundleIdentifier com.vclaw.desktop`, `product.json` id still
 `vizmaster`) but are unmeasured until that profile change is committed.
 
-### What `VCLAW_PROFILE` does **not** do
+### What `VCLAW_PROFILE` alone does **not** do
 
 It selects identity and `resources/product.json` — it does **not** produce the member payload
-layout. Measured on the pulled member bundle: `Contents/Resources/` holds
+layout (`--member` does; see §*Member builds* below). Measured on the pulled member bundle: `Contents/Resources/` holds
 `product/payload/{README.md}` (the generic `extraResources` mapping) and there is **no**
 `Contents/Resources/vizmaster/` and no payload `BUILD.json`. The member job in
 `.github/workflows/release.yml` does this end to end — checkout the member repo at the pinned 40-hex sha →
@@ -561,6 +622,136 @@ only say clean. `handoff.json` is the flat manifest the consumer validates
 (`{vizmasterSha, vclawSha, arch, dirty, builtAt}`); it is written from the payload's full-sha keys.
 See `RELEASE_HOSTING.md` §"Member handoff staging".
 
+## Member builds (`--member`, contract-v2 payload)
+
+A member artefact is the *only* publishable output for a member's intake: the generic tree ships
+`Resources/product/payload/README.md` and nothing else, which is exactly what a VizMaster-style
+Gate 1 refuses. `--member` runs the member path on the host — the same three steps
+`.github/workflows/release.yml` runs, minus the GitHub-hosted runner:
+
+```bash
+bash scripts/release/build-remote.sh --arm64 \
+  --member vizmaster \
+  --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+  --member-sha 2a896d80fbbec4fb6b816a0de69a0a0f08356bf2
+```
+
+All three flags or none; `--member <id>` also implies `VCLAW_PROFILE=product/<id>.json`, and the
+driver refuses when the profile's `id` disagrees with `--member` (the profile decides the product,
+including the identity flags the driver passes to electron-builder). The profile is read from the
+**commit** (`git show <commit>:product/<id>.json`), not the working tree: the host checks the commit
+out, so a local edit to the profile is a `WARNING … packing the COMMITTED profile` and never a
+build input.
+
+### Integration mode (`--member-integrate`, default `integrator`)
+
+| mode | what runs on the host | when |
+|---|---|---|
+| `integrator` (default) | the member repo's own `scripts/integrate-vcclaw.mjs --vclaw <checkout> --carrier v2`, then `… --check`. Fails closed if the member's anchors do not match this vclaw commit. | the member repo's integration targets the commit you build |
+| `v2` (opt-in) | contract-v2 **local** integration: copy the bundled payload to `product/payload`, render `product/profile.active.json` from the payload `BUILD.json` `release` (identity passed through). No source rewrites, no anchor patching, no `package.json` mutation — the profile rows are static. The member's integrator is **not** run. | the member's integrator still patches the anchors contract v2 retired (`docs/MEMBER_BUILD.md` step 4) |
+
+A `v2` build is labelled where it cannot be missed: the artefact files are
+`<Product>-<version>-<arch>-v2local.{dmg,zip}`, `BUILD.json` carries
+`member.integrate: "v2-local"`, `tuple.json` carries the same field, and the release body prints
+`integrate: v2-local` plus a line stating that the member repo integrator was **not** used and
+why. `--member-integrate v2` does not change what gets asserted: the payload must still be real
+(more than `README.md`, a payload `BUILD.json`, `dist/`) and the profile must still stamp that
+payload's release, or nothing is packaged. `release-forgejo.sh` refuses a release whose
+provenance mode disagrees with the flag it was given.
+
+### What the member path ships and runs
+
+1. **The member repo at `<sha>`**, cut as a git bundle from the refs that contain it
+   (`git for-each-ref --contains <sha> refs/heads`) and streamed like this checkout. Measured
+   2026-11-05: 1.1 MB for VizMaster `main` `813c2c7`. It lands in `~/build/vclaw/member-<id>`,
+   is fetched into `refs/remotes/member/*`, checked out **detached** at `<sha>`, and the driver
+   refuses to continue unless `git status --porcelain --untracked-files=no` is empty — a
+   member working-tree edit is never ship-able, only the commit is.
+2. **Provenance → payload → integrate → `--check`**, in that order, in one streamed body
+   (measured commands; the log is `release-remote/member.log`):
+
+   ```bash
+   npm ci
+   npm run schema:build --if-present            # the dashboard imports @vizmaster/schema (dist/)
+   VCLAW_SRC=$HOME/build/vclaw/vclaw-desktop node scripts/build-info.mjs --out app/build
+   node scripts/bundle-vizmaster.mjs --with-dist
+   node scripts/integrate-vcclaw.mjs --vclaw $HOME/build/vclaw/vclaw-desktop --carrier v2
+   node scripts/integrate-vcclaw.mjs --vclaw $HOME/build/vclaw/vclaw-desktop --carrier v2 --check
+   ```
+
+   *Provenance first* is load-bearing: `build-info` reads the vclaw checkout's tracked state
+   (`vclawDirty`), and integrate deliberately dirties it, so emitting afterwards stamps
+   `vclawDirty: true` on a clean build and the mounted-dmg assert rejects the artefact.
+   `schema:build` is the first measured failure of this flow: without it the dashboard's
+   `tsc --noEmit` dies on `Cannot find module '@vizmaster/schema'` (rc=1). `--payload` is omitted
+   on purpose — `app/build/payload/vizmaster` is exactly where `bundle-vizmaster.mjs` writes.
+   `--check` runs **after** the real integrate, not before: before it there is nothing to read
+   back (measured: the same `ok`/refusal verdict either way, but the pre-integrate run can only
+   ever fail).
+3. **The pre-packaging assert**, `member-payload-assert.cjs`, written locally and streamed to the
+   host (digest-checked) so the builder and the workstation run the *same* code. It refuses
+   unless `product/payload/` (v2) or `vendor/<member>/` (v1) carries something other than
+   `README.md`, a payload `BUILD.json` with a `release` id, and `dist/`; with `--profile` it also
+   refuses when the staged profile's `defaultProject.version` is not that release id (one
+   artefact must not carry two release ids). It prints the layout it detected, e.g. (measured on
+   the real bundled payload):
+
+   ```
+   layout product/payload (v2) — 103 files (102 payload), 7.2 MiB, dist/index.html=yes, payload BUILD.json release=1.0.0+20261104.813c2c7, product/profile.active.json defaultProject.version=1.0.0+20261104.813c2c7
+   PAYLOAD_ASSERT layout=product/payload carrier=v2 release=1.0.0+20261104.813c2c7 files=103 bytes=7540417 sha256=114364bf2bf6eed222c66a43b44c8408db06aaa6988763fb73e780bd8bc0b24b
+   ```
+
+   and refuses the placeholder payload by name (measured on the un-integrated checkout, rc=1):
+
+   ```
+   member-payload-assert: product/payload (v2) REFUSED — nothing but README.md — this is the placeholder payload the generic tree ships; no payload BUILD.json — the member provenance was never emitted into it; no dist/ — the member bundle ran without --with-dist
+   ```
+
+   The digest is deterministic — sha256 over the payload files in sorted order, each contributing
+   `path\0 bytes \0` — so the same value is recomputed *inside the packaged .app* (where it must
+   equal the pre-packaging one) and again locally on the pulled `.app` zip (where it must equal
+   `BUILD.json`'s `member.payload_sha256`). A payload that changes between the assert and the
+   artefact cannot pass.
+4. **Package with the member profile.** The driver packages `product/profile.active.json` — which
+   the v2 integrator already rendered from the payload's release — rather than copying the
+   checked-in profile over it (the generic path's behaviour), so the seed and the artefact share
+   one release id. It calls electron-builder directly, not `package.mjs`: `package.mjs` pins
+   `npm >= 12.0.2` and the host runs npm 11.12.1, the documented reason this flow has its own
+   electron-builder invocation (`docs/MEMBER_BUILD.md` step 7 bootstraps npm 12 for CI).
+
+### The measured state, 2026-11-05
+
+Two real arm64 runs at vclaw `16871f5` / VizMaster `main` `2a896d8`, differing only in
+`--member-integrate`:
+
+| mode | payload | artefact | verdict |
+|---|---|---|---|
+| `integrator` (default) | built: 103 files, 7,540,417 B, `dist/index.html`, payload `BUILD.json` `release=1.0.0+20261104.2a896d8` | none — nothing packaged | **refused**, correctly (below) |
+| `v2` | same payload; packaged at `Resources/product/payload` (103 files, 7,540,417 B) | `VizMaster-1.1.17-arm64-v2local.{dmg,zip}`, 252,952,736 / 245,074,026 B, `hdiutil verify VALID` | **built and published as draft release #518** (`v1.1.17+16871f5-vizmaster`), all five assets re-fetched and re-hashed |
+
+The strict-mode refusal, verbatim:
+
+```
+integrate-vcclaw: projects.ts list return anchor not found — VClaw fork drifted
+__VCLAW_RC__=2
+build-remote: FATAL: preparing the member payload failed (remote rc=2, log: …/release-remote/member.log)
+```
+
+Cause, measured: `integrate-vcclaw.mjs` (VizMaster `main` `2a896d8`) anchors on
+`return sortProjects(records, 'recent')`; vclaw `electron/main/projects.ts` was refactored to
+`const sorted = sortProjects(records, 'recent')` by `daec25a` ("a product may present ONE
+project"), which is in **both** vclaw tips (`vizmaster 16871f5` and `origin/main 031c805`). The
+vclaw record says the same thing from the other side: `docs/MEMBER_BUILD.md` step 4 — contract v2
+**retired** the harness rewrite, the project-list wrapper and the `ensureDefaultProject` call, and
+the profile expresses them as data — and VizMaster's `docs/vclaw-desktop-build.md` records the
+tree split (the v2 profile ships `product/payload` while its integrator still patches the retired
+anchors). The member repo's pending work is an overlay patch series
+(`packaging/vizmaster/patches`, applied with `git apply`), which is the mechanism that replaces
+those edits. So the refusal is a **cross-repo pin**, and the fix belongs in the member repo: the
+driver keeps running the member's integrator, and `--member-integrate v2` is the labelled,
+opt-in alternative until the member's integration matches the vclaw commit you build. Never make
+the payload path silently skip the overlays without that label.
+
 ## x64 on an arm64 host
 
 electron-builder can emit `--x64` from an arm64 host, and it does here — measured on
@@ -607,7 +798,38 @@ bash scripts/release/release-forgejo.sh --arm64 --dry-run       # rehearse: buil
 bash scripts/release/release-forgejo.sh --arm64                 # arm64 draft release
 bash scripts/release/release-forgejo.sh --arm64 --x64 --publish # both arches, published
 bash scripts/release/release-forgejo.sh --tag v1.1.17+346127d   # explicit tag
+bash scripts/release/release-forgejo.sh --arm64 --member vizmaster \
+  --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+  --member-sha <40-hex> --member-integrate v2                   # member draft release
 ```
+
+A member release forwards `--member/--member-repo/--member-sha/--member-integrate` verbatim to
+`build-remote.sh` and then *requires* the provenance to say so: every arch's `BUILD.json` must
+carry `build: "member"`, `dirty: false`, the same `member.sha` and the same payload digest, or the
+release is refused before tagging. The tuple gains `"build": "member"` plus the `member` block
+(repo, 40-hex sha, payload sha256, layout, carrier, release, files, `integrate`), the body states
+`integrate:` (`integrator` or `v2-local`, with a paragraph saying the member repo's integrator was
+**not** used in the v2-local case), and the release name / tag message end in
+`member <id>`. A generic build says `generic` in the same fields. There is no path from "artefact
+with the placeholder payload" to a member release: the driver's pre-packaging assert refuses
+first.
+
+`RELEASE_REPO_ROOT` points the whole release at a **clean throwaway clone/worktree at HEAD** while
+the scripts themselves are still uncommitted in the lane's tree:
+
+```bash
+git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
+git -C /tmp/proof/vclaw-desktop checkout -B vizmaster <HEAD>
+git -C /tmp/proof/vclaw-desktop remote set-url origin https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app
+ln -s "$PWD/../vendors" /tmp/proof/vendors          # the OMP release set, one level above the clone
+RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
+  bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2
+```
+
+The preflight still refuses a dirty tree (that is the point of it); the override only says *which*
+clean tree is released, and the preflight prints both — `repo <path> (the tree this release
+operates on; scripts from <dir>)`. The path the tree sits at must have `vendors/oh-my-pi/releases/
+v18.16.0` beside it, exactly as in the lane checkout.
 
 Order: preflight (clean tracked tree, HEAD == `origin/<branch>` tip, `--check`, token, Releases
 unit) → `build-remote.sh` → provenance re-read from `release-remote/<arch>/BUILD.json` → annotated
@@ -615,7 +837,18 @@ tag `v<version>+<short sha>` pushed to `origin` **and** `github` (this submodule
 `POST /api/v1/repos/chatek/vclaw-app/releases` → upload the zip, `BUILD-<arch>.json`, merged
 `SHA256SUMS.txt`, `tuple.json` → re-fetch and compare served sizes and `SHA256SUMS.txt`. Signing is
 unavailable (the host reports `identities=0`), so the zip asset name carries `-unsigned`, the body
-says `unsigned=yes`, and the release stays a draft unless `--publish` is passed. The token comes
+says `unsigned=yes`, and the release stays a draft unless `--publish` is passed.
+
+A **prerelease** publish (`draft=false, prerelease=true`) has no flag — the driver only knows
+draft/publish. Create the draft, then flip it with
+`PATCH /api/v1/repos/<repo>/releases/<id>` `{"draft":false,"prerelease":true}` (plus the body line
+that says so): no re-tag, no re-upload, no rebuild. Then prove the anonymous surface — with **no
+token**, the release page and every `…/releases/download/<tag>/<asset>` URL must answer 200/206 and
+a re-downloaded dmg must hash to its `SHA256SUMS.txt` digest. Measured on #518
+(`v1.1.17+16871f5-vizmaster`): page 200, all five assets 206, dmg sha256 `e996dcf4…` equal to the
+staged file and `hdiutil verify VALID`, page carries the `Pre-release` marker. The anonymous REST
+API (`/api/v1/repos/…/releases`, by tag, by id) answered **404** on this instance, so the HTML page
+plus the download URLs are the anonymous surface — do not build an intake on the API. The token comes
 from `FORGEJO_TOKEN` or `<superproject>/.prime/forgejo-token`; it is handed to curl in a 0600 config
 so it never appears on a command line or in any output.
 
@@ -627,3 +860,5 @@ so it never appears on a command line or in any output.
 | `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-app` with `{"has_releases":true}`, once, as an admin |
 | `already exists at …` / `a release for … already exists` | tags and releases are never rewritten — pick another `--tag` |
 | `served size … != local` | the upload truncated; the release is not trustworthy |
+| `POST releases -> HTTP 403 … user should have a permission to write to a repo` | an `FORGEJO_TOKEN` in the environment won the precedence and is read-only (`GET /api/v1/user` returns no login); unset it so the scoped token file is used, or point `FORGEJO_TOKEN_FILE` at the write token |
+| `no Forgejo token: …/.prime/forgejo-token is not readable` after setting `RELEASE_REPO_ROOT` | the token default follows the lane checkout the scripts live in, not the release tree — set `FORGEJO_TOKEN_FILE` explicitly if the two ever differ |

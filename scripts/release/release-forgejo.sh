@@ -4,6 +4,19 @@
 #   bash scripts/release/release-forgejo.sh --arm64 --dry-run
 #   bash scripts/release/release-forgejo.sh --arm64 --x64
 #   bash scripts/release/release-forgejo.sh --arm64 --tag v1.1.17 --publish
+#   bash scripts/release/release-forgejo.sh --arm64 --member vizmaster \
+#     --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+#     --member-sha 2a896d80fbbec4fb6b816a0de69a0a0f08356bf2 --member-integrate v2
+#
+# A member release needs --member/--member-repo/--member-sha, forwarded verbatim to
+# build-remote.sh, which ships and integrates the member payload before packaging.
+# --member-integrate integrator|v2 picks how (default integrator; v2 = contract-v2 local
+# payload+profile integration, labelled `-v2local` in the artefact name and `v2-local` in
+# the tuple/body — the body states the member repo integrator was not used). The
+# provenance that comes back carries a `member` block, so the tuple, the body and the
+# release name say `member <id>` and the payload digest; a generic build says `generic`.
+# There is no way to publish a member release whose artefact has no payload: the build
+# driver's pre-packaging assert refuses first.
 #
 # Compilation happens ONLY on the remote build host (scripts/release/build-remote.sh,
 # docs/BUILD_REMOTE.md). This script is the workstation half: the host's tailnet does
@@ -47,12 +60,20 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# The tree this release operates on. Defaults to the checkout the scripts live in; override
+# with RELEASE_REPO_ROOT to run the release from a CLEAN worktree/clone while the scripts
+# themselves are still uncommitted in the lane's tree. The preflight below refuses a dirty
+# tree either way — this only says WHICH clean tree is being released.
+SCRIPT_REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="${RELEASE_REPO_ROOT:-$SCRIPT_REPO_ROOT}"
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BUILD_DRIVER="$SCRIPT_DIR/build-remote.sh"
 LOCAL_OUT="${LOCAL_OUT:-$REPO_ROOT/release-remote}"
 export LOCAL_OUT
 FORGEJO_REPO="${FORGEJO_REPO:-chatek/vclaw-app}"
-TOKEN_FILE="${FORGEJO_TOKEN_FILE:-$REPO_ROOT/../.prime/forgejo-token}"
+# Relative to the LANE checkout (where the scripts live), not REPO_ROOT: a clean release
+# clone elsewhere must still find the operator's token unless FORGEJO_TOKEN_FILE says otherwise.
+TOKEN_FILE="${FORGEJO_TOKEN_FILE:-$SCRIPT_REPO_ROOT/../.prime/forgejo-token}"
 API_TIMEOUT="${API_TIMEOUT:-1800}"
 NODE_VERSION="$(tr -d '[:space:]' <"$REPO_ROOT/.nvmrc")"
 
@@ -86,6 +107,11 @@ trap cleanup EXIT
 
 # --- arguments ---------------------------------------------------------------
 ARCH_ARGS=()
+MEMBER_ARGS=()
+MEMBER=""
+MEMBER_REPO=""
+MEMBER_SHA=""
+MEMBER_INTEGRATE=""
 TAG=""
 DRAFT=1
 DRY_RUN=0
@@ -94,6 +120,34 @@ while [ "$#" -gt 0 ]; do
     --arm64 | --x64)
       ARCH_ARGS+=("$1")
       shift
+      ;;
+    --member)
+      [ "$#" -ge 2 ] || die "--member needs a value"
+      MEMBER="$2"
+      MEMBER_ARGS+=(--member "$2")
+      shift 2
+      ;;
+    --member-repo)
+      [ "$#" -ge 2 ] || die "--member-repo needs a value"
+      MEMBER_REPO="$2"
+      MEMBER_ARGS+=(--member-repo "$2")
+      shift 2
+      ;;
+    --member-sha)
+      [ "$#" -ge 2 ] || die "--member-sha needs a value"
+      MEMBER_SHA="$2"
+      MEMBER_ARGS+=(--member-sha "$2")
+      shift 2
+      ;;
+    --member-integrate)
+      [ "$#" -ge 2 ] || die "--member-integrate needs a value"
+      case "$2" in
+        integrator | v2) ;;
+        *) die "--member-integrate must be 'integrator' or 'v2' (got '$2')" ;;
+      esac
+      MEMBER_INTEGRATE="$2"
+      MEMBER_ARGS+=(--member-integrate "$2")
+      shift 2
       ;;
     --tag)
       [ "$#" -ge 2 ] || die "--tag needs a value"
@@ -116,6 +170,12 @@ while [ "$#" -gt 0 ]; do
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
+if [ -n "$MEMBER$MEMBER_REPO$MEMBER_SHA" ]; then
+  [ -n "$MEMBER" ] && [ -n "$MEMBER_REPO" ] && [ -n "$MEMBER_SHA" ] ||
+    die "a member release needs --member, --member-repo and --member-sha together"
+elif [ -n "$MEMBER_INTEGRATE" ]; then
+  die "--member-integrate only means something with --member/--member-repo/--member-sha"
+fi
 if [ "${#ARCH_ARGS[@]}" -eq 0 ]; then
   ARCH_ARGS=(--arm64 --x64) # a release carries both arches; --arm64 alone is the quick lane
 fi
@@ -242,6 +302,7 @@ STAGE="$LOCAL_OUT/forgejo/release-$TAG_SAFE"
 
 # --- 1. preflight ------------------------------------------------------------
 step "preflight"
+say "repo $REPO_ROOT (the tree this release operates on; scripts from $SCRIPT_DIR)"
 
 DIRTY="$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)"
 if [ -n "$DIRTY" ]; then
@@ -293,8 +354,12 @@ REPO_JSON="$(api GET "$API/repos/$FORGEJO_REPO")" || die "cannot reach $API"
        Enable it once as an admin: PATCH $API/repos/$FORGEJO_REPO with {\"has_releases\":true}"
 say "$FORGEJO_REPO reachable at $FORGEJO_URL (releases enabled)"
 
-step "preflight: build-remote.sh --check ${ARCH_ARGS[*]}"
-CHECK_OUT="$(bash "$BUILD_DRIVER" --check "${ARCH_ARGS[@]}" 2>&1)" && CHECK_RC=0 || CHECK_RC=$?
+step "preflight: build-remote.sh --check ${ARCH_ARGS[*]}${MEMBER:+ --member $MEMBER}"
+if [ "${#MEMBER_ARGS[@]}" -gt 0 ]; then
+  CHECK_OUT="$(bash "$BUILD_DRIVER" --check "${ARCH_ARGS[@]}" "${MEMBER_ARGS[@]}" 2>&1)" && CHECK_RC=0 || CHECK_RC=$?
+else
+  CHECK_OUT="$(bash "$BUILD_DRIVER" --check "${ARCH_ARGS[@]}" 2>&1)" && CHECK_RC=0 || CHECK_RC=$?
+fi
 printf '%s\n' "$CHECK_OUT" >&2
 if [ "$CHECK_RC" -ne 0 ]; then
   # The host's checkout, vendor sums and omp copies lag behind until a build streams
@@ -308,7 +373,7 @@ for line in sys.stdin:
     m = re.match("  FAIL  (.*?) \u2014 ", line)
     if m:
         label = m.group(1)
-        kind = "synced" if re.match("^(checkout|SHA256SUMS\\.txt|omp (arm64|x64))$", label) else "blocking"
+        kind = "synced" if re.match("^(checkout|member checkout|SHA256SUMS\\.txt|omp (arm64|x64))$", label) else "blocking"
         print("%s\t%s" % (kind, label))
 ')"
   BLOCKING="$(printf '%s\n' "$CHECK_LABELS" | awk -F'\t' '$1 == "blocking" { print $2 }')"
@@ -320,9 +385,14 @@ for line in sys.stdin:
 fi
 
 # --- 2. build ----------------------------------------------------------------
-step "build on the remote host (arch: ${ARCHES[*]})"
-bash "$BUILD_DRIVER" "${ARCH_ARGS[@]}" >&2 ||
-  die "build-remote.sh failed — nothing was tagged or published"
+step "build on the remote host (arch: ${ARCHES[*]}${MEMBER:+, member $MEMBER})"
+if [ "${#MEMBER_ARGS[@]}" -gt 0 ]; then
+  bash "$BUILD_DRIVER" "${ARCH_ARGS[@]}" "${MEMBER_ARGS[@]}" >&2 ||
+    die "build-remote.sh failed — nothing was tagged or published"
+else
+  bash "$BUILD_DRIVER" "${ARCH_ARGS[@]}" >&2 ||
+    die "build-remote.sh failed — nothing was tagged or published"
+fi
 
 # --- 3. provenance, straight from BUILD.json ---------------------------------
 step "read the builder's provenance"
@@ -364,6 +434,65 @@ for arch in "${ARCHES[@]}"; do
   if [ -z "$BUILT_AT" ] || [[ "$at" > "$BUILT_AT" ]]; then BUILT_AT="$at"; fi
   say "$arch zip $actual_bytes bytes, sha256 $zip_sha; dmg $dmg_actual_bytes bytes, sha256 $dmg_sha; omp $omp"
 done
+
+# The member block comes from the same BUILD.json the digests above come from, so the
+# tuple/body have one source of truth. A member release must agree across arches: same
+# member sha, same payload digest, same layout.
+RELEASE_MEMBER_JSON="null"
+BUILD_KIND="generic"
+[ -z "$MEMBER" ] || BUILD_KIND="member"
+for arch in "${ARCHES[@]}"; do
+  kind="$(json_get "$LOCAL_OUT/$arch/BUILD.json" build)"
+  [ -n "$kind" ] || die "$LOCAL_OUT/$arch/BUILD.json records no build kind — rebuild with this driver"
+  [ "$kind" = "$BUILD_KIND" ] || die "$LOCAL_OUT/$arch/BUILD.json says build '$kind', expected '$BUILD_KIND'"
+  [ "$(json_get "$LOCAL_OUT/$arch/BUILD.json" dirty)" = "false" ] ||
+    die "$LOCAL_OUT/$arch/BUILD.json does not record a clean worktree (dirty != false).
+       Builds are cut from a git bundle and never from a working tree; a provenance file
+       that cannot say that must not be published."
+done
+if [ -n "$MEMBER" ]; then
+  M_SHA=""
+  for arch in "${ARCHES[@]}"; do
+    j="$LOCAL_OUT/$arch/BUILD.json"
+    sha="$(json_get "$j" member.sha)"
+    pay="$(json_get "$j" member.payload_sha256)"
+    lay="$(json_get "$j" member.layout)"
+    [ "$sha" = "$MEMBER_SHA" ] ||
+      die "$j was built from member ${sha:0:12}, --member-sha is ${MEMBER_SHA:0:12}"
+    [ -n "$pay" ] && [ -n "$lay" ] || die "$j carries no member payload digest/layout"
+    integ="$(json_get "$j" member.integrate)"
+    [ -n "$integ" ] || die "$j records no member.integrate mode — rebuild with this driver"
+    if [ -n "$MEMBER_INTEGRATE" ]; then
+      case "$MEMBER_INTEGRATE:$integ" in
+        v2:v2-local | integrator:integrator) ;;
+        *) die "$j was integrated with '$integ', --member-integrate asked for '$MEMBER_INTEGRATE'" ;;
+      esac
+    fi
+    if [ -z "$M_SHA" ]; then
+      M_SHA="$sha"
+      M_PAY="$pay"
+      M_LAY="$lay"
+      M_INTEG="$integ"
+      M_REL="$(json_get "$j" member.release)"
+      M_REPO="$(json_get "$j" member.repo)"
+      M_CARRIER="$(json_get "$j" member.carrier)"
+      M_FILES="$(json_get "$j" member.files)"
+    else
+      [ "$M_PAY" = "$pay" ] || die "the arches disagree on the payload digest ($M_PAY vs $pay)"
+      [ "$M_LAY" = "$lay" ] || die "the arches disagree on the payload layout ($M_LAY vs $lay)"
+      [ "$M_INTEG" = "$integ" ] || die "the arches disagree on the integrate mode ($M_INTEG vs $integ)"
+    fi
+  done
+  say "member $MEMBER @ ${M_SHA:0:12}: payload $M_LAY ($M_CARRIER), sha256 $M_PAY, $M_FILES files, release $M_REL, integrate $M_INTEG"
+  RELEASE_MEMBER_JSON="$(python3 -c '
+import json, sys
+print(json.dumps({
+    "repo": sys.argv[1], "sha": sys.argv[2], "payload_sha256": sys.argv[3],
+    "layout": sys.argv[4], "carrier": sys.argv[5], "release": sys.argv[6],
+    "files": int(sys.argv[7]), "integrate": sys.argv[8],
+}, separators=(",", ":")))
+' "$M_REPO" "$M_SHA" "$M_PAY" "$M_LAY" "$M_CARRIER" "$M_REL" "$M_FILES" "$M_INTEG")"
+fi
 PRODUCT_NAME="$(json_get "$LOCAL_OUT/${ARCHES[0]}/BUILD.json" product.name)"
 [ -n "$PRODUCT_NAME" ] || PRODUCT_NAME="VClaw"
 
@@ -433,7 +562,7 @@ for name in "${ASSETS[@]}"; do
 done
 TUPLE_ARGS=()
 for arch in "${ARCHES[@]}"; do TUPLE_ARGS+=("$arch=$(pub_dmg "$arch")=$(pub_zip "$arch")"); done
-python3 -c '
+RELEASE_MEMBER_JSON="$RELEASE_MEMBER_JSON" RELEASE_BUILD_KIND="$BUILD_KIND" python3 -c '
 import json, os, sys
 commit, branch, built_at, sums_path = sys.argv[1:5]
 sums = {}
@@ -448,18 +577,32 @@ for pair in sys.argv[5:]:
         "dmg": {"file": dmg, "bytes": os.path.getsize(os.path.join(stage, dmg)), "sha256": sums[dmg]},
         "zip": {"file": zipname, "bytes": os.path.getsize(os.path.join(stage, zipname)), "sha256": sums[zipname]},
     }
+member = json.loads(os.environ["RELEASE_MEMBER_JSON"])
 print(json.dumps({"commit": commit, "branch": branch, "dirty": False,
+                  "build": os.environ["RELEASE_BUILD_KIND"],
+                  "member": member,
                   "builtAt": built_at, "arches": arches}, indent=2))
 ' "$COMMIT" "$BRANCH" "$BUILT_AT" "$STAGE/SHA256SUMS.txt" "${TUPLE_ARGS[@]}" >"$STAGE/tuple.json"
 ASSETS+=("SHA256SUMS.txt" "tuple.json")
 
-RELEASE_NAME="$PRODUCT_NAME v$VERSION (${ARCHES[*]}, $SIGN_LABEL)"
+RELEASE_NAME="$PRODUCT_NAME v$VERSION (${ARCHES[*]}, $SIGN_LABEL, $BUILD_KIND${MEMBER:+ $MEMBER})"
+TAG_MESSAGE="vclaw-desktop $VERSION $SIGN_LABEL from $COMMIT on $BRANCH, built on $BUILT_ON, $BUILD_KIND${MEMBER:+ $MEMBER@${M_SHA:0:12}}"
 BODY_FILE="$STAGE/release-body.md"
 # shellcheck disable=SC2016 # every backtick below is literal markdown
 {
   printf 'Built on the remote macOS build host from committed code — no local build, no dirty tree.\n\n'
   printf -- '- source: `%s` branch `%s` at commit `%s` (committed %s)\n' \
     "$FORGEJO_REPO" "$BRANCH" "$COMMIT" "$COMMITTED_AT"
+  if [ "$BUILD_KIND" = "member" ]; then
+    printf -- '- build: **member** `%s` @ `%s` — payload `%s` (%s), %s files, payload sha256 `%s`, payload release `%s`\n' \
+      "$MEMBER" "$M_SHA" "$M_LAY" "$M_CARRIER" "$M_FILES" "$M_PAY" "$M_REL"
+    printf -- '- integrate: `%s`\n' "$M_INTEG"
+    if [ "$M_INTEG" = "v2-local" ]; then
+      printf -- '- **the member repo integrator was NOT used**: it still patches the anchors contract v2 retired (`docs/MEMBER_BUILD.md` step 4), so this build ships the bundled payload plus the profile rendered from it — no source rewrites. The artefact name carries `-v2local` for the same reason.\n'
+    fi
+  else
+    printf -- '- build: **generic** — the `vclaw-desktop` tree itself; the payload directory carries the placeholder README, not member content\n'
+  fi
   printf -- '- builder: `%s`, node v%s (the pinned toolchain); the artefacts were pulled back and re-verified on the workstation\n' \
     "$BUILT_ON" "$NODE_VERSION"
   printf -- '- built: %s\n' "$BUILT_AT"
@@ -484,8 +627,9 @@ BODY_FILE="$STAGE/release-body.md"
   done
   printf '\n`SHA256SUMS.txt` carries those digests — `shasum -a 256 -c SHA256SUMS.txt` (or `sha256sum -c`).\n'
   printf '`BUILD-<arch>.json` is the builder'"'"'s own provenance record; `tuple.json` is the flat\n'
-  printf '`{commit, branch, dirty, builtAt, arches}` pin for a consumer, where each arch names\n'
-  printf 'its `dmg` and `zip` asset with bytes and sha256.\n'
+  printf '`{commit, branch, dirty, build, member, builtAt, arches}` pin for a consumer, where each\n'
+  printf 'arch names its `dmg` and `zip` asset with bytes and sha256. `build`/`member` name what\n'
+  printf 'the artefact is (`member <id> @ <sha>` with the payload digest and layout, or `generic`).\n'
   if [ "$DRAFT" -eq 1 ]; then
     printf '\nThis release is a **draft**: the assets stay visible to the token holder until it is published.\n'
   fi
@@ -510,8 +654,7 @@ done
 if [ "$DRY_RUN" -eq 1 ]; then
   step "dry run — nothing was tagged, created or uploaded"
   printf 'tag (annotated, at HEAD %s)\n' "$COMMIT"
-  printf '  git -C %s tag -a %s -m %s %s\n' "$REPO_ROOT" "$TAG" \
-    "'vclaw-desktop $VERSION $SIGN_LABEL from $COMMIT on $BRANCH'" "$COMMIT"
+  printf '  git -C %s tag -a %s -m %s %s\n' "$REPO_ROOT" "$TAG" "'$TAG_MESSAGE'" "$COMMIT"
   for remote in origin github; do
     printf '  git -C %s push %s refs/tags/%s:refs/tags/%s\n' "$REPO_ROOT" "$remote" "$TAG" "$TAG"
   done
@@ -533,7 +676,6 @@ fi
 
 # --- 7. tag ------------------------------------------------------------------
 step "tag $TAG"
-TAG_MESSAGE="vclaw-desktop $VERSION $SIGN_LABEL from $COMMIT on $BRANCH, built on $BUILT_ON"
 LOCAL_TAG="$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$TAG^{}" 2>/dev/null || true)"
 if [ -n "$LOCAL_TAG" ]; then
   [ "$LOCAL_TAG" = "$COMMIT" ] ||
