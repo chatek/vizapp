@@ -100,7 +100,7 @@ Every build writes one, next to the zip (arm64 shown; x64 differs only in `arch`
   "schema": 1,
   "builtAt": "2026-11-04T16:15:50Z",
   "host": "BUILD_USER_REDACTED",
-  "source": { "repo": "vclaw-desktop", "branch": "vizmaster", "commit": "cabbc52495bb8174b344599312b2911c50f6a2cd" },
+  "source": { "repo": "vclaw-desktop", "remote": "https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app", "branch": "vizmaster", "commit": "cabbc52495bb8174b344599312b2911c50f6a2cd" },
   "arch": "arm64",
   "product": { "id": "vclaw", "name": "VClaw", "appId": "com.vclaw.desktop" },
   "artifact": { "file": "VClaw-arm64-app.zip", "bytes": 249687816, "sha256": "e4780cb30a63272a25af02a1f2ab1adb75b7d8d1808cffdce8bd14dab9d3b247" },
@@ -111,6 +111,13 @@ Every build writes one, next to the zip (arm64 shown; x64 differs only in `arch`
 }
 ```
 
+`source.remote` is deliberate: **two repositories carry a `vizmaster` branch** — this checkout's
+`origin` (Forgejo `chatek/vclaw-app`, tip `cabbc52…`) and GitHub `chatek/vclaw-desktop` (tip
+`c49cc37…` per the member lane). A tuple naming only `repo: vclaw-desktop` + sha cannot say which
+record it came from, and a pin against the wrong repo is the stale-artefact class again. The remote
+URL makes the pin self-describing; designating which repo is the record is a lead decision, not a
+driver one.
+
 `build-remote.sh --check` can be run on the receiving side to re-prove a host still matches; the
 digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is taken on the host
 *before* transfer and re-computed locally after it).
@@ -120,7 +127,7 @@ digests in `BUILD.json` are the bytes that were actually pulled (zip sha256 is t
 | file | written by | contents | meaning |
 |---|---|---|---|
 | `release-remote/<arch>/BUILD.json` (**release**) | this driver, beside the artefact, never inside the app | full 40-char commit, branch, product id/appId, zip bytes+sha256, `omp` digest+slices, electron version, `signing` | what these exact bytes are |
-| `VizMaster.app/Contents/Resources/<MEMBER_ID>/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and `.github/workflows/release.yml:312-327` asserts it afterwards | eight keys incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` — **short shas** | which member/vclaw pair the payload was cut from |
+| `VClaw.app/Contents/Resources/product/payload/BUILD.json` (**payload**) | the **member** repo: `scripts/build-info.mjs`, copied into the payload by `bundle-vizmaster.mjs` (`bundle:vcclaw`); this build only carries it, and the mounted-dmg assert in `release.yml` reads it afterwards | eight keys incl. `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`, `dirty`, `vclawDirty` — **short shas** | which member/vclaw pair the payload was cut from |
 | `~/<Name>/BUILD.json` (**runtime seed**) | the app itself, `writeBuildJson()` in `electron/main/default-project.ts:186-203`, at first-launch project seed; skipped when the installed `release` already matches | `{release, name, seededAt}` merged over keys the payload already carried | which payload release a user's project was seeded from |
 
 Attribution matters: `electron/main/product-profile.ts:55` is the JSDoc on
@@ -317,11 +324,15 @@ member build from this tree — measured, rc=0, 1m06s:
 > packages the profile committed at <sha>`, and `--check` reports `FAIL profile — … differs from
 > HEAD`. Re-measure the member build once the profile change is committed.
 
-For the seeded project, `defaultProject.from` is `vizmaster` — the Resources directory the
-integrator's `{from: 'vendor/vizmaster', to: 'vizmaster'}` entry produces — not the README-only
-`product/payload`. `defaultProject.version` is checked in as `0.0.0+unrendered` and is rendered by
-`package.mjs` from `vendor/<member>/BUILD.json`'s `release`; otherwise one artifact would carry two
-release ids and the seeded project's `BUILD.json` would name a stale one.
+Contract v2 uses ONE payload location: `product/payload`, shipped by the static `extraResources`
+entry and named by `defaultProject.from`. The legacy integrator's `vendor/<member>` +
+`{from: 'vendor/vizmaster', to: 'vizmaster'}` route seeds nothing under this profile (the directory
+exists but is the README placeholder) and is retired — `defaultProject.from` must be
+`product/payload`, and `package.mjs` refuses any other value. The mounted-dmg assert reads
+`Resources/product/payload/BUILD.json`. `defaultProject.version` is checked in as
+`0.0.0+unrendered` and is rendered by `package.mjs` from `product/payload/BUILD.json`'s `release`;
+otherwise one artifact would carry two release ids and the seeded project's `BUILD.json` would name
+a stale one.
 
 The profile's `identity.productName` / `identity.appId` are passed as
 `--config.productName=…` / `--config.appId=…`, exactly as `package.mjs` does, and the driver
@@ -353,15 +364,16 @@ layout. Measured on the pulled member bundle: `Contents/Resources/` holds
 `member` job (`.github/workflows/release.yml`): checkout the member repo at the pinned 40-hex sha →
 `npm run bundle:<member>` → `npm run integrate:<member> -- --vclaw "$GITHUB_WORKSPACE"` →
 `integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"`. The **integrate** step is
-what writes the member overlay (`Resources/<MEMBER_ID>/`, payload dist, agent extension) into this
-checkout; a `--dir` build without it cannot satisfy the mounted-dmg assert.
+what writes the member overlay into this checkout; contract v2 puts the payload at
+`product/payload` (one location, seeded from `Resources/product/payload`), and the legacy
+`Resources/<MEMBER_ID>/` route is retired.
 
-`package.mjs --member` now fails closed **before** electron-builder when `vendor/<MEMBER_ID>/dist`
-is absent, when the payload directory named by the profile's `defaultProject.from` carries only
-`README.md`, or when `vendor/<MEMBER_ID>/BUILD.json` has no `release` id. A missing or early
-integrate therefore cannot produce a plausible artifact with no member content, and the packaged
-profile cannot stamp a placeholder release. The mounted-dmg assert in `release.yml` then re-checks
-the payload inside the built dmg.
+`package.mjs --member` now fails closed **before** electron-builder when `product/payload/dist`
+is absent, when `product/payload` carries only `README.md`, when the profile's
+`defaultProject.from` is not `product/payload`, or when `product/payload/BUILD.json` has no
+`release` id. A missing or early integrate therefore cannot produce a plausible artifact with no
+member content, and the packaged profile cannot stamp a placeholder release. The mounted-dmg assert
+in `release.yml` then re-checks the same v2 path inside the built dmg.
 
 The payload `BUILD.json` itself is emitted by the **member** repo (`scripts/build-info.mjs`,
 copied in by `bundle-vizmaster.mjs`), and `release.yml` only validates it. The bundler fails

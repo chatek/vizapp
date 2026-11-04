@@ -159,6 +159,7 @@ profile_state() {
   fi
 }
 
+REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo unknown)"
 COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 BRANCH="$(git -C "$REPO_ROOT" symbolic-ref --short -q HEAD)" ||
   die "detached HEAD in $REPO_ROOT — check out the branch you intend to build"
@@ -480,6 +481,7 @@ EOF
   "host": "$HOST",
   "source": {
     "repo": "vclaw-desktop",
+    "remote": "$REMOTE_URL",
     "branch": "$BRANCH",
     "commit": "$COMMIT"
   },
