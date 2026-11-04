@@ -4,6 +4,14 @@ const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
 
+// electron-builder passes `context.arch` as its numeric Arch enum (ia32=0, x64=1,
+// armv7l=2, arm64=3, universal=4) — older builders passed the name. Normalise both.
+const ARCH_NAMES = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }
+function archName(arch) {
+  if (typeof arch === 'string') return arch
+  return ARCH_NAMES[arch] || `unknown(${arch})`
+}
+
 // The vizmaster branch bundles OMP (resources/harness/bin/omp, wired through
 // mac.extraResources from ../vendors/oh-my-pi/releases/<pin>/omp-darwin-${arch}).
 // Verify, before fuses are flipped: the binary is present, its sha256 matches the
@@ -11,7 +19,7 @@ const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
 // or stale binary here would be launched by discovery order #3 ahead of any host OMP.
 function verifyBundledOmp(context) {
   if (context.electronPlatformName !== 'darwin') return
-  const arch = context.arch === 'universal' ? 'universal' : context.arch
+  const arch = archName(context.arch)
   if (arch === 'universal') {
     throw new Error('bundled omp: universal mac builds are not supported — build --arm64 and --x64 separately')
   }
