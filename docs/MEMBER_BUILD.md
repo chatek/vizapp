@@ -87,17 +87,21 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    not evidence, `docs/BUILD.md`), with the repo-pinned npm 12 on `PATH` for this step
    (`npm run toolchain:bootstrap`; node 24.15.0 ships npm 11 and `package.mjs` refuses it):
    `node scripts/release/package.mjs --qa --platform mac --arch <arch> --profile product/<member>.json`
-   (the script derives the artifact name from the profile id and refuses a name/profile mismatch)
+   (the script derives the artifact name from the profile id and refuses a name/profile mismatch;
+   a profile carrying `defaultProject` turns on the same payload asserts as `--member` — real
+   payload, payload `BUILD.json` release id — so this invocation cannot ship the placeholder
+   payload either)
    (Windows: Windows-only runner; Linux targets per `FORK.md`; neither is published by the release
    flow). Verify the artifact (layout, identity, your release stamp
    `<memberVersion>+<date>.<shortSha>`), write `SHA256SUMS`, publish to **your** updater channel.
    The build that vclaw-desktop itself hands over is published as a **Forgejo release on
-   `chatek/vclaw-app`** with its `BUILD.json` (`docs/RELEASE_FLOW.md` §3). That handoff is
-   **blocked today** on two counts: the consumer's intake compares a `handoff.json` to
-   `BUILD.json`, mount-asserts, checks identity, and refuses unsigned input, while no machine in
-   this estate holds a codesigning identity and the manual flow has no `handoff.json` producer
-   (`publish-member-staging.mjs` is called by the GitHub-hosted member job, which the release flow
-   does not run).
+   `chatek/vclaw-app`** with its per-arch `BUILD-<arch>.json` and `tuple.json`
+   (`docs/RELEASE_FLOW.md` §3). That release **is** the handoff — a published (or `prerelease`)
+   URL that answers anonymously, not a draft. A consumer that additionally wants a signed
+   artefact or a `handoff.json` is asking for something this estate cannot produce (0 codesigning
+   identities) or does not emit (the driver's provenance is `BUILD-<arch>.json` + `tuple.json`);
+   that is the consumer's gate to change, and it never blocks the handoff
+   (`docs/BOUNDARIES.md` §2–§4).
 8. **Update the pin** whenever you want newer `main`; re-run the seam verifier in whatever gate
    you own (there is no CI in this repo that runs it for you) so a contract change is caught
    before a release, not during one.
@@ -107,8 +111,10 @@ remote build host** (`_MAC_HOST_`, `docs/BUILD_REMOTE.md`) — local unsigned `-
 smoke/QA only and print `ARTEFACT(not-evidence)` (`docs/BUILD_LOCAL.md`); the two-flow entry
 point is `docs/BUILD.md`. **Nobody signs today**: 0 codesigning identities exist on the host and
 on the workstation, there are no CI secrets to hold one, and Forgejo Actions cannot build this
-repo. Signed/notarized member artefacts therefore remain an open blocker (`FORK.md` §Open items),
-and a member artefact is `unsigned` with its release defaulting to draft.
+repo. Signed/notarized artefacts are therefore an **estate** blocker (`FORK.md` §Open items) that
+no lane can resolve, not a member-lane or build-lane task; a member artefact ships `unsigned` and
+its release defaults to draft, and that does not stop a handoff
+([`docs/BOUNDARIES.md`](BOUNDARIES.md) §4).
 
 ## If a seam breaks
 

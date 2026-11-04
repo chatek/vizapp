@@ -12,7 +12,9 @@ from the validation guide before submitting a change.
 Packaging has two flows; start at [docs/BUILD.md](docs/BUILD.md). macOS builds of record run
 on the remote build host ([docs/BUILD_REMOTE.md](docs/BUILD_REMOTE.md)); a local build is only
 a fallback for when that host is unavailable ([docs/BUILD_LOCAL.md](docs/BUILD_LOCAL.md)) and
-its output is **not evidence**.
+its output is **not evidence**. A contribution never needs signing credentials, and the boundary
+between this repo, the VizMaster lane, the vchat3 deploy lane and estate signing is
+[docs/BOUNDARIES.md](docs/BOUNDARIES.md).
 
 `npm run package:mac:local-qa` creates unsigned, unnotarized installers for smoke-testing on
 the machine that built them. It is not a release artefact and not a substitute for the remote

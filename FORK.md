@@ -32,6 +32,8 @@ manifest key is read as `vclaw` with a fallback to the legacy `gooeypi`, so pack
 fallback). The Linux and Windows recipes below run on their native hosts, on demand, and are
 not alternatives to the remote macOS flow. The release flow publishes **macOS artefacts only**
 ([`docs/RELEASE_FLOW.md`](docs/RELEASE_FLOW.md)); no CI job builds or publishes any platform.
+What this fork hands to another lane — a published Forgejo release URL and nothing else — is
+[`docs/BOUNDARIES.md`](docs/BOUNDARIES.md).
 
 **Toolchain is pinned**: `.nvmrc` = **node 24.15.0**, `engines.npm` = **npm 12.0.2**. Install both rather than
 trusting "new enough" — the repo's gate only enforces **minimums**, so a newer node passes while the pinned npm says

@@ -115,6 +115,7 @@ MEMBER_INTEGRATE=""
 TAG=""
 DRAFT=1
 DRY_RUN=0
+SKIP_BUILD=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --arm64 | --x64)
@@ -164,6 +165,12 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --skip-build)
+      # Publish the artefacts already collected in LOCAL_OUT instead of rebuilding.
+      # Every provenance gate still runs: BUILD.json is re-read and each file re-hashed.
+      SKIP_BUILD=1
       shift
       ;;
     --help | -h) usage 0 ;;
@@ -386,7 +393,9 @@ fi
 
 # --- 2. build ----------------------------------------------------------------
 step "build on the remote host (arch: ${ARCHES[*]}${MEMBER:+, member $MEMBER})"
-if [ "${#MEMBER_ARGS[@]}" -gt 0 ]; then
+if [ "$SKIP_BUILD" -eq 1 ]; then
+  say "reusing the artefacts already in $LOCAL_OUT (--skip-build); BUILD.json is re-verified below"
+elif [ "${#MEMBER_ARGS[@]}" -gt 0 ]; then
   bash "$BUILD_DRIVER" "${ARCH_ARGS[@]}" "${MEMBER_ARGS[@]}" >&2 ||
     die "build-remote.sh failed — nothing was tagged or published"
 else
@@ -487,11 +496,11 @@ if [ -n "$MEMBER" ]; then
   RELEASE_MEMBER_JSON="$(python3 -c '
 import json, sys
 print(json.dumps({
-    "repo": sys.argv[1], "sha": sys.argv[2], "payload_sha256": sys.argv[3],
+    "id": sys.argv[9], "repo": sys.argv[1], "sha": sys.argv[2], "payload_sha256": sys.argv[3],
     "layout": sys.argv[4], "carrier": sys.argv[5], "release": sys.argv[6],
     "files": int(sys.argv[7]), "integrate": sys.argv[8],
 }, separators=(",", ":")))
-' "$M_REPO" "$M_SHA" "$M_PAY" "$M_LAY" "$M_CARRIER" "$M_REL" "$M_FILES" "$M_INTEG")"
+' "$M_REPO" "$M_SHA" "$M_PAY" "$M_LAY" "$M_CARRIER" "$M_REL" "$M_FILES" "$M_INTEG" "$MEMBER")"
 fi
 PRODUCT_NAME="$(json_get "$LOCAL_OUT/${ARCHES[0]}/BUILD.json" product.name)"
 [ -n "$PRODUCT_NAME" ] || PRODUCT_NAME="VClaw"

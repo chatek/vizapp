@@ -18,13 +18,16 @@ bakes into `app-update.yml` inside the app, so **new builds check R2**.
 
 ## Member handoff staging (`staging/member/…`)
 
-The live member handoff is the Forgejo release described in
-[RELEASE_FLOW.md](RELEASE_FLOW.md) §3, with its provenance (`BUILD-<arch>.json`, `tuple.json`)
-beside the assets — the manual flow has no `handoff.json` producer yet, so the consumer currently
-has nothing to compare.
+The live member handoff is the **release URL** described in
+[RELEASE_FLOW.md](RELEASE_FLOW.md) §3, whose provenance (`BUILD-<arch>.json`, `SHA256SUMS.txt`,
+`tuple.json`) sits beside the assets. That URL is all a receiving lane is owed
+([BOUNDARIES.md](BOUNDARIES.md) §2); a `handoff.json` is not required for a handoff, and this
+publisher does not emit one.
+
 The staging prefix below is written by the **GitHub-hosted** member job
 (`.github/workflows/release.yml`), which the release flow does not run; treat it as the mechanism
-the member lane already has, not as the current publish path.
+the member lane already has, not as the current publish path, and not as a second definition of
+what a release must contain.
 
 That job publishes its handoff bundle to a public, append-only staging prefix:
 

@@ -11,14 +11,8 @@ below has exactly one procedure document.
 | **local (fallback)** | only when that host is unavailable: does the tree still package? (when the tree bundles a harness binary) does the bundled `omp` verify? | [BUILD_LOCAL.md](BUILD_LOCAL.md) | `scripts/release/build-local.sh` |
 | **dmg/zip via `package.mjs`** | the signing/notarisation lane on that same host and toolchain — blocked while no Developer ID exists; the remote flow already emits an unsigned dmg, so this is not needed for an unsigned release | [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md) | `npm run package:mac[:local-qa]` |
 
-```bash
-# primary — builds on the host, pulls the .dmg and the .app .zip back to release-remote/<arch>/
-bash scripts/release/build-remote.sh --arm64
-
-# fallback — refuses unless explicitly acknowledged; output is not evidence
-bash scripts/release/build-local.sh --check
-VCLAW_ALLOW_LOCAL_BUILD=1 bash scripts/release/build-local.sh --arm64
-```
+Exact commands live in each procedure page, not here. Lane ownership, the handoff rule and what
+one lane may ask of another are [BOUNDARIES.md](BOUNDARIES.md).
 
 ## Artefact-of-record rule
 
@@ -43,5 +37,7 @@ VCLAW_ALLOW_LOCAL_BUILD=1 bash scripts/release/build-local.sh --arm64
   [RELEASE_FLOW.md](RELEASE_FLOW.md) §5 · Blocked today.
 - **Forgejo Actions cannot build this repo**: there is no darwin runner and the instance cannot
   reach github.com to fetch actions. Do not document or plan a CI build path.
+- **The handoff is that release URL, once it answers anonymously** — a draft is not a handoff, and
+  this repo's responsibility ends at the page ([BOUNDARIES.md](BOUNDARIES.md) §2).
 - The updater feed (separate from release assets) is [RELEASE_HOSTING.md](RELEASE_HOSTING.md);
   member verticals are [MEMBER_BUILD.md](MEMBER_BUILD.md).

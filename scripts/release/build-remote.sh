@@ -1101,6 +1101,7 @@ EOF
     MEMBER_BLOCK=",
   \"build\": \"member\",
   \"member\": {
+    \"id\": \"$MEMBER\",
     \"repo\": \"$MEMBER_REMOTE_URL\",
     \"sha\": \"$MEMBER_SHA\",
     \"payload_sha256\": \"$PAYLOAD_SHA256\",

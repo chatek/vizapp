@@ -29,8 +29,13 @@ macOS builds and installer packaging have one entry point; start at [`docs/BUILD
 - **Nobody signs today** (0 codesigning identities on the host and the workstation). Releases
   are marked `unsigned` and default to draft.
 - `main` is the only long-lived branch; `origin/vizmaster` is legacy and retiring.
+- **The handoff is a published Forgejo release URL on `chatek/vclaw-app`**, and this repo's
+  responsibility ends there. Lane ownership, what a lane may ask of another, and the
+  anti-patterns are [`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) — read it before describing any
+  release as blocked, or asking another lane for anything.
 
 Do not add another release-packaging procedure to a document: link to `docs/BUILD.md` instead.
+Do not add another lane map: link to `docs/BOUNDARIES.md`.
 
 ## Cloud Agent environment
 
@@ -59,8 +64,10 @@ xvfb-run -a npm run test:e2e:hermetic # build + hermetic Electron e2e
 ```
 
 Some xterm/PTY-driven e2e cases in `tests/e2e/app.spec.ts` are timing-sensitive
-under headless `xvfb` and can fail where they pass on the macOS CI runner that
-owns the `hermetic-e2e` gate.
+under headless `xvfb` and can fail where they pass on the macOS runner declared for the
+`hermetic-e2e` job in `.github/workflows/ci.yml`. Nothing in this estate relies on that job —
+it is not a build path ([`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) §5) — so a headless failure
+is a local limitation to report, never a gate to argue with.
 
 ## pstack
 

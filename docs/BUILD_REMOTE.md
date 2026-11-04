@@ -14,7 +14,8 @@ This driver **builds**; it does not publish. The workstation runs
 `scripts/release/release-forgejo.sh`, which calls this driver, tags the commit, uploads the dmg,
 the app zip, `BUILD-<arch>.json`, `SHA256SUMS.txt` and `tuple.json` to a draft Forgejo release on
 `chatek/vclaw-app` and re-fetches to verify (served sizes, `cmp` of the sums file, and
-`hdiutil verify` on each re-downloaded dmg) ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3).
+`hdiutil verify` on each re-downloaded dmg) ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3). Lane
+ownership and what a handoff is: [BOUNDARIES.md](BOUNDARIES.md).
 
 The asset set is fixed and **the zip is not optional**: per arch
 `<product>-<version>-<arch>-unsigned.dmg` **and** `<product>-<version>-<arch>-unsigned.zip`, plus
@@ -159,13 +160,13 @@ Measured values from draft release #518. `payload_sha256` changes between builds
 commits: the payload's own `BUILD.json` carries `builtAt`, so the tree digest is a per-build
 fingerprint (like `artifact.sha256`), not a commit hash.
 
-`source.remote` is `git remote get-url origin`. In this clone that is the **Forgejo mirror**
-(`chatek/vclaw-app`), not the record repo (GitHub `chatek/vclaw-desktop`), so treat the field as a
+`source.remote` is `git remote get-url origin`. In this clone that is the **Forgejo remote**
+(`chatek/vclaw-app`), not the GitHub record repo (`chatek/vclaw-desktop`), so treat the field as a
 **locator, not an authority**: it says which URL this checkout fetched from, not which repo is
-canonical. Measured 2026-11-05 at HEAD `346127d`: both remotes carry `main 92991ab` and
+canonical. Measured 2026-11-05 at HEAD `346127d`: both remotes carried `main 92991ab` and
 `vizmaster 1b2c62b`, and `c49cc37` is an ancestor of `cabbc52` — one linear history, not two. A pin
 consumer should therefore resolve repo+sha against the designated record, and use
-`source.remote` only to explain which mirror produced the bytes.
+`source.remote` only to explain which remote produced the bytes.
 
 `branch` records the branch the bundle was cut from, not a policy. The flow now cuts from
 **`main`** — the single long-lived branch; `origin/vizmaster` is legacy and retiring — so a
@@ -795,101 +796,35 @@ by hand and are worth re-checking if the native dependency set changes.
   run on the `.app` this driver produces.
 * Forgejo clone/fetch from the host — impossible on this host today (netmap, see above).
 
-## Publishing to Forgejo (`scripts/release/release-forgejo.sh`)
+## Publishing — not on this page
 
-The host cannot reach the Forgejo box, so the workstation publishes. One command takes "code at a
-commit" to "assets on a `chatek/vclaw-app` release":
+The host cannot reach the Forgejo box, so the workstation publishes. The procedure, the
+prerelease flip, the anonymous-surface proof and the failure table live in exactly one place:
+[RELEASE_FLOW.md](RELEASE_FLOW.md) §3 (and §3.1/§3.2). The handoff rule is
+[BOUNDARIES.md](BOUNDARIES.md) §2.
 
-```bash
-bash scripts/release/release-forgejo.sh --arm64 --dry-run       # rehearse: build, print payloads
-bash scripts/release/release-forgejo.sh --arm64                 # arm64 draft release
-bash scripts/release/release-forgejo.sh --arm64 --x64 --publish # both arches, published
-bash scripts/release/release-forgejo.sh --tag v1.1.17+346127d   # explicit tag
-bash scripts/release/release-forgejo.sh --arm64 --member vizmaster \
-  --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
-  --member-sha <40-hex> --member-integrate v2                   # member draft release
-```
+Two facts belong here because they are **build** inputs:
 
-A member release forwards `--member/--member-repo/--member-sha/--member-integrate` verbatim to
-`build-remote.sh` and then *requires* the provenance to say so: every arch's `BUILD.json` must
-carry `build: "member"`, `dirty: false`, the same `member.sha` and the same payload digest, or the
-release is refused before tagging. The tuple gains `"build": "member"` plus the `member` block
-(repo, 40-hex sha, payload sha256, layout, carrier, release, files, `integrate`), the body states
-`integrate:` (`integrator` or `v2-local`, with a paragraph saying the member repo's integrator was
-**not** used in the v2-local case), and the release name / tag message end in
-`member <id>`. A generic build says `generic` in the same fields. There is no path from "artefact
-with the placeholder payload" to a member release: the driver's pre-packaging assert refuses
-first.
+- A member release forwards `--member/--member-repo/--member-sha/--member-integrate` verbatim to
+  `build-remote.sh`, and the publisher then *requires* the provenance to say so: every arch's
+  `BUILD.json` must carry `build: "member"`, `dirty: false`, the same `member.sha` and the same
+  payload digest, or the release is refused before tagging. The tuple gains `"build": "member"`
+  plus the `member` block (repo, 40-hex sha, payload sha256, layout, carrier, release, files,
+  `integrate`), and the body states `integrate:` (`integrator` or `v2-local`, saying when the
+  member repo's integrator was **not** used). A generic build says `generic` in the same fields.
+  There is no path from "artefact with the placeholder payload" to a member release: the driver's
+  pre-packaging assert refuses first.
+- Signing is unavailable (`identities=0` on the host), so asset names carry `-unsigned`, the body
+  says `unsigned=yes`, and the release stays a draft unless `--publish` is passed.
 
-`RELEASE_REPO_ROOT` points the whole release at a **clean throwaway clone/worktree at HEAD** while
-the scripts themselves are still uncommitted in the lane's tree:
+## Handoff
 
-```bash
-git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
-git -C /tmp/proof/vclaw-desktop checkout -B vizmaster <HEAD>
-git -C /tmp/proof/vclaw-desktop remote set-url origin https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app
-ln -s "$PWD/../vendors" /tmp/proof/vendors          # the OMP release set, one level above the clone
-RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
-  bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2
-```
+**The handoff is a published (or explicitly `prerelease`) Forgejo release URL on
+`chatek/vclaw-app`; this lane's responsibility ends there.** The rule, the legitimate cross-lane
+requests and the anti-patterns — including why a **draft is not a handoff** — are
+[BOUNDARIES.md](BOUNDARIES.md) §2–§4.
 
-The preflight still refuses a dirty tree (that is the point of it); the override only says *which*
-clean tree is released, and the preflight prints both — `repo <path> (the tree this release
-operates on; scripts from <dir>)`. The path the tree sits at must have `vendors/oh-my-pi/releases/
-v18.16.0` beside it, exactly as in the lane checkout.
+What this driver must have put on that page first, per arch: the `.dmg` and `.app` `.zip`,
+`BUILD-<arch>.json`, a merged `SHA256SUMS.txt`, and `tuple.json`, with the served bytes equal to
+the built bytes.
 
-Order: preflight (clean tracked tree, HEAD == `origin/<branch>` tip, `--check`, token, Releases
-unit) → `build-remote.sh` → provenance re-read from `release-remote/<arch>/BUILD.json` → annotated
-tag `v<version>+<short sha>` pushed to `origin` **and** `github` (this submodule has no fan-out) →
-`POST /api/v1/repos/chatek/vclaw-app/releases` → upload the zip, `BUILD-<arch>.json`, merged
-`SHA256SUMS.txt`, `tuple.json` → re-fetch and compare served sizes and `SHA256SUMS.txt`. Signing is
-unavailable (the host reports `identities=0`), so the zip asset name carries `-unsigned`, the body
-says `unsigned=yes`, and the release stays a draft unless `--publish` is passed.
-
-A **prerelease** publish (`draft=false, prerelease=true`) has no flag — the driver only knows
-draft/publish. Create the draft, then flip it with
-`PATCH /api/v1/repos/<repo>/releases/<id>` `{"draft":false,"prerelease":true}` (plus the body line
-that says so): no re-tag, no re-upload, no rebuild. Then prove the anonymous surface — with **no
-token**, the release page and every `…/releases/download/<tag>/<asset>` URL must answer 200/206 and
-a re-downloaded dmg must hash to its `SHA256SUMS.txt` digest. Measured on #518
-(`v1.1.17+16871f5-vizmaster`): page 200, all five assets 206, dmg sha256 `e996dcf4…` equal to the
-staged file and `hdiutil verify VALID`, page carries the `Pre-release` marker. The anonymous REST
-API (`/api/v1/repos/…/releases`, by tag, by id) answered **404** on this instance, so the HTML page
-plus the download URLs are the anonymous surface — do not build an intake on the API. The token comes
-from `FORGEJO_TOKEN` or `<superproject>/.prime/forgejo-token`; it is handed to curl in a 0600 config
-so it never appears on a command line or in any output.
-
-| failure | what it means |
-|---|---|
-| `has uncommitted changes to tracked files` | commit or undo — the host builds a commit, not your working tree |
-| `is not the tip of origin/<branch>` | push the branch, or check out the tip you mean to release |
-| `--check failed on: <label>` | a host fault a build cannot repair (node, disk, mirror, profile); `checkout` / `omp …` / `SHA256SUMS.txt` failures are synced by the build |
-| `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-app` with `{"has_releases":true}`, once, as an admin |
-| `already exists at …` / `a release for … already exists` | tags and releases are never rewritten — pick another `--tag` |
-| `served size … != local` | the upload truncated; the release is not trustworthy |
-| `POST releases -> HTTP 403 … user should have a permission to write to a repo` | an `FORGEJO_TOKEN` in the environment won the precedence and is read-only (`GET /api/v1/user` returns no login); unset it so the scoped token file is used, or point `FORGEJO_TOKEN_FILE` at the write token |
-| `no Forgejo token: …/.prime/forgejo-token is not readable` after setting `RELEASE_REPO_ROOT` | the token default follows the lane checkout the scripts live in, not the release tree — set `FORGEJO_TOKEN_FILE` explicitly if the two ever differ |
-
-## Handoff boundary (operator rule, 2026-11-05)
-
-**Our responsibility ends the moment the artifacts are on
-`https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app/releases`.** That page is the
-handoff. The downstream lane (VizMaster) takes over from there — fetching, verifying, publishing
-to its own host, and rendering its landing — and owns every step after the release exists.
-
-What this means in practice:
-
-- A build is **done** when the release carries the per-arch assets (dmg + zip +
-  `BUILD-<arch>.json`, merged `SHA256SUMS.txt`, `tuple.json`), the served bytes match what was
-  built, and the URL is recorded here or in the handoff message. Nothing downstream is a
-  precondition for calling it done.
-- **Never ask the downstream lane for anything this side must produce**, and never let a downstream
-  request pull this lane into steps outside its reach: signing identity and notary credentials are
-  estate credentials (0 identities on builder and workstation), not build-lane work; a consumer's
-  intake bugs, manifest-format expectations, pin choices and landing behaviour are theirs.
-- Requests that legitimately come back to this lane are limited to: *build at sha X*, *add arch Y*,
-  *the artifact is broken* (with the failing gate and the bytes). Everything else is answered with
-  the release URL.
-- Drafts are invisible to anonymous fetches; a *published* (or explicitly `prerelease`) release is
-  the only form a downstream consumer can read without credentials. Choose the visibility
-  deliberately and say which one it is.

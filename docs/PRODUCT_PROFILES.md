@@ -76,7 +76,7 @@ Three consequences, all observed:
 1. **The behaviour is untestable in this repo.** Tests here run `main` as written; the `ensureHarness`
    path only exists inside a member snapshot, so it is exercised by nobody until release day.
 2. **Two products diverge silently.** `singleProjectFilter` exists only in the member build — so
-   "the app shows one project" is a claim about a tree that no CI here has ever seen.
+   "the app shows one project" is a claim about a tree that no gate in this repo has ever seen.
 3. **Every merge is a compatibility bet.** The seam verifier catches *renamed anchors*, not
    *changed semantics*, and cannot see an edit that applies cleanly but means something else.
 
@@ -105,7 +105,8 @@ One JSON file, embedded in the package, **the only place a product differs**:
 The generic product ships the same file with `id: "vclaw"`,
 `harnesses: ["omp", "prime", "pi"]`, and **no** `defaultProject` — the narrowing is a property of a
 member product, not of the app (decided 2026-11-01, §9). Always shipping a profile — rather than "absent means generic" — keeps one code
-path that CI exercises in every build.
+path, covered by `tests/product-profile.test.ts` on every checkout (there is no CI build path in
+this estate; see [`BOUNDARIES.md`](BOUNDARIES.md) §5).
 
 **Resolution order, fail-closed:**
 
@@ -164,7 +165,7 @@ Rules that make it survivable:
    `omp`-only build (`projects.ts:145`) — the failure would look like "seeding silently did nothing".
 5. **Respect the grant preconditions.** `~/VizMaster` is fine; `$HOME` and volume roots are refused
    (`isBroadProjectRoot`), so `to` must never be bare `~`.
-6. **Dev and CI:** not packaged ⇒ no `process.resourcesPath` payload ⇒ the seeder no-ops and says so.
+6. **Dev and tests:** not packaged ⇒ no `process.resourcesPath` payload ⇒ the seeder no-ops and says so.
    The hermetic E2E runs the same code with a fixture profile pointing at a temp payload, so the
    path is covered without shipping VizMaster in the generic build.
 

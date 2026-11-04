@@ -13,9 +13,9 @@ Each refresh checks, in order:
 5. Official harness-specific installer locations.
 6. Shared system and package-manager locations for npm, Bun, pnpm, mise, Volta, Homebrew, and Linuxbrew. NVM version-manager directories are bounded to 64 entries and sorted by descending version.
 
-## Bundled OMP on the `vizmaster` branch (2026-11-04)
+## Bundled OMP (2026-11-04)
 
-The `vizmaster` branch bundles OMP into the app: `mac.extraResources` copies
+This fork's packaging config can bundle OMP into the app: `mac.extraResources` copies
 `../vendors/oh-my-pi/releases/v18.16.0/omp-darwin-${arch}` to `resources/harness/bin/omp`, the
 omp descriptor carries `bundledResourceDirs: [['harness', 'bin']]`, and order **3** therefore
 finds the bundled binary before PATH — VClaw always launches the OMP version it validated,

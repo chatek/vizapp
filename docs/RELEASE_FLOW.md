@@ -5,6 +5,7 @@ with a newer measurement, the newer measurement wins — update this file in the
 that moves it.
 
 **Companions:** [BUILD.md](BUILD.md) (the only place "where and how do I build" is answered),
+[BOUNDARIES.md](BOUNDARIES.md) (lane ownership and the handoff rule),
 [RELEASE_HOSTING.md](RELEASE_HOSTING.md) (the updater feed), [MEMBER_BUILD.md](MEMBER_BUILD.md)
 (member verticals), [BUILD_REMOTE.md](BUILD_REMOTE.md) (host facts and per-build provenance).
 
@@ -63,13 +64,13 @@ What it does, aborting loudly at each step:
    (`FORGEJO_TOKEN`, else `FORGEJO_TOKEN_FILE`, default `<repo>/../.prime/forgejo-token`), and
    a repository whose Releases unit is enabled.
 2. **build** — `build-remote.sh` per arch ([BUILD_REMOTE.md](BUILD_REMOTE.md)).
-3. **provenance** — commit, bytes, zip sha256 and OMP digest are re-read from
+3. **provenance** — commit, bytes, dmg and zip sha256, and the OMP digest are re-read from
    `release-remote/<arch>/BUILD.json`, never re-derived; every arch must agree on the commit
    (and on the OMP release when the checkout bundles one).
 4. **signing probe** — identity count and the packaged app's authority are read on the host, so
    the label cannot be assumed; today it is always `unsigned`.
-5. **stage** — the app zip (published name carries `-unsigned` while unsigned),
-   `BUILD-<arch>.json`, a merged `SHA256SUMS.txt`, and `tuple.json`.
+5. **stage** — per arch, the `.dmg` and the app `.zip` (published names carry `-unsigned` while
+   unsigned), plus one `BUILD-<arch>.json` each, a merged `SHA256SUMS.txt`, and `tuple.json`.
 6. **tag** — annotated, at `HEAD`, default `v<package.json version>+<short sha>`; refused if the
    tag already exists at a different commit, pushed to `origin` **and** `github` explicitly
    (this submodule has no fan-out), never forced.
@@ -79,15 +80,62 @@ What it does, aborting loudly at each step:
 9. **verify by re-fetch** — served size equals local size for every asset, and `SHA256SUMS.txt`
    is re-downloaded and compared byte for byte.
 
-Then hand the release URL to the VizMaster lane. Their intake compares a `handoff.json` against
-the payload `BUILD.json`, mount-asserts, checks identity, and **refuses unsigned input** — see
-§5 and §6. The manual flow has no `handoff.json` producer yet (`publish-member-staging.mjs` is
-called by the GitHub-hosted member job), so a handoff without one gives their intake nothing to
-compare.
+Then hand the release URL (`…/releases/tag/<tag>`) to the VizMaster lane — that URL **is** the
+handoff: a published (or explicitly `prerelease`) release that answers anonymously, with the
+per-arch assets and provenance above. A **draft is not a handoff** (it 404s without a token), and
+nothing downstream — their intake, their `handoff.json` expectations, their signature gate, their
+publisher, their landing — is a precondition for calling the release done. The rule, the
+legitimate cross-lane requests and the anti-patterns are [BOUNDARIES.md](BOUNDARIES.md) §2–§4.
 
 `chatek/vclaw-app` is also this checkout's `origin` remote (`BUILD.json` → `source.remote`
 records the URL it fetched, not a claim of canon). GitHub `chatek/vclaw-desktop` receives the
 tag, not the release assets.
+
+### 3.1 · Prerelease, and the anonymous surface
+
+A **prerelease** publish (`draft=false, prerelease=true`) has no flag — the driver only knows
+draft/publish. Create the draft, then flip it with
+`PATCH /api/v1/repos/<repo>/releases/<id>` `{"draft":false,"prerelease":true}` (plus the body
+line that says so): no re-tag, no re-upload, no rebuild.
+
+Then prove the anonymous surface — with **no token**, the release page and every
+`…/releases/download/<tag>/<asset>` URL must answer 200/206 and a re-downloaded dmg must hash to
+its `SHA256SUMS.txt` digest. Measured on `v1.1.17+16871f5-vizmaster`: page 200, all five assets
+206, dmg sha256 `e996dcf4…` equal to the staged file and `hdiutil verify VALID`, page carries the
+`Pre-release` marker. The anonymous REST API (`/api/v1/repos/…/releases`, by tag and by id)
+answered **404** on this instance, so the HTML page plus the download URLs are the anonymous
+surface — do not build an intake on the API.
+
+The token comes from `FORGEJO_TOKEN` or `<superproject>/.prime/forgejo-token`; it is handed to
+curl in a 0600 config so it never appears on a command line or in any output.
+
+### 3.2 · When the publish fails
+
+| failure | what it means |
+|---|---|
+| `has uncommitted changes to tracked files` | commit or undo — the host builds a commit, not your working tree |
+| `is not the tip of origin/<branch>` | push the branch, or check out the tip you mean to release |
+| `--check failed on: <label>` | a host fault a build cannot repair (node, disk, mirror, profile); `checkout` / `omp …` / `SHA256SUMS.txt` failures are synced by the build |
+| `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-app` with `{"has_releases":true}`, once, as an admin |
+| `already exists at …` / `a release for … already exists` | tags and releases are never rewritten — pick another `--tag` |
+| `served size … != local` | the upload truncated; the release is not trustworthy |
+| `POST releases -> HTTP 403 … user should have a permission to write to a repo` | an `FORGEJO_TOKEN` in the environment won the precedence and is read-only (`GET /api/v1/user` returns no login); unset it so the scoped token file is used, or point `FORGEJO_TOKEN_FILE` at the write token |
+| `no Forgejo token: …/.prime/forgejo-token is not readable` after setting `RELEASE_REPO_ROOT` | the token default follows the lane checkout the scripts live in, not the release tree — set `FORGEJO_TOKEN_FILE` explicitly if the two ever differ |
+
+`RELEASE_REPO_ROOT` points the whole release at a **clean throwaway clone/worktree at HEAD** while
+the scripts themselves are uncommitted in the lane's tree (the preflight still refuses a dirty
+tree — that is the point; the override only says *which* clean tree is released, and the preflight
+prints both). The tree it names must have `vendors/oh-my-pi/releases/v18.16.0` beside it, exactly
+as in the lane checkout:
+
+```bash
+git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
+git -C /tmp/proof/vclaw-desktop checkout -B <branch> <HEAD>   # a branch whose tip IS that commit
+git -C /tmp/proof/vclaw-desktop remote set-url origin https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app
+ln -s "$PWD/../vendors" /tmp/proof/vendors                    # the OMP release set, one level above
+RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
+  bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2
+```
 
 ## 4 · What "released" means — evidence vs not-evidence
 
@@ -96,7 +144,7 @@ A release is a **triple**, and all three must be reported together:
 | part | source |
 |---|---|
 | source commit | the full 40-hex commit in `release-remote/<arch>/BUILD.json` |
-| output | the uploaded zip's sha256 and byte count, from that same `BUILD.json` |
+| output | the uploaded `.dmg` and `.zip` sha256 + byte counts, from that same `BUILD.json` |
 | pinned OMP (**only** when the checkout bundles `harness/bin`) | release `v18.16.0`, the `omp-darwin-<arch>` digest in `BUILD.json`; otherwise `BUILD.json` carries `"omp": null` |
 
 - What counts as evidence — and why a local build, a file name, or a hash from another run does
@@ -113,7 +161,11 @@ A release is a **triple**, and all three must be reported together:
 | Forgejo Actions as a build path | no darwin runner; the instance cannot reach github.com to fetch actions | every build is the manual remote-host flow; do not document a CI path |
 | signing / notarisation | **0 codesigning identities** on the host and on the workstation | `package.mjs --public` refuses; only `--qa` artefacts exist; releases carry `unsigned` and default to draft |
 | cloning Forgejo on the build host | host tailnet does not contain the Forgejo box; the name resolves to a fake-ip | source travels as a git bundle over `tailscale ssh` |
-| member handoff acceptance | the consumer's signature gate refuses unsigned input | a handoff cannot be accepted until §5 row 2 is resolved |
+
+Not blocked here, and not this lane's to fix: the consumer's intake refuses unsigned input and
+compares a `handoff.json` this driver does not emit. A release is still handed over — as a URL —
+and a consumer-side gate is answered by the consumer or the operator, never by this lane
+acquiring a signing identity or a second provenance format ([BOUNDARIES.md](BOUNDARIES.md) §4).
 
 ## 6 · Member releases
 
@@ -123,8 +175,11 @@ rides `main` at a pinned sha, and the payload `BUILD.json` it hands over is prod
 member repo, not by this one. Procedure and contract: [MEMBER_BUILD.md](MEMBER_BUILD.md),
 `FORK.md` §"Member integration seam contract (v2)".
 
-**Not covered by the release driver:** `release-forgejo.sh` stages the `.app` zip only, with no
-`.dmg` and no `handoff.json`. A member handoff that mount-asserts a dmg needs the dmg/zip flow
-([RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md)) and a manifest producer
-([RELEASE_HOSTING.md](RELEASE_HOSTING.md) §"Member handoff staging") — that path is not wired
-to the manual publisher yet.
+**What the driver publishes for a member build:** the same per-arch set as a generic release
+(`.dmg` + `.zip` + `BUILD-<arch>.json` + merged `SHA256SUMS.txt` + `tuple.json`), with the
+`member` block naming the member repo, 40-hex sha and payload digest as shown in
+[BUILD_REMOTE.md](BUILD_REMOTE.md) §Member builds. No `handoff.json` is emitted — that manifest
+belongs to the GitHub-hosted staging job ([RELEASE_HOSTING.md](RELEASE_HOSTING.md) §"Member
+handoff staging"), which this publisher does not run. Provenance format is this lane's; a
+consumer's manifest expectations are not an input to it.
+

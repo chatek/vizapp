@@ -89,12 +89,13 @@ Ask User and computer control are off by default. You can enable, disable, or re
 
 VClaw checks common install locations automatically. If a harness is missing, open **Settings → Harness** to refresh detection or choose its executable.
 
-A release provides the macOS `.app` zip for both architectures, built only on the project's
-macOS build host and named `-unsigned` until a Developer ID exists — Gatekeeper needs an override
-on first launch. The DMG comes from the separate installer flow
-([docs/RELEASE_BUILD_HOST.md](docs/RELEASE_BUILD_HOST.md)). Linux and Windows packaging recipes
-live in [FORK.md](FORK.md) but are not published by the release flow
-([docs/RELEASE_FLOW.md](docs/RELEASE_FLOW.md)).
+A release provides, per architecture, an unsigned `.dmg` installer and the `.app` `.zip`, both
+built only on the project's macOS build host and named `-unsigned` until a Developer ID exists —
+Gatekeeper needs an override on first launch. `docs/RELEASE_BUILD_HOST.md` is the alternative
+`package.mjs` packaging path on that same host, not the source of the published dmg. Linux and
+Windows packaging recipes live in [FORK.md](FORK.md) but are not published by the release flow
+([docs/RELEASE_FLOW.md](docs/RELEASE_FLOW.md)). Who may ask what of whom, and what a release is
+for the receiving lane, is [docs/BOUNDARIES.md](docs/BOUNDARIES.md).
 
 Harness provider credentials stay with the harness. Optional voice keys are encrypted with the operating system's secure storage, and local `whisper.cpp` dictation needs no API key.
 
