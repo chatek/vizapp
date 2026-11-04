@@ -273,8 +273,8 @@ at it would ship arm64 Electron. Cross-arch builds get their Electron from `ELEC
 | electron-builder `• file source doesn't exist  from=…/product/profile.active.json` (**warning only**) | the generated profile was never staged | stage `$VCLAW_PROFILE` → `product/profile.active.json` before packaging; otherwise the app has no `resources/product.json` |
 | a failing remote command looks successful — the build exits 0 and the driver carries on | **`tailscale ssh` always returns 0**: `tailscale ssh host -- 'exit 5'` → local `rc=0` | every remote invocation in the driver carries an in-band `__VCLAW_RC__=<n>` marker and reads the status from it; never trust the ssh exit code, and never write a driver without this |
 | driver verifies `release/mac-x64/VClaw.app` and reports `missing …/release/mac-x64/VClaw.app` although the build was green | electron-builder puts x64 in `release/mac`, only non-x64 arches get a suffix | map the dir per arch (`out_dir_for()`); never assume `release/mac-<arch>` |
-| a member build has `product.json` id `vizmaster` but `CFBundleIdentifier com.vclaw.desktop` and a `VClaw.app` bundle | the profile's identity was never passed to electron-builder | pass `--config.productName/--config.appId` from the profile and assert the packaged appId (the driver does) |
-| `lipo: can't open input file …/Contents/MacOS/VClaw` on a member build | the executable is named after `productName` (`VizMaster`), not `VClaw` | derive the executable from `CFBundleExecutable`, never hardcode it |
+| a member build's packaged identity disagrees with `product/vizmaster.json` (the profile says `com.vclaw.desktop`, the package says something else) | the profile's identity was not passed to electron-builder | pass `--config.productName/--config.appId` from the profile and assert the packaged appId (the driver does); `product.json` **id** stays `vizmaster` by design |
+| `lipo: can't open input file …/Contents/MacOS/VClaw` on a member build | the executable is named after the profile's `productName`, not a hardcoded name | derive the executable from `CFBundleExecutable`, never hardcode it |
 | `omp-darwin-x64` missing on the host and an `--x64` build requested | the release set is synced per arch right before that arch builds | the driver syncs it; `--check` reports it as `FAIL omp x64 — missing …` before you spend a build |
 | `Error: bundled omp: no SHA256SUMS entry for omp-darwin-<arch>` | binary present, `SHA256SUMS.txt` stale | re-copy the release set together, never a lone binary |
 | `Error: bundled omp: sha256 mismatch — expected … got …` | truncated/partial transfer | both sides are hashed during sync; a partial reaches `.partial` and never lands |
@@ -301,18 +301,30 @@ member build from this tree — measured, rc=0, 1m06s:
 | `CFBundleIdentifier` | `com.vclaw.desktop` | `app.vizmaster.desktop` |
 | collected zip | `VClaw-arm64-app.zip` | `VizMaster-arm64-app.zip` (249,691,722 B, sha256 `bc3b25054ec5…`) |
 
+> **2026-11-05 operator ruling — the member profile keeps the GENERIC identity.**
+> `product/vizmaster.json` now carries `productName: "VClaw"` / `appId: "com.vclaw.desktop"`. The
+> member build is meant to install **over** a generic install: same userData, one updater channel,
+> in-place upgrade, and the existing `~/VizMaster` workspace preserved. The member row above is the
+> **pre-ruling** measurement; `product.json` id stays `vizmaster` (it names the artifact and the
+> profile), while the bundle/executable/`CFBundleIdentifier` are now `VClaw.app` / `VClaw` /
+> `com.vclaw.desktop`. `package.mjs` derives exactly the generic build's identity, so the packaged
+> `CFBundleIdentifier` must equal the generic artifact's.
+
 The profile's `identity.productName` / `identity.appId` are passed as
 `--config.productName=…` / `--config.appId=…`, exactly as `package.mjs` does, and the driver
 **asserts** the packaged `CFBundleIdentifier` and `product.json` id against the profile — a
 mismatch aborts. Two traps made that assertion earn its keep:
 
-* **Without those flags the payload ships as VClaw.** Measured: `product.json` said `vizmaster`
-  while `CFBundleIdentifier` was still `com.vclaw.desktop` and the bundle was still `VClaw.app` —
-  every gate green, wrong product identity.
-* **App and executable names follow `productName`.** Any hardcoded `VClaw.app` /
-  `Contents/MacOS/VClaw` in a gate breaks a member build (`lipo` on a nonexistent path → the gate
-  fails, which is how this was found). Both are derived now: the bundle from the profile, the
-  executable from `CFBundleExecutable` via `plutil`.
+* **Without those flags the packaged identity silently diverges from the profile.** Pre-ruling
+  measurement: `product.json` said `vizmaster` while `CFBundleIdentifier` was still
+  `com.vclaw.desktop` and the bundle was still `VClaw.app` — every gate green, profile and package
+  disagreeing. The assert compares them, so with the 2026-11-05 generic identity both sides are
+  `com.vclaw.desktop` and the member build intentionally matches the generic artifact.
+* **App and executable names follow `productName`.** A gate that hardcodes a bundle name only works
+  for the profile whose identity matches it: a `VizMaster.app` hardcode broke the pre-ruling member
+  build (`lipo` on a nonexistent path → the gate fails, which is how this was found), and a
+  `VClaw.app` hardcode would break any member that later selects a different `productName`. Both are
+  derived now: the bundle from the profile, the executable from `CFBundleExecutable` via `plutil`.
 
 Only the generic default was proven for x64; the member profile was proven for arm64.
 
@@ -324,9 +336,14 @@ layout. Measured on the pulled member bundle: `Contents/Resources/` holds
 `Contents/Resources/vizmaster/` and no payload `BUILD.json`. A real member release is the CI
 `member` job (`.github/workflows/release.yml`): checkout the member repo at the pinned 40-hex sha →
 `npm run bundle:<member>` → `npm run integrate:<member> -- --vclaw "$GITHUB_WORKSPACE"` →
-`integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID"`. The **integrate** step is
+`integrate … --check` → `npm run package:mac -- --member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"`. The **integrate** step is
 what writes the member overlay (`Resources/<MEMBER_ID>/`, payload dist, agent extension) into this
 checkout; a `--dir` build without it cannot satisfy the mounted-dmg assert.
+
+`package.mjs --member` now fails closed **before** electron-builder when `vendor/<MEMBER_ID>/dist`
+is absent or `product/payload` still carries only `README.md`, so a missing or early integrate can
+no longer produce a plausible artifact with no member content. The mounted-dmg assert in
+`release.yml` then re-checks the payload inside the built dmg.
 
 The payload `BUILD.json` itself is emitted by the **member** repo (`scripts/build-info.mjs`,
 copied in by `bundle-vizmaster.mjs`), and `release.yml` only validates it. The bundler fails
@@ -344,18 +361,36 @@ was run here against a dmg built from this driver's member bundle with a **synth
 | wrong pin | `FAIL: vizmasterCommit 772f4bb is not a prefix of the pinned deadbeef…`, rc=1 |
 | `dirty: true` | `FAIL: artifact carries a dirty build`, rc=1 |
 | payload `BUILD.json` removed | `FAIL: missing vizmaster/BUILD.json in the .app`, rc=1 |
+| `vclawVersion: null` | `FAIL: BUILD.json has empty/non-string values: vclawVersion`, rc=1 |
+| `vclawDirty: "false"` (string, not boolean) | `FAIL: BUILD.json dirty/vclawDirty must be booleans`, rc=1 |
 
 On this driver's real member output (no payload integration) it fails at the last check, which is
 the correct verdict: `--dir` cannot substitute for the member job.
+
+It is also **stricter than `release.yml:320`** on two points: the six consumed keys
+(`release`, `vizmasterVersion`, `vizmasterCommit`, `vclawVersion`, `vclawCommit`, `builtAt`) must be
+non-empty strings, and `dirty`/`vclawDirty` must be real booleans — a string `'false'` fails. If
+this assert is ever made primary, expect it to reject a payload the in-tree check accepts.
 
 **Member-repo source of truth.** Measured 2026-11-05: the Forgejo mirror `chatek/vizmaster` is at
 `a77a74ef` (2026-10-26) while GitHub and the local working tree are at `800a9e5` (2026-11-05) —
 ten days stale. A payload cut from the mirror would carry a stamp naming code that is not there,
 so mirror reads are NOT-EVIDENCE for a pin until the sync is fixed.
 
-Separately, as of 2026-11-05 the workflow runs those bundle/integrate steps but sets no `VCLAW_SRC` anywhere
-(`grep VCLAW_SRC` → no matches), so whatever produces the `vclawVersion`/`vclawCommit` keys must be
-given it, or those keys come out unknown.
+The workflow now emits that provenance itself: between `Install member dependencies` and
+`Bundle the member payload at the pinned sha` it runs, with `working-directory: member`,
+
+```
+VCLAW_SRC="$GITHUB_WORKSPACE" node scripts/build-info.mjs --out app/build
+```
+
+Emitted **before** integrate on purpose: `build-info` reads the vclaw checkout's tracked state, and
+integrate deliberately dirties it, so a later emitter would stamp `vclawDirty: true` and the
+mounted-dmg assert would reject the artifact. After the dmg is verified, the member job copies that
+payload `BUILD.json` beside the dmg (`release/mac/<arch>/BUILD.json`), adds it to `SHA256SUMS`, and
+uploads it — so the handoff directory carries the vclaw sha under named keys
+(`vclawCommit`/`vclawVersion`) instead of requiring it to be inferred from the artifact tuple's
+ordering.
 
 ## x64 on an arm64 host
 
