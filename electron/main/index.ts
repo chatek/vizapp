@@ -9,6 +9,7 @@ import { BROWSER_PARTITION, HARNESS_IDS, type ApplicationMenuName, type AppMeta,
 import { AgentRpcManager, OMP_RPC_ADAPTER, PI_RPC_ADAPTER } from './agent-rpc'
 import { installApplicationMenu } from './application-menu'
 import { MacBackgroundController, shouldStartInBackground } from './background'
+import { memberProviderSetupPaths, ProviderSetupService } from './provider-setup'
 import { BrowserDownloadGuard } from './browser-downloads'
 import { installCrashGuards } from './crash-guard'
 import { CuaDriverService } from './cua-driver'
@@ -17,8 +18,8 @@ import { CheckoutService } from './checkouts'
 import { isTrustedRendererUrl, registerIpc, type IpcRegistration } from './ipc'
 import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'
 import { offeredHarnesses } from './harness-offering'
-import { setOmpStateDirectory } from './harness'
-import { setVclawSdkRootDirectory } from './vclaw-sdk-root'
+import { ompStateDirectory, setOmpStateDirectory } from './harness'
+import { setVclawSdkRootDirectory, vclawSdkRootDirectory } from './vclaw-sdk-root'
 import { beginProcessShutdown, runProcess, stopChildProcesses } from './process-utils'
 import { PluginService, beginPluginDiscoveryShutdown } from './plugins'
 import { PrimeProviderService } from './providers'
@@ -708,6 +709,11 @@ async function bootstrap(): Promise<void> {
   const ompDisabledModels = () => new Set(stateStore.getSettings().ompDisabledModels)
   const piDisabledProviders = () => new Set(stateStore.getSettings().piDisabledProviders)
   const piDisabledModels = () => new Set(stateStore.getSettings().piDisabledModels)
+  // Member-profile provider setup: resolves the SAME isolated dirs the OMP
+  // harness uses (~/.<profile-id>/agent for models.yml, the sdk root's config
+  // for the 0600 key store). The generic app passes null and gets no surface.
+  const providerSetupPaths = memberProviderSetupPaths(homedir(), ompStateDirectory(), vclawSdkRootDirectory())
+  const providerSetup = providerSetupPaths ? new ProviderSetupService(providerSetupPaths) : null
   const ompCatalog = new OmpModelCatalogService(ompExecutable)
   const piCatalog = new PiModelCatalogService(piExecutable)
   agents = new AgentRpcManager(
@@ -1120,6 +1126,7 @@ async function bootstrap(): Promise<void> {
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
   ipc = registerIpc({
+    providerSetup,
     meta, refreshHarnesses, projects, checkouts, sessions, agents, terminals, git, plugins, providers, settings, updates, cuaDriver, heartbeats, schedules, browser: browserService, voice, pets,
     popupApplicationMenu, setTitleBarTheme,
     inbox: inboxService,

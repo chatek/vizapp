@@ -50,13 +50,13 @@ describe('realtime voice surface', () => {
   })
 
   it('places the waveform toggle immediately before the terminal button', () => {
-    act(() => root.render(<TitleToolbar view="session" sidebarOpen inspectorOpen terminalOpen={false} voiceOpen onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} onToggleVoice={vi.fn()} />))
+    act(() => root.render(<TitleToolbar view="session" sidebarOpen inspectorOpen terminalOpen={false} voiceOpen theme="system" onSetTheme={vi.fn()} onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} onToggleVoice={vi.fn()} />))
     const labels = [...container.querySelectorAll<HTMLButtonElement>('.title-toolbar__actions button')].map((button) => button.getAttribute('aria-label'))
     expect(labels.slice(0, 2)).toEqual(['Close realtime voice', 'Toggle terminal (⌘J)'])
   })
 
   it('uses Linux shortcut labels on Linux', () => {
-    act(() => root.render(<TitleToolbar platform="linux" view="session" sidebarOpen inspectorOpen terminalOpen={false} onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} />))
+    act(() => root.render(<TitleToolbar platform="linux" view="session" sidebarOpen inspectorOpen terminalOpen={false} theme="system" onSetTheme={vi.fn()} onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} />))
     const labels = [...container.querySelectorAll<HTMLButtonElement>('.title-toolbar__actions button')].map((button) => button.getAttribute('aria-label'))
     expect(labels).toContain('Toggle terminal (Ctrl+J)')
     expect(labels).toContain('Open browser (Ctrl+Shift+B)')
@@ -78,7 +78,7 @@ describe('realtime voice surface', () => {
       readOnly: true,
       gitBranch: 'record-branch',
     }
-    act(() => root.render(<TitleToolbar project={project} gitBranch="live-branch" view="session" sidebarOpen inspectorOpen terminalOpen={false} onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} />))
+    act(() => root.render(<TitleToolbar project={project} gitBranch="live-branch" view="session" sidebarOpen inspectorOpen terminalOpen={false} theme="system" onSetTheme={vi.fn()} onToggleSidebar={vi.fn()} onToggleInspector={vi.fn()} onToggleTerminal={vi.fn()} onOpenBrowser={vi.fn()} />))
     expect(container.querySelector('.branch-pill')?.textContent).toContain('live-branch')
     expect(container.querySelector('.branch-pill')?.textContent).not.toContain('record-branch')
   })

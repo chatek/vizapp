@@ -206,6 +206,7 @@ function buildServices() {
         catalog: vi.fn(async (_force, disabled, disabledModels) => catalog('pi', disabled, disabledModels)),
       },
     },
+    providerSetup: null,
   } satisfies ServiceFixtures
 }
 

@@ -34,7 +34,7 @@ type ServiceFixtures = { [Key in keyof RegisterIpcServices]: unknown } & Record<
 
 /** Members these suites never exercise. Spreading them lets a fixture satisfy `Services` completely
  *  without listing a dozen spies, so a NEW required member still fails typecheck at construction. */
-type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets'>
+type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providerSetup' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets'>
 function unrelatedServices(): UnrelatedServices {
   return serviceStub() as UnrelatedServices
 }

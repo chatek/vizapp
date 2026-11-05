@@ -88,6 +88,13 @@ const api: PrimeWorkApi = {
     cancelOAuth: (flowId) => invoke('providers:cancel-oauth', flowId),
     onAuthEvent: (callback) => subscribe<ProviderAuthEvent>('providers:auth-event', callback),
   },
+  providerSetup: {
+    options: () => invoke('providers:setup-options'),
+    setupVclawLlm: (apiKey) => invoke('providers:setup-vclaw-llm', apiKey),
+    setupOwnProvider: (familyId, apiKey, modelIds) => invoke('providers:setup-own-provider', familyId, apiKey, modelIds),
+    vclawStatus: () => invoke('providers:vclaw-status'),
+    vclawUsage: () => invoke('providers:vclaw-usage'),
+  },
   voice: {
     credentialStatus: () => invoke('voice:credential-status'),
     saveApiKey: (provider, apiKey) => invoke('voice:save-api-key', provider, apiKey),

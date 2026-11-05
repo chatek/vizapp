@@ -1,14 +1,18 @@
 import { ChevronRight, ExternalLink, Gauge, KeyRound, LogIn, LogOut, RefreshCw, Search, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { errorMessage } from '@/lib/errors'
-import type { HarnessId, PrimeModelCatalog, PrimeModelDescriptor, PrimeProviderDescriptor } from '@/types/api'
+import type { HarnessId, PrimeModelCatalog, PrimeModelDescriptor, PrimeProviderDescriptor, PrimeWorkApi } from '@/types/api'
 import { HARNESS_AGENT_NAMES } from '@/lib/harness'
 import { Modal } from '@/components/ui'
+import { ProviderSetupSection } from './ProviderSetupSection'
 
 interface ProviderSettingsProps {
   /** Active harness. OMP and Pi credentials stay CLI-owned; visibility toggles only affect VClaw. */
   harness?: HarnessId
   catalog: PrimeModelCatalog | null
+  /** Member-product provider setup bridge; null in the generic build (section hidden). */
+  setup?: PrimeWorkApi['providerSetup'] | null
+  memberId?: string | null
   onRefresh(): Promise<void>
   onSaveApiKey(providerId: string, apiKey: string): Promise<void>
   onLogout(providerId: string): Promise<void>
@@ -34,7 +38,22 @@ function activeFirst<T extends { enabled?: boolean }>(items: readonly T[]): T[] 
   return [...items].sort((left, right) => Number(right.enabled !== false) - Number(left.enabled !== false))
 }
 
-export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
+// vizmaster posture (operator 2026-11-05): the member product offers only the top
+// US/China model families — GLM (Z.ai), DeepSeek, Claude (Anthropic), GPT (OpenAI),
+// Mistral, Kimi. Everything else the catalog reports is filtered out of BOTH views.
+// Ids are the fork's canonical provider ids (packages/catalog/src/compat/provider-ids.ts).
+const VIZMASTER_PROVIDER_ALLOWLIST: Record<string, true> = {
+  'vclaw': true, // the estate's own door (docs/VCLAW_LLM.md)
+  'zai': true, 'zai-coding-plan': true, 'zhipu-coding-plan': true, // GLM / Zhipu family
+  'deepseek': true,
+  'anthropic': true,
+  'openai': true,
+  'openai-codex': true,
+  'mistral': true,
+  'kimi-code': true, 'moonshot': true, // Kimi family
+}
+
+export function ProviderSettings({ harness = 'prime', catalog, setup, memberId, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
   // OMP and Pi own their credentials in their CLIs; VClaw only toggles visibility.
   const externalAuth = harness !== 'prime'
   const agentName = HARNESS_AGENT_NAMES[harness]
@@ -51,14 +70,15 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
     const matches = normalized
       ? (catalog?.providers ?? []).filter((provider) => `${provider.name} ${provider.id}`.toLowerCase().includes(normalized))
       : catalog?.providers ?? []
-    return activeFirst(matches)
+    return activeFirst(matches.filter((provider) => VIZMASTER_PROVIDER_ALLOWLIST[provider.id] === true))
   }, [catalog, query])
   const providerNames = useMemo(() => new Map((catalog?.providers ?? []).map((provider) => [provider.id, provider.name])), [catalog])
   const modelGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase()
-    const matches = normalized
+    const allowedModels = normalized
       ? (catalog?.models ?? []).filter((model) => `${model.name} ${model.id} ${model.provider} ${providerNames.get(model.provider) ?? ''}`.toLowerCase().includes(normalized))
       : catalog?.models ?? []
+    const matches = allowedModels.filter((model) => VIZMASTER_PROVIDER_ALLOWLIST[model.provider] === true)
     const byProvider = new Map<string, PrimeModelDescriptor[]>()
     for (const model of matches) {
       const models = byProvider.get(model.provider)
@@ -119,6 +139,7 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
 
   return (
     <section className="settings-group provider-settings">
+      {setup && memberId ? <ProviderSetupSection setup={setup} onCatalogRefresh={onRefresh} /> : null}
       <div className="settings-group__heading"><h2>{agentName} catalogue</h2><div className="provider-heading-actions">{catalog && disabledCount < providerCount ? <button type="button" className="button button--danger" disabled={Boolean(busyProvider)} onClick={() => void disableAll()}>{externalAuth ? 'Hide all' : 'Disable all'}</button> : null}{disabledCount ? <button type="button" className="button" disabled={Boolean(busyProvider)} onClick={() => void enableAll()}>{externalAuth ? 'Show all' : 'Enable all'}</button> : null}<button type="button" className="button button--icon" aria-label="Refresh providers" disabled={Boolean(busyProvider)} onClick={() => void run('refresh', onRefresh)}><RefreshCw size={13} /></button></div></div>
       <div className="provider-catalog-summary"><strong>{catalog ? `${providerCount.toLocaleString()} providers · ${modelCount.toLocaleString()} models` : 'Loading provider catalogue…'}</strong>{catalog ? <small>{externalAuth ? `${availableModelCount.toLocaleString()} models are shown in VClaw; ${agentName} checks credentials when you launch one` : `${availableModelCount.toLocaleString()} models are available with your current ${agentName} credentials`}</small> : null}</div>
       {catalog?.warning ? <p className="provider-catalog-warning" role="status">{catalog.warning}</p> : null}

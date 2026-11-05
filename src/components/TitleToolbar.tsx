@@ -1,11 +1,15 @@
 import {
   AudioWaveform,
   GitBranch,
+  Laptop,
+  Moon,
+  Palette,
   PanelLeft,
   PanelRight,
+  Sun,
   Terminal,
 } from 'lucide-react'
-import type { ApplicationMenuName, ProjectRecord, WorkspaceView } from '@/types/api'
+import type { ApplicationMenuName, ProjectRecord, ThemeMode, WorkspaceView } from '@/types/api'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 import { shortcutLabel } from '@/lib/platform-shortcuts'
 import { BrowserGlobe, IconButton } from './ui'
@@ -38,6 +42,9 @@ interface TitleToolbarProps {
   sidebarOpen: boolean
   inspectorOpen: boolean
   terminalOpen: boolean
+  /** Current appearance mode; the toolbar toggle cycles light → dark → system. */
+  theme: ThemeMode
+  onSetTheme(mode: ThemeMode): void
   onToggleSidebar(): void
   onToggleInspector(): void
   onToggleTerminal(): void
@@ -51,11 +58,19 @@ interface TitleToolbarProps {
   platform?: NodeJS.Platform
 }
 
-export function TitleToolbar({ project, gitBranch, view, productName = 'Prime Work', sidebarOpen, inspectorOpen, terminalOpen, voiceOpen = false, activeProjectScriptKind, onToggleSidebar, onToggleInspector, onToggleTerminal, onOpenBrowser, onToggleVoice, onRunProjectScript, onStopProjectScript, onSaveProjectScripts, platform = 'darwin' }: TitleToolbarProps) {
+export function TitleToolbar({ project, gitBranch, view, productName = 'Prime Work', sidebarOpen, inspectorOpen, terminalOpen, voiceOpen = false, activeProjectScriptKind, theme, onSetTheme, onToggleSidebar, onToggleInspector, onToggleTerminal, onOpenBrowser, onToggleVoice, onRunProjectScript, onStopProjectScript, onSaveProjectScripts, platform = 'darwin' }: TitleToolbarProps) {
   const { t } = useI18n()
   const sidebarShortcut = shortcutLabel(platform, ['Primary', 'B'])
   const terminalShortcut = shortcutLabel(platform, ['Primary', 'J'])
   const browserShortcut = shortcutLabel(platform, ['Primary', 'Shift', 'B'])
+  const appearanceModes: ReadonlyArray<{ id: 'light' | 'dark' | 'system'; icon: typeof Sun; label: string }> = [
+    { id: 'light', icon: Sun, label: 'Light' },
+    { id: 'dark', icon: Moon, label: 'Dark' },
+    { id: 'system', icon: Laptop, label: 'System' },
+  ]
+  const currentAppearance = appearanceModes.find((mode) => mode.id === theme)
+  const CurrentAppearanceIcon = currentAppearance?.icon ?? Palette
+  const nextAppearance = appearanceModes[currentAppearance ? (appearanceModes.indexOf(currentAppearance) + 1) % appearanceModes.length : 0]
   return (
     <header className="title-toolbar drag-region">
       {!sidebarOpen && platform === 'darwin' ? <div className="traffic-light-clearance traffic-light-clearance--toolbar" aria-hidden="true" /> : null}
@@ -76,6 +91,7 @@ export function TitleToolbar({ project, gitBranch, view, productName = 'Prime Wo
         {view === 'session' && onToggleVoice ? <IconButton className={voiceOpen ? 'is-active voice-toggle--active' : ''} label={voiceOpen ? 'Close realtime voice' : 'Open realtime voice'} onClick={onToggleVoice}><AudioWaveform size={17} /></IconButton> : null}
         {view === 'session' ? <IconButton className={terminalOpen ? 'is-active' : ''} label={`Toggle terminal (${terminalShortcut})`} onClick={onToggleTerminal}><Terminal size={17} /></IconButton> : null}
         {view === 'session' ? <IconButton label={`Open browser (${browserShortcut})`} onClick={onOpenBrowser}><BrowserGlobe size={18} /></IconButton> : null}
+        <IconButton label={`Appearance: ${currentAppearance?.label ?? 'Theme'} — click for ${nextAppearance.label}`} onClick={() => onSetTheme(nextAppearance.id)}><CurrentAppearanceIcon size={16} /></IconButton>
         {view === 'session' ? <IconButton className={inspectorOpen ? 'is-active' : ''} label="Toggle inspector" onClick={onToggleInspector}><PanelRight size={16} /></IconButton> : null}
         {view !== 'session' && sidebarOpen ? <IconButton label={`Hide sidebar (${sidebarShortcut})`} onClick={onToggleSidebar}><PanelLeft size={16} /></IconButton> : null}
       </div>

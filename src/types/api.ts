@@ -336,6 +336,39 @@ export interface PrimeModelCatalog {
   warning?: string
 }
 
+/** One option-2 family the member can connect with their own API key. */
+export interface ProviderSetupFamily {
+  readonly id: string
+  readonly label: string
+  readonly description: string
+  /** Stanza id the OMP catalogue reports; matches the vizmaster allowlist. */
+  readonly providerId: string
+  readonly baseUrl: string
+  readonly api: string
+  readonly defaultModelIds: readonly string[]
+}
+
+/** Static option catalogue the main process serves to the member renderer. */
+export interface ProviderSetupOptions {
+  readonly families: readonly ProviderSetupFamily[]
+  readonly vclawLlm: { readonly baseUrl: string; readonly modelIds: readonly string[] }
+}
+
+export interface ProviderSetupResult {
+  readonly providerId: string
+  readonly modelsYmlPath: string
+  readonly keyPath: string
+  readonly modelKeys: readonly string[]
+}
+
+/** Door status with the estate's failure vocabulary, never a generic "failed". */
+export type VclawDoorStatus = { connected: true; modelCount: number } | { connected: false; problem: string }
+
+/** Wallet read from vpay (never the LLM host); 'unavailable' is honest, never a zero. */
+export type VclawUsageStatus =
+  | { status: 'ok'; balance: string; reserved: string; available: string; unit: string }
+  | { status: 'unavailable'; reason: string }
+
 export type ProviderAuthEvent =
   | { flowId: string; providerId: string; type: 'auth'; url: string; instructions?: string }
   | { flowId: string; providerId: string; type: 'progress'; message: string }
@@ -873,6 +906,14 @@ export interface PrimeWorkApi {
     respondOAuth(flowId: string, promptId: string, value?: string): Promise<boolean>
     cancelOAuth(flowId: string): Promise<boolean>
     onAuthEvent(callback: (event: ProviderAuthEvent) => void): () => void
+  }
+  /** Member-product provider setup (vizmaster): absent in the generic build. */
+  providerSetup?: {
+    options(): Promise<ProviderSetupOptions>
+    setupVclawLlm(apiKey: string): Promise<ProviderSetupResult>
+    setupOwnProvider(familyId: string, apiKey: string, modelIds: string[]): Promise<ProviderSetupResult>
+    vclawStatus(): Promise<VclawDoorStatus>
+    vclawUsage(): Promise<VclawUsageStatus>
   }
   voice: {
     credentialStatus(): Promise<VoiceCredentialStatus>

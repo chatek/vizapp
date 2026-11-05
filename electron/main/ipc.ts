@@ -4,6 +4,7 @@ import type { AgentRpcManager } from './agent-rpc'
 import type { GitService } from './git'
 import type { CuaDriverService } from './cua-driver'
 import type { ModelCatalogProvider } from './model-catalog'
+import { providerSetupFamilies, VCLAW_LLM_BASE_URL, VCLAW_LLM_STANZA_SPEC, type ProviderSetupService } from './provider-setup'
 import type { PluginService } from './plugins'
 import type { PetService } from './pets'
 import type { PrimeProviderService } from './providers'
@@ -32,6 +33,8 @@ interface Services {
   terminals: TerminalService
   git: GitService
   plugins: PluginService
+  /** Member-profile provider setup; null for the generic app (member-only surface). */
+  providerSetup: ProviderSetupService | null
   providers: PrimeProviderService
   settings: SettingsService
   updates: UpdateService
@@ -372,6 +375,29 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
   })
   handle('providers:respond-oauth', (_event, flowId, promptId, value) => services.providers.respondOAuth(flowId, promptId, value))
   handle('providers:cancel-oauth', (_event, flowId) => services.providers.cancelOAuth(flowId))
+  // Member-only provider setup (vizmaster): writes OMP models.yml stanzas with
+  // `!cmd` key resolution; the generic app (profile 'vclaw') has no write path.
+  const requireProviderSetup = (): ProviderSetupService => {
+    const service = services.providerSetup
+    if (!service) throw new Error('Provider setup is only available in member product builds')
+    return service
+  }
+  handle('providers:setup-options', () => {
+    requireProviderSetup()
+    return { families: providerSetupFamilies(), vclawLlm: { baseUrl: VCLAW_LLM_BASE_URL, modelIds: VCLAW_LLM_STANZA_SPEC.models.map((model) => model.id) } }
+  })
+  handle('providers:setup-vclaw-llm', async (_event, apiKey) => {
+    const result = await requireProviderSetup().setupVclawLlm(apiKey)
+    await ompProviderCatalog(true).catch(() => undefined)
+    return result
+  })
+  handle('providers:setup-own-provider', async (_event, familyId, apiKey, modelIds) => {
+    const result = await requireProviderSetup().setupOwnProvider(familyId, apiKey, modelIds)
+    await ompProviderCatalog(true).catch(() => undefined)
+    return result
+  })
+  handle('providers:vclaw-status', () => requireProviderSetup().vclawDoorStatus())
+  handle('providers:vclaw-usage', () => requireProviderSetup().vclawUsage())
 
   handle('voice:credential-status', () => services.voice.credentialStatus())
   handle('voice:save-api-key', (_event, provider, apiKey) => services.voice.saveApiKey(provider, apiKey))

@@ -70,7 +70,7 @@ function services() {
     terminals: { ...serviceStub(), input: vi.fn(), killOwner: vi.fn(async () => undefined) },
     git: serviceStub(),
     plugins: serviceStub(),
-    providers: serviceStub(),
+    providerSetup: null, providers: serviceStub(),
     settings: serviceStub(),
     heartbeats: serviceStub(),
     inbox: inboxStub(),
