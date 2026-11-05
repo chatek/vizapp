@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HARNESSES, ompStateDirName, ompStateDirectory, setOmpStateDirectory } from '../../electron/main/harness'
+import { setVclawSdkRootDirectory } from '../../electron/main/vclaw-sdk-root'
 import { safeChildEnvironment } from '../../electron/main/process-utils'
 import { ompSessionRoot } from '../../electron/main/sessions/omp'
 import { PluginService } from '../../electron/main/plugins'
@@ -10,7 +11,7 @@ import { discoverPlugins } from '../../electron/main/plugins/catalog'
 
 const ENV_KEYS_UNDER_TEST = [
   'OMP_PROFILE', 'PI_PROFILE', 'PI_CODING_AGENT_DIR',
-  'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'PI_CONFIG_DIR',
+  'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'PI_CONFIG_DIR', 'VCLAW_HOME',
 ] as const
 
 const savedEnv: Record<string, string | undefined> = {}
@@ -24,6 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setOmpStateDirectory('vclaw')
+  setVclawSdkRootDirectory('vclaw')
   for (const [key, value] of Object.entries(savedEnv)) {
     if (value === undefined) delete process.env[key]
     else process.env[key] = value
@@ -171,5 +173,18 @@ describe('safeChildEnvironment OMP isolation', () => {
     expect(env.CUSTOM_BRIDGE).toBe('on')
     expect(env.HOME).toBe(process.env.HOME)
     expect(env.NO_COLOR).toBe('1')
+  })
+
+  it('sets no VCLAW_HOME for the generic profile', () => {
+    const env = safeChildEnvironment()
+    expect(env.VCLAW_HOME).toBeUndefined()
+  })
+
+  it('carries an absolute VCLAW_HOME under ~/.vizmaster for the member profile', () => {
+    setVclawSdkRootDirectory('vizmaster')
+    const env = safeChildEnvironment()
+    expect(env.VCLAW_HOME).toBe(join(homedir(), '.vizmaster'))
+    // Isolation is policy: extras cannot pull the child back to another root.
+    expect(safeChildEnvironment({ VCLAW_HOME: '/evil' }).VCLAW_HOME).toBe(join(homedir(), '.vizmaster'))
   })
 })

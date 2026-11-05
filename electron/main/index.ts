@@ -18,6 +18,7 @@ import { isTrustedRendererUrl, registerIpc, type IpcRegistration } from './ipc'
 import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'
 import { offeredHarnesses } from './harness-offering'
 import { setOmpStateDirectory } from './harness'
+import { setVclawSdkRootDirectory } from './vclaw-sdk-root'
 import { beginProcessShutdown, runProcess, stopChildProcesses } from './process-utils'
 import { PluginService, beginPluginDiscoveryShutdown } from './plugins'
 import { PrimeProviderService } from './providers'
@@ -604,6 +605,9 @@ async function bootstrap(): Promise<void> {
   // (PI_CONFIG_DIR at spawn) — under ~/.<profile-id> instead of host ~/.omp.
   // Must run before any harness state is resolved; the generic build is a no-op.
   setOmpStateDirectory(productProfile.id)
+  // Product-scoped agent-sdk root: a member product's spool and credentials live
+  // under ~/.<profile-id> (read here, and written by the child via VCLAW_HOME).
+  setVclawSdkRootDirectory(productProfile.id)
   const userDataPath = app.getPath('userData')
   configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)

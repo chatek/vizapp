@@ -1,10 +1,11 @@
 import { accessSync, constants as fsConstants, readdirSync } from 'node:fs'
 import { access, readdir } from 'node:fs/promises'
-import { delimiter, posix, win32 } from 'node:path'
+import { delimiter, join, posix, win32 } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { homedir } from 'node:os'
 import { createAdmissionQueue } from './lib/async'
 import { HARNESSES, ompStateDirName, ompStateDirectory, type HarnessDescriptor } from './harness'
+import { vclawSdkRootDirectory } from './vclaw-sdk-root'
 import type { ProcessFailureReason, ProcessOutcome } from '../../src/types/api'
 
 export interface ProcessResult {
@@ -218,6 +219,15 @@ export function safeChildEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.Proc
   if (ompStateDirectory() !== ompStateDirName('vclaw')) {
     env.PI_CONFIG_DIR = ompStateDirectory()
     for (const key of OMP_STATE_REDIRECT_ENV_KEYS) delete env[key]
+  }
+  // Product-scoped agent-sdk root: the sibling agent-sdk change roots its spool,
+  // credentials, pears and identity under VCLAW_HOME when set, so the member
+  // child reads and writes the profile root (~/.<profile-id>) instead of the
+  // host's ~/.vclaw / ~/.config/vclaw. The generic app sets nothing and keeps
+  // host env passthrough byte-for-byte untouched.
+  const sdkRootDir = vclawSdkRootDirectory()
+  if (sdkRootDir) {
+    env.VCLAW_HOME = join(homedir(), sdkRootDir)
   }
   return env
 }

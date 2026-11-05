@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildSnapshot,
   classifyState,
@@ -8,9 +8,11 @@ import {
   lastSeqOf,
   mergeSpool,
   parseSpool,
+  readOwnNkey,
   selfPrefix,
   type VclawInboxMessage,
 } from '../../electron/main/inbox-spool'
+import { setVclawSdkRootDirectory as pinSdkRoot } from '../../electron/main/vclaw-sdk-root'
 import { VclawInboxService } from '../../electron/main/inbox-service'
 
 // The frozen contract (agent-sdk pin bf1e237f): <.vclaw/inbox/<tenant>__<self8>.jsonl>,
@@ -73,6 +75,62 @@ describe('spool reading', () => {
     const found = findSpoolPath(() => files, '/home/x', SELF8)
     expect(found).toBe(`/home/x/.vclaw/inbox/vclaw__${SELF8}.jsonl`)
     expect(findSpoolPath(() => ['vclaw__UBNBJ35N.jsonl'], '/home/x', SELF8)).toBeNull()
+  })
+})
+
+afterEach(() => pinSdkRoot('vclaw'))
+
+describe('profile-scoped agent-sdk root', () => {
+  it('reads spool and credentials under ~/.vizmaster for the member profile', () => {
+    pinSdkRoot('vizmaster')
+    const home = '/home/x'
+    const readFile = (path: string) => {
+      expect(path).toBe('/home/x/.vizmaster/config/credentials.json')
+      return JSON.stringify({ nkey: NKEY })
+    }
+    expect(readOwnNkey(readFile, home)).toBe(NKEY)
+    const files = [`vclaw__${SELF8}.jsonl`]
+    const listDirectory = (path: string) => {
+      expect(path).toBe('/home/x/.vizmaster/inbox')
+      return files
+    }
+    expect(findSpoolPath(listDirectory, home, SELF8)).toBe(`/home/x/.vizmaster/inbox/vclaw__${SELF8}.jsonl`)
+  })
+
+  it('keeps the legacy paths byte-for-byte for the generic profile', () => {
+    pinSdkRoot('vclaw')
+    const home = '/home/x'
+    const readFile = (path: string) => {
+      expect(path).toBe('/home/x/.config/vclaw/credentials.json')
+      return JSON.stringify({ nkey: NKEY })
+    }
+    expect(readOwnNkey(readFile, home)).toBe(NKEY)
+    const listDirectory = (path: string) => {
+      expect(path).toBe('/home/x/.vclaw/inbox')
+      return [`vclaw__${SELF8}.jsonl`]
+    }
+    expect(findSpoolPath(listDirectory, home, SELF8)).toBe(`/home/x/.vclaw/inbox/vclaw__${SELF8}.jsonl`)
+  })
+
+  it('serves the member snapshot from the profile root', () => {
+    pinSdkRoot('vizmaster')
+    const service = new VclawInboxService({
+      home: '/home/test',
+      isSessionOpen: () => true,
+      readFile: (p) => (p === '/home/test/.vizmaster/config/credentials.json'
+        ? JSON.stringify({ nkey: NKEY })
+        : `${JSON.stringify(record(1))}\n`),
+      listDirectory: (p) => {
+        expect(p).toBe('/home/test/.vizmaster/inbox')
+        return [`vclaw__${SELF8}.jsonl`]
+      },
+      statFile: () => ({ mode: 0o100600 }),
+      now: () => new Date('2026-10-31T00:00:00.000Z'),
+    })
+    const snapshot = service.refresh()
+    expect(snapshot.spoolPath).toBe(`/home/test/.vizmaster/inbox/vclaw__${SELF8}.jsonl`)
+    expect(snapshot.state).toBe('live')
+    service.stop()
   })
 })
 
