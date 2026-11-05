@@ -1175,3 +1175,38 @@ describe('ProjectService scripts', () => {
     await expect(service.updateScripts('missing', { setup: '', run: 'bad\0command' })).rejects.toThrow(/NUL/)
   })
 })
+
+describe('ProjectService single-project restriction', () => {
+  it('does not run the host session-root scan when restricted to one project', async () => {
+    // profile `projects: "single"` restricts the service (index.ts bootstrap). The discovery
+    // pass (discoverValidSessionRoots) is the host scan: it stats every directory a harness
+    // session ever ran in, including host state folders like ~/.omp. Under restriction its
+    // results are filtered out of list() anyway, so running it would only read host folders
+    // for nothing — and the read-only roots it publishes would keep authorizing them.
+    const { root, service } = setup()
+    const hostFolder = resolve(root, '..', 'host-project')
+    mkdirSync(hostFolder)
+    const foreignSession = session('host-session', hostFolder, '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z')
+    service.bindProviders({ sessions: async () => [foreignSession], branch: async () => undefined })
+    const granted = await service.ensureProject(root)
+
+    // Multiple mode (the generic product): the host folder shows up as an inferred,
+    // read-only project through the session scan, and read-only cwd authorization works.
+    expect((await service.list()).some((project) => project.inferred)).toBe(true)
+    await expect(service.authorizeReadOnlyCwd(hostFolder)).resolves.toBe(realpathSync(hostFolder))
+
+    // Single mode (the member product): the scan is skipped entirely — one presented
+    // project, no inferred records, and NO read-only authorization for host session roots.
+    await service.restrictTo(root)
+    const presented = await service.list()
+    expect(presented.map((project) => project.path)).toEqual([granted.path])
+    expect(presented.some((project) => project.inferred)).toBe(false)
+    await expect(service.authorizeReadOnlyCwd(hostFolder)).rejects.toThrow()
+
+    // The multiple-mode machinery is inert, not deleted: lifting the restriction brings
+    // the scan (and its read-only roots) back.
+    await service.restrictTo(null)
+    expect((await service.list()).some((project) => project.inferred)).toBe(true)
+    await expect(service.authorizeReadOnlyCwd(hostFolder)).resolves.toBe(realpathSync(hostFolder))
+  })
+})

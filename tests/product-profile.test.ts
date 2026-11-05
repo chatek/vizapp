@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -10,6 +10,7 @@ import {
   describeProductProfile,
   expandDefaultProjectTarget,
   loadProductProfile,
+  type ProductProfile,
   type ProductProfileContext,
   ProductProfileError,
   productProfilePath,
@@ -21,7 +22,7 @@ const memberProfile = {
   id: 'vizmaster',
   identity: { productName: 'VizMaster', appId: 'app.vizmaster.desktop' },
   harnesses: ['omp'],
-  defaultProject: { name: 'VizMaster', from: 'vendor/vizmaster', to: '~/VizMaster', version: '1.0.0+20261029.7263596' },
+  defaultProject: { name: 'VizMaster', from: 'vendor/vizmaster', to: '~/.vizmaster/default', version: '1.0.0+20261029.7263596' },
 }
 
 function withTempProfile(contents: string | null, packaged = true): { context: ProductProfileContext; cleanup: () => void } {
@@ -57,7 +58,7 @@ describe('product profile validation', () => {
     const member = validateProductProfile(memberProfile, 'packaged')
     expect(member.id).toBe('vizmaster')
     expect(member.harnesses).toEqual(['omp'])
-    expect(member.defaultProject?.to).toBe('~/VizMaster')
+    expect(member.defaultProject?.to).toBe('~/.vizmaster/default')
   })
 
   test('refuses an unknown or empty harness set rather than silently narrowing', () => {
@@ -161,7 +162,7 @@ describe('default project paths', () => {
 
   test('the seed target is home-relative, never the home directory itself', () => {
     const profile = validateProductProfile(memberProfile, 'packaged')
-    expect(expandDefaultProjectTarget(profile, '/Users/someone')).toBe(join('/Users/someone', 'VizMaster'))
+    expect(expandDefaultProjectTarget(profile, '/Users/someone')).toBe(join('/Users/someone', '.vizmaster', 'default'))
     expect(expandDefaultProjectTarget(BUILT_IN_PROFILE, '/Users/someone')).toBeNull()
   })
 
@@ -197,5 +198,29 @@ describe('defaultProject.to — the home escape is refused at load, not at seedi
 
   test('accepts a nested home path without .. segments', () => {
     expect(build('~/work/vizmaster').defaultProject?.to).toBe('~/work/vizmaster')
+  })
+})
+
+describe('the checked-in product profiles', () => {
+  test('development and the member build run the SAME vizmaster posture', () => {
+    // product/profile.json is what a dev checkout loads (productProfilePath); the member build
+    // stages product/vizmaster.json through --profile. If the two drift, dev stops reproducing
+    // what ships. Member staging never reads product/profile.json's CONTENT (release.yml passes
+    // --profile product/$MEMBER_ID.json), so the file is free to carry the member posture.
+    const devProfile = validateProductProfile(JSON.parse(readFileSync('product/profile.json', 'utf8')), 'development')
+    const memberProfileJson = validateProductProfile(JSON.parse(readFileSync('product/vizmaster.json', 'utf8')), 'packaged')
+    const posture = (profile: ProductProfile) => ({
+      id: profile.id, identity: profile.identity, harnesses: profile.harnesses,
+      projects: profile.projects, defaultProject: profile.defaultProject,
+    })
+    expect(posture(devProfile)).toEqual(posture(memberProfileJson))
+    expect(devProfile.source).toBe('development')
+    expect(memberProfileJson.source).toBe('packaged')
+    for (const profile of [devProfile, memberProfileJson]) {
+      expect(profile.id).toBe('vizmaster')
+      expect(profile.harnesses).toEqual(['omp'])
+      expect(profile.projects).toBe('single')
+      expect(profile.defaultProject?.to).toBe('~/.vizmaster/default')
+    }
   })
 })

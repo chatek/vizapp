@@ -434,7 +434,14 @@ export class ProjectService {
     const dismissed = await this.resolveDismissedProjectPaths(snapshot.dismissedProjectPaths)
     const sessions = await this.sessionProvider()
     const canonicalSessionPaths = await this.canonicalizeSessionPaths(sessions)
-    const discoveredSessionRoots = await this.discoverValidSessionRoots(sessions, dismissed, represented, authorizationRevision)
+    // A single-project product must not run the host scan at all: the discovery pass stats
+    // every session root under the harness's state directories (~/.omp and friends), and its
+    // results are filtered out of list() anyway. Skipping it keeps those host folders unread
+    // rather than merely hidden — the scan stays the multiple-mode machinery (profile
+    // `projects: 'multiple'`), inert under restriction.
+    const discoveredSessionRoots = this.restrictedToPaths === null
+      ? await this.discoverValidSessionRoots(sessions, dismissed, represented, authorizationRevision)
+      : []
     for (const { canonical, identity } of discoveredSessionRoots) nextReadOnly.set(canonical, identity)
 
     if (authorizationRevision === this.authorizationRevision && identityRefreshes.length) {

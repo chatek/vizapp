@@ -24,6 +24,15 @@ This document is the working spec for adding OMP (`omp`, [omp.sh](https://omp.sh
 - Model catalog: `omp models --json` → `{ models: [{ provider, id, selector, name, contextWindow, maxTokens, reasoning, thinking: string[]|null, input: string[], cost }] }`.
 - Target model for validation: `openai-codex/gpt-5.6-luna` (Luna GPT-5.6, already authenticated on this machine).
 
+## Product-scoped state isolation
+
+A member product profile (e.g. VizMaster, `product/vizmaster.json`, id `vizmaster`) must not share OMP state with the host's own `~/.omp`. For any profile other than the generic `vclaw` one, ALL OMP state lives under `~/.<profile-id>` (`~/.vizmaster` for VizMaster); the generic build keeps the paths above byte-for-byte.
+
+- `electron/main/harness.ts` pins the state directory from the profile id (`setOmpStateDirectory`, called once in `index.ts` right after the profile loads). The omp descriptor's `agentDir`/`sessionRoot`, `ompSessionRoot()` (`sessions/omp.ts`), and the `PluginService` omp default agent dir all resolve under it: `~/.vizmaster/agent`, `~/.vizmaster/agent/sessions`, skills `~/.vizmaster/skills`, plugins and the `omp-plugins.lock.json` under `~/.vizmaster/plugins`.
+- The child process's own writes are relocated through the fork's native override: `safeChildEnvironment` (`process-utils.ts`) sets `PI_CONFIG_DIR=<state-dir>` for every harness child spawn (RPC runtimes, `omp plugin`/`omp models` CLI calls). The oh-my-pi fork resolves its config root as `join(homedir(), PI_CONFIG_DIR || '.omp')` (`packages/utils/src/dirs.ts`), so agent dir, sessions, skills, plugins, natives, caches, and the settings/auth `agent.db` all land under `~/.vizmaster` without touching `HOME` (git, ssh, and other home-based tools keep working). Because `PI_CONFIG_DIR` is a directory *name* joined to home, the bare `.vizmaster` is passed, never an absolute path.
+- The same spawn path clears every fork-honored state redirect for the isolated child — `OMP_PROFILE`, `PI_PROFILE`, `PI_CODING_AGENT_DIR`, `XDG_DATA_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` (existence-gated on darwin), `OMP_WORKTREE_DIR`, `PI_NATIVES_DIR`, and the `OMP_*_DB`/snapshot-cache path overrides — so no host env var can pull state back outside the profile root.
+- Residual, by design: the cross-tool `~/.agents/skills` convention dir is still read (never written) by both the child and the catalog, matching the generic build; there is no fork env override for it short of changing `HOME`.
+
 ## Protocol: same JSONL framing, superset commands
 
 OMP RPC is newline-delimited JSON over stdio with the same request/response envelope Prime Work already speaks: requests carry `id`, responses are `{type:'response', id, command, success, data|error}`. `FramedRpcTransport`, `StrictJsonlDecoder`, write budgeting, correlation rules, and `AgentEventForwarder` are reused unchanged.

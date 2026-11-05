@@ -4,7 +4,7 @@ import { delimiter, posix, win32 } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { homedir } from 'node:os'
 import { createAdmissionQueue } from './lib/async'
-import { HARNESSES, type HarnessDescriptor } from './harness'
+import { HARNESSES, ompStateDirName, ompStateDirectory, type HarnessDescriptor } from './harness'
 import type { ProcessFailureReason, ProcessOutcome } from '../../src/types/api'
 
 export interface ProcessResult {
@@ -189,6 +189,20 @@ export async function stopChildProcesses(): Promise<void> {
   await waitForChildren(survivors, 1_500)
 }
 
+/**
+ * Env vars the oh-my-pi fork honors as OMP state-path redirects: the named
+ * profile selectors, the agent-dir override, the (existence-gated, darwin
+ * included) XDG roots, and the per-feature path overrides. A product-scoped
+ * child clears all of them so no host setting can pull its state back outside
+ * the profile root.
+ */
+const OMP_STATE_REDIRECT_ENV_KEYS = [
+  'OMP_PROFILE', 'PI_PROFILE', 'PI_CODING_AGENT_DIR',
+  'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
+  'OMP_WORKTREE_DIR', 'PI_NATIVES_DIR',
+  'OMP_GITHUB_CACHE_DB', 'OMP_COMMIT_CACHE_DB', 'OMP_JUDGMENT_CACHE_DB', 'OMP_AUTH_BROKER_SNAPSHOT_CACHE',
+] as const
+
 export function safeChildEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra }
   for (const key of [
@@ -196,6 +210,15 @@ export function safeChildEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.Proc
     'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD', 'FORCE_COLOR',
   ]) delete env[key]
   env.NO_COLOR = '1'
+  // Product-scoped OMP state isolation: PI_CONFIG_DIR is the fork's native
+  // config-root override (packages/utils/src/dirs.ts getConfigDirName), so the
+  // child resolves agent/sessions/skills/plugins/settings under the profile
+  // root instead of host ~/.omp. The generic app keeps host env passthrough
+  // byte-for-byte untouched.
+  if (ompStateDirectory() !== ompStateDirName('vclaw')) {
+    env.PI_CONFIG_DIR = ompStateDirectory()
+    for (const key of OMP_STATE_REDIRECT_ENV_KEYS) delete env[key]
+  }
   return env
 }
 

@@ -1,5 +1,18 @@
 {
   "profileVersion": 1,
-  "id": "vclaw",
-  "harnesses": ["omp", "prime", "pi"]
+  "id": "vizmaster",
+  "identity": {
+    "productName": "VClaw",
+    "appId": "com.vclaw.desktop"
+  },
+  "harnesses": [
+    "omp"
+  ],
+  "projects": "single",
+  "defaultProject": {
+    "name": "VizMaster",
+    "from": "product/payload",
+    "to": "~/.vizmaster/default",
+    "version": "0.0.0+unrendered"
+  }
 }

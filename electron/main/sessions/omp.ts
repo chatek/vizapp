@@ -1,6 +1,6 @@
 import { closeSync, openSync, readSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { HARNESSES } from '../harness'
 import { isRecord } from '../validation'
 import type { SessionServiceOptions } from '../sessions'
 import type { SessionCatalogIo } from './catalog'
@@ -20,7 +20,8 @@ import {
 import { compactText, type TranscriptFileReader } from './transcript'
 
 /**
- * OMP session JSONL v3 layout under `~/.omp/agent/sessions/<bucket>/`:
+ * OMP session JSONL v3 layout under `<state>/agent/sessions/<bucket>/` (state
+ * root `~/.omp`, or `~/.<profile-id>` for a product-scoped build):
  * - Line 1 is a fixed-width 256-byte title slot (`{"type":"title",...,"pad":"..."}`)
  *   that OMP REWRITES IN PLACE, keeping the byte length constant.
  * - Line 2 is the `{"type":"session","version":3,...}` header; everything after
@@ -34,7 +35,7 @@ import { compactText, type TranscriptFileReader } from './transcript'
 export const OMP_TITLE_SLOT_BYTES = 256
 
 export function ompSessionRoot(): string {
-  return join(homedir(), '.omp', 'agent', 'sessions')
+  return HARNESSES.omp.sessionRoot(homedir())
 }
 
 export const ompTimestampFromSessionName = timestampFromBucketedSessionName
