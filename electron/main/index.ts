@@ -48,6 +48,7 @@ import { TerminalService } from './terminal'
 import { RepositoryUseGate } from './repository-use-gate'
 import { VoiceService, voiceSecretStorageStatus } from './voice'
 import { isAllowedRendererAudioPermission } from './voice-permissions'
+import { dismissActiveSplash, openSplash, shouldShowSplash } from './splash'
 import { createManualUpdateCheck, getAutoUpdater, UpdateService } from './updates'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'prime-work', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
@@ -604,6 +605,22 @@ async function bootstrap(): Promise<void> {
   // (PI_CONFIG_DIR at spawn) — under ~/.<profile-id> instead of host ~/.omp.
   // Must run before any harness state is resolved; the generic build is a no-op.
   setOmpStateDirectory(productProfile.id)
+  // Product-scoped agent-sdk root: a member product's spool and credentials live
+  // under ~/.<profile-id> (read here, and written by the child via VCLAW_HOME).
+  setVclawSdkRootDirectory(productProfile.id)
+  // Member products show a splash scene while the rest of bootstrap runs; the
+  // generic product never does, and neither do background/test/smoke launches.
+  const splash = shouldShowSplash(productProfile.id, {
+    startInBackground,
+    hiddenForTests: keepTestWindowsHidden,
+    smokeRun: Boolean(packagedSmokeMarkerFile),
+  })
+    ? openSplash({
+        homeDir: homedir(),
+        profileId: productProfile.id,
+        bundledDir: app.isPackaged ? join(process.resourcesPath, 'splash') : join(app.getAppPath(), 'assets', 'splash'),
+      })
+    : null
   const userDataPath = app.getPath('userData')
   configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)
@@ -1197,6 +1214,7 @@ async function bootstrap(): Promise<void> {
   })
   backgroundMode.start()
   const window = await ensureWindow()
+  splash?.followMainWindow(window)
   if (packagedSmokeMarkerFile) {
     await runPackagedSmoke(window, packagedSmokeMarkerFile)
     return
@@ -1271,6 +1289,7 @@ else void app.whenReady().then(async () => {
   const failureDialog = startupFailureDialog(error)
   if (failureDialog) dialog.showErrorBox(failureDialog.title, failureDialog.detail)
   if (!shutdownStarted) console.error(`VClaw failed to start: ${boundedErrorMessage(error)}`)
+  dismissActiveSplash()
   app.quit()
 })
 
