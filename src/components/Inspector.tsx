@@ -50,7 +50,12 @@ export interface InspectorProps {
   overlay?: boolean
 }
 
-const tabs: Array<{ id: InspectorTab; label: string }> = [{ id: 'summary', label: 'Summary' }, { id: 'changes', label: 'Changes' }, { id: 'browser', label: 'Browser' }, { id: 'files', label: 'Files' }, { id: 'inbox', label: 'Inbox' }]
+// vizmaster posture (operator 2026-11-05): Browser first (the panel's default), then
+// Summary. The Changes tab is hidden — the transcript still surfaces file changes
+// through the changes popup and git rows, and 'changes' remains a valid stored
+// defaultInspectorTab value so old state files keep parsing (it falls back to the
+// first tab when selected).
+const tabs: Array<{ id: InspectorTab; label: string }> = [{ id: 'browser', label: 'Browser' }, { id: 'summary', label: 'Summary' }, { id: 'files', label: 'Files' }, { id: 'inbox', label: 'Inbox' }]
 
 /** Memoized so streaming transcript updates (which this component no longer consumes outside the Summary tab) do not re-render the inspector shell. */
 export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClose, agentName, shortName, project, cwd, runtime, messages, git, automations, heartbeats, onOpenAutomation, browserHome, browserNavigationRequest, onBrowserNavigationRequestHandled, browserAnnotations, agentBrowserTabs, activeAgentTabId, agentPreviewSelected, onSelectAgentTab, onCloseAgentTab, onShowBrowserPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent, onNavigateAgentTab, onRefreshGit, onOpenExternal, onRevealPath, onGrantProject, overlay = false, platform = 'darwin' }: InspectorProps) {

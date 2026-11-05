@@ -104,14 +104,14 @@ export function defaultSettings(): AppSettings {
     locale: 'system',
     interfaceFontScale: 110,
     projectSortMode: 'recent',
-    sidebarOpen: true,
+    sidebarOpen: false, // vizmaster: the app opens with the project browser folded (operator 2026-11-05)
     inspectorOpen: true,
     showFileChangesPopup: true,
     checkoutStrategy: 'worktree',
     keepRunningInBackground: false,
     launchAtLogin: false,
     terminalOpen: false,
-    defaultInspectorTab: 'summary',
+    defaultInspectorTab: 'browser', // vizmaster: the right panel opens on Browser — lockstep with src/lib/data.ts
     browserHome: 'https://vizmaster.app/', // VizMaster: the marketplace IS the home page (was google)
     browserAskForDownloads: true,
     terminalShell: defaultShell,
