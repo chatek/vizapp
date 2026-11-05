@@ -47,7 +47,11 @@ const MAX_OFFICIAL_POSTER_BYTES = 2_000_000
  * blocks the UI behind it (pointer-events: none), so there is no lifetime cap.
  */
 const SPLASH_SCENE_SWAP_DEADLINE_MS = 2_000
-
+/** Per-launch random extension of the overlay hold, on top of the 3s minimum. */
+export const SPLASH_MIN_HOLD_MS = 3_000
+export const SPLASH_MAX_HOLD_JITTER_MS = 2_000
+/** Hard cap: the overlay is gone by this point after first paint, whatever init does. */
+export const SPLASH_MAX_HOLD_MS = 5_000
 /** DOM id of the overlay element index.html paints; mirrored in src/lib/splash-overlay.ts. */
 export const SPLASH_OVERLAY_ID = 'vclaw-splash'
 
@@ -65,6 +69,9 @@ export type SplashSceneChoice =
       title: string
       authorHandle: string
       license: string | null
+      /** Show id (seeds the ambient presentation) and its opaque spec passthrough. */
+      showId: string
+      passthrough?: Record<string, unknown>
     }
 
 /** Injectable filesystem so selection and cache refresh are testable without touching the real home. */
@@ -201,14 +208,21 @@ async function writeCacheState(cacheDir: string, state: SplashCacheState, filesy
 async function readCachedOfficialPoster(
   cacheDir: string,
   filesystem: SplashFilesystem,
-): Promise<{ fileName: string; title: string; authorHandle: string; license: string | null } | null> {
+): Promise<{ fileName: string; title: string; authorHandle: string; license: string | null; showId: string; passthrough?: Record<string, unknown> } | null> {
   const state = await readCacheState(cacheDir, filesystem)
   const poster = state?.poster
   if (!poster) return null
   try {
     const bytes = await filesystem.readBinary(join(cacheDir, poster.fileName))
     if (sha256Bytes(bytes) !== poster.sha256.toLowerCase()) return null
-    return { fileName: poster.fileName, title: poster.title, authorHandle: poster.authorHandle, license: poster.license ?? null }
+    return {
+      fileName: poster.fileName,
+      title: poster.title,
+      authorHandle: poster.authorHandle,
+      license: poster.license ?? null,
+      showId: poster.id,
+      ...(poster.passthrough ? { passthrough: poster.passthrough } : {}),
+    }
   } catch {
     return null
   }
@@ -248,6 +262,8 @@ export async function selectSplashScene(options: SplashSelectionOptions): Promis
       title: cached.title,
       authorHandle: cached.authorHandle,
       license: cached.license,
+      showId: cached.showId,
+      ...(cached.passthrough ? { passthrough: cached.passthrough } : {}),
     }
   }
   const bundledScene = pickRandom(await listHtmlFiles(options.bundledDir, filesystem), random)
@@ -427,19 +443,101 @@ function posterDataUrl(bytes: Uint8Array, posterFileName: string): string {
   return `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`
 }
 
+/**
+ * Deterministic per-show derivations for the official poster's ambient
+ * presentation. Everything is a pure function of the frozen contract's fields,
+ * so the same show id always produces the same composition (the "surprise" is
+ * stable, not random per launch). All values are computed in the MAIN process
+ * — the overlay script only receives finished numbers, never show fields, so
+ * the page-side code stays inert data-plumbing.
+ */
+export interface AmbientFieldSpec {
+  /** 32-bit seed derived from the show id, for any page-side PRNG. */
+  seed: number
+  /** Particle count for the constellation (14-40, denser ids => denser field). */
+  particles: number
+  /** Flow-field drift angle in degrees, one of 8 cardinal directions from id bytes. */
+  driftDegrees: number
+  /** Particle speed factor (0.4-1.2), from id bytes. */
+  speed: number
+}
+
+export interface AmbientPalette {
+  /** Accent hue in degrees for the field tint. */
+  hue: number
+  /** Secondary hue, ~40-80 degrees away, for depth variation. */
+  secondaryHue: number
+}
+
+/** FNV-1a over the show id: deterministic, cheap, and identical in any runtime. */
+export function showSeed(showId: string): number {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < showId.length; index++) {
+    hash ^= showId.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash >>> 0
+}
+
+export function ambientFieldSpec(showId: string): AmbientFieldSpec {
+  const seed = showSeed(showId)
+  return {
+    seed,
+    particles: 14 + (seed % 27),
+    driftDegrees: (seed >>> 8) % 8 * 45,
+    speed: 0.4 + ((seed >>> 16) % 81) / 100,
+  }
+}
+
+/**
+ * Accent hue from the SUBJECT string: a hash maps any subject onto the cool
+ * half of the wheel (160-300 degrees) for a consistently dark-friendly palette
+ * with per-subject variety — no per-subject lookup table.
+ */
+export function ambientPalette(subject: string | undefined): AmbientPalette {
+  const base = showSeed(subject ?? '')
+  const hue = 160 + (base % 141)
+  return { hue, secondaryHue: (hue + 40 + (base >>> 8) % 41) % 360 }
+}
+
+/** Compact spec echo line: `kind · key=value …` (params values JSON-encoded, then tidied). */
+export function specEchoLine(kind: string | undefined, params: Record<string, unknown> | undefined): string {
+  const head = (kind ?? '').trim() || 'vizshow'
+  const entries = Object.entries(params ?? {})
+    .map(([key, value]) => `${key}=${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`)
+    .join(' ')
+  return entries ? `${head} · ${entries}` : head
+}
+
 /** What the overlay swap script can receive: a sandboxed scene document, or a poster image with attribution. */
 export type SplashOverlayPayload =
   | { mode: 'html'; html: string }
-  | { mode: 'poster'; dataUrl: string; attribution: string | null }
+  | {
+      mode: 'poster'
+      dataUrl: string
+      attribution: string | null
+      /** Presentation spec for the official leg; absent keeps the plain Ken-Burns. */
+      presentation?: {
+        title: string
+        authorLine: string
+        specEcho: string
+        field: AmbientFieldSpec
+        palette: AmbientPalette
+      }
+    }
 
 /**
  * Script the main process executes in the main window to swap the selected
  * scene into the static overlay. Scenes embed as a sandboxed srcdoc iframe —
  * no scripts, opaque origin, no URL fetch (so no frame-src interaction) — and
- * posters as a data-URL img animated by the overlay's Ken-Burns CSS. The
- * script is a no-op once the overlay has been dismissed or removed.
+ * posters as a data-URL img. With a presentation spec the poster leg becomes
+ * a layered composition: a seeded ambient SVG field, a staged poster reveal
+ * (blur+scale settle) with Ken-Burns continuing behind it, title/author
+ * textContent. The script is a no-op once the overlay has been dismissed or
+ * removed. The per-launch hold jitter for the renderer's 3-5s duration rule
+ * rides along as a dataset attribute.
  */
-export function splashOverlaySceneScript(payload: SplashOverlayPayload): string {
+export function splashOverlaySceneScript(payload: SplashOverlayPayload, holdJitterMs = 0): string {
   const sceneBody = payload.mode === 'html'
     ? `  const frame = document.createElement('iframe')
   frame.className = 'vclaw-splash__frame'
@@ -454,16 +552,105 @@ export function splashOverlaySceneScript(payload: SplashOverlayPayload): string 
   host.appendChild(image)
   const credit = overlay.querySelector('.vclaw-splash__attribution')
   if (credit && ${JSON.stringify(Boolean(payload.attribution))}) credit.textContent = ${JSON.stringify(payload.attribution ?? '')}`
+  const presentationBody = payload.mode === 'poster' && payload.presentation
+    ? buildPosterPresentationScript(payload.presentation)
+    : ''
   return `(() => {
   const overlay = document.getElementById(${JSON.stringify(SPLASH_OVERLAY_ID)})
   if (!overlay || overlay.classList.contains('vclaw-splash--hidden')) return false
+  overlay.dataset.vclawHoldJitter = ${JSON.stringify(String(holdJitterMs))}
   const host = overlay.querySelector('.vclaw-splash__scene')
   if (!host) return false
   host.textContent = ''
 ${sceneBody}
+${presentationBody}
   overlay.classList.add('vclaw-splash--scene')
   return true
 })()`
+}
+
+/**
+ * Layered presentation for the official poster: ambient field, staged reveal,
+ * typography, spec echo. The page-side code is deliberately dumb — every
+ * creative decision (seed, counts, hues, angles, text) was computed in the
+ * main process and arrives as inert data. Ambient positions come from a
+ * page-side mulberry32 seeded with the show seed, so the same show always
+ * paints the same constellation.
+ */
+function buildPosterPresentationScript(presentation: NonNullable<Extract<SplashOverlayPayload, { mode: 'poster' }>['presentation']>): string {
+  return `  const spec = ${JSON.stringify(presentation)}
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // Ambient field: seeded constellation of drifting particles + connecting hairlines.
+  const field = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  field.setAttribute('class', 'vclaw-splash__ambient')
+  field.setAttribute('viewBox', '0 0 100 100')
+  field.setAttribute('preserveAspectRatio', 'xMidYMid slice')
+  let state = spec.field.seed >>> 0
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const points = []
+  for (let i = 0; i < spec.field.particles; i++) {
+    const x = 4 + next() * 92, y = 4 + next() * 92, r = 0.25 + next() * 0.55, delay = next() * 8
+    points.push([x, y])
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    dot.setAttribute('cx', x.toFixed(2)); dot.setAttribute('cy', y.toFixed(2)); dot.setAttribute('r', r.toFixed(2))
+    dot.setAttribute('fill', 'hsl(' + (next() < 0.3 ? spec.palette.secondaryHue : spec.palette.hue) + ' 80% 72%)')
+    if (!reduced) {
+      dot.style.setProperty('--dx', Math.cos(spec.field.driftDegrees * Math.PI / 180).toFixed(3))
+      dot.style.setProperty('--dy', Math.sin(spec.field.driftDegrees * Math.PI / 180).toFixed(3))
+      dot.style.setProperty('--spd', (spec.field.speed * (0.5 + next())).toFixed(3))
+      dot.style.animationDelay = delay.toFixed(2) + 's'
+      dot.style.animationDuration = (9 + next() * 9).toFixed(2) + 's'
+    }
+    field.appendChild(dot)
+  }
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const [x1, y1] = points[i], [x2, y2] = points[i + 1]
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    line.setAttribute('x1', x1.toFixed(2)); line.setAttribute('y1', y1.toFixed(2))
+    line.setAttribute('x2', x2.toFixed(2)); line.setAttribute('y2', y2.toFixed(2))
+    line.setAttribute('stroke', 'hsl(' + spec.palette.hue + ' 70% 60% / 0.16)')
+    if (!reduced) line.style.animationDelay = (next() * 6).toFixed(2) + 's'
+    field.appendChild(line)
+  }
+  host.parentNode.insertBefore(field, host)
+  overlay.classList.add('vclaw-splash--ambient')
+  // Typography: title rises per-word, author line fades in behind it.
+  const titleEl = overlay.querySelector('.vclaw-splash__title')
+  if (titleEl) {
+    titleEl.textContent = ''
+    for (const word of spec.title.split(/\\s+/)) {
+      const span = document.createElement('span')
+      span.className = 'vclaw-splash__title-word'
+      span.textContent = word
+      titleEl.appendChild(span)
+      titleEl.appendChild(document.createTextNode(' '))
+    }
+  }
+  const authorEl = overlay.querySelector('.vclaw-splash__author')
+  if (authorEl) authorEl.textContent = spec.authorLine
+  overlay.classList.add('vclaw-splash--presented')
+  // Spec echo: typewriter-in monospace line (full text present for reduced motion).
+  const echoEl = overlay.querySelector('.vclaw-splash__spec')
+  if (echoEl) {
+    if (reduced) {
+      echoEl.textContent = spec.specEcho
+    } else {
+      let shown = 0
+      const tick = () => {
+        if (shown >= spec.specEcho.length || echoEl.dataset.vclawDone === 'true') { echoEl.textContent = spec.specEcho; return }
+        shown = Math.min(spec.specEcho.length, shown + 1)
+        echoEl.textContent = spec.specEcho.slice(0, shown)
+        setTimeout(tick, 34)
+      }
+      setTimeout(tick, 900)
+    }
+  }`
 }
 
 /**
@@ -485,6 +672,8 @@ export interface SplashOverlayTarget {
 export interface SplashOverlayOptions extends SplashSelectionOptions, SplashRefreshOptions {
   /** Ceiling on selection+read time before the shimmer fallback locks in; default 2s. */
   sceneSwapDeadlineMs?: number
+  /** Per-launch random hold extension (0..2000ms) handed to the renderer; injectable for tests. */
+  holdJitter?: () => number
 }
 
 export interface SplashOverlayPresentation {
@@ -504,6 +693,7 @@ export interface SplashOverlayPresentation {
  */
 export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresentation {
   const filesystem = options.filesystem ?? defaultFilesystem
+  const holdJitter = options.holdJitter ?? (() => Math.floor(Math.random() * (SPLASH_MAX_HOLD_JITTER_MS + 1)))
   let expired = false
   const deadline = setTimeout(() => { expired = true }, options.sceneSwapDeadlineMs ?? SPLASH_SCENE_SWAP_DEADLINE_MS)
   deadline.unref()
@@ -517,13 +707,26 @@ export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresent
       if (!target || target.isDestroyed()) return
       void selection.then(async (choice) => {
         if (expired || !choice || target.isDestroyed()) return
+        const passthrough = choice.mode === 'poster' ? choice.passthrough : undefined
+        const kind = typeof passthrough?.kind === 'string' ? passthrough.kind : undefined
+        const subject = typeof passthrough?.subject === 'string' ? passthrough.subject : undefined
+        const params = passthrough && typeof passthrough.params === 'object' && passthrough.params !== null
+          ? (passthrough.params as Record<string, unknown>)
+          : undefined
         const script = choice.mode === 'html'
-          ? splashOverlaySceneScript({ mode: 'html', html: await filesystem.readFile(choice.htmlPath, 'utf8') })
+          ? splashOverlaySceneScript({ mode: 'html', html: await filesystem.readFile(choice.htmlPath, 'utf8') }, holdJitter())
           : splashOverlaySceneScript({
               mode: 'poster',
               dataUrl: posterDataUrl(await filesystem.readBinary(choice.posterPath), choice.posterFileName),
               attribution: officialAttribution(choice.title, choice.authorHandle, choice.license),
-            })
+              presentation: {
+                title: choice.title,
+                authorLine: officialAttribution(choice.title, choice.authorHandle, choice.license),
+                specEcho: specEchoLine(kind, params),
+                field: ambientFieldSpec(choice.showId),
+                palette: ambientPalette(subject),
+              },
+            }, holdJitter())
         if (expired || target.isDestroyed()) return
         await target.executeJavaScript(script).catch(() => {})
       }).catch(() => {})

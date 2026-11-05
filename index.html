@@ -30,11 +30,44 @@
       #vclaw-splash.vclaw-splash--scene .vclaw-splash__shimmer,
       #vclaw-splash.vclaw-splash--scene .vclaw-splash__bar { display: none }
       .vclaw-splash__frame, .vclaw-splash__poster { position: absolute; inset: 0; width: 100%; height: 100%; border: 0 }
-      .vclaw-splash__poster { object-fit: cover; animation: vclaw-splash-kenburns 16s ease-in-out infinite alternate }
+      .vclaw-splash__ambient { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0;
+        transition: opacity 900ms ease }
+      #vclaw-splash.vclaw-splash--ambient .vclaw-splash__ambient { opacity: 1 }
+      #vclaw-splash.vclaw-splash--scene.vclaw-splash--ambient .vclaw-splash__ambient { opacity: .55 }
+      .vclaw-splash__ambient circle { animation: vclaw-splash-drift 12s ease-in-out infinite alternate }
+      @keyframes vclaw-splash-drift {
+        from { transform: translate(0, 0) }
+        to { transform: translate(calc(var(--dx, .2) * var(--spd, .6) * 14px), calc(var(--dy, .2) * var(--spd, .6) * 14px)) }
+      }
+      .vclaw-splash__ambient line { animation: vclaw-splash-pulse 7s ease-in-out infinite alternate }
+      @keyframes vclaw-splash-pulse { from { opacity: .3 } to { opacity: 1 } }
+      .vclaw-splash__poster { object-fit: cover;
+        opacity: 0; filter: blur(14px) saturate(.8); transform: scale(1.14);
+        transition: opacity 800ms ease, filter 800ms ease, transform 800ms cubic-bezier(.22, 1, .36, 1) }
+      #vclaw-splash.vclaw-splash--presented .vclaw-splash__poster {
+        opacity: 1; filter: blur(0) saturate(1); transform: scale(1.06);
+        animation: vclaw-splash-kenburns 16s ease-in-out 800ms infinite alternate }
       @keyframes vclaw-splash-kenburns {
         from { transform: scale(1.06) translate(-1.5%, -1%) }
         to { transform: scale(1.17) translate(1.5%, 1.2%) }
       }
+      .vclaw-splash__title { position: absolute; left: 28px; right: 28px; bottom: 64px; display: none;
+        font: 600 30px/1.15 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        color: rgba(244, 244, 245, .96); text-shadow: 0 2px 18px rgba(0, 0, 0, .7) }
+      #vclaw-splash.vclaw-splash--presented .vclaw-splash__title { display: block }
+      .vclaw-splash__title-word { display: inline-block; opacity: 0; transform: translateY(14px);
+        animation: vclaw-splash-word-rise 700ms cubic-bezier(.22, 1, .36, 1) forwards }
+      @keyframes vclaw-splash-word-rise { to { opacity: 1; transform: translateY(0) } }
+      .vclaw-splash__author { display: block; margin-top: 6px;
+        font: 400 12px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em;
+        color: rgba(244, 244, 245, .66); text-shadow: 0 1px 8px rgba(0, 0, 0, .7);
+        opacity: 0; animation: vclaw-splash-author-in 600ms ease 650ms forwards }
+      @keyframes vclaw-splash-author-in { to { opacity: 1 } }
+      .vclaw-splash__spec { position: absolute; right: 20px; bottom: 18px; display: none; max-width: 46%;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
+        font: 400 10px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: rgba(244, 244, 245, .42); text-shadow: 0 1px 4px rgba(0, 0, 0, .8) }
+      #vclaw-splash.vclaw-splash--presented .vclaw-splash__spec { display: block }
       .vclaw-splash__vignette { position: absolute; inset: 0; pointer-events: none; display: none;
         background:
           linear-gradient(180deg, rgba(10, 14, 25, .28) 0%, rgba(10, 14, 25, 0) 30%),
@@ -57,7 +90,9 @@
       <div class="vclaw-splash__vignette"></div>
       <div class="vclaw-splash__shimmer">VClaw</div>
       <div class="vclaw-splash__bar"><i></i></div>
+      <h2 class="vclaw-splash__title"></h2>
       <div class="vclaw-splash__mark">VClaw<small class="vclaw-splash__attribution"></small></div>
+      <div class="vclaw-splash__spec"></div>
     </div>
     <div id="root"></div><script type="module" src="/src/main.tsx"></script>
   </body>
