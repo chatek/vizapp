@@ -4,15 +4,11 @@ import { errorMessage } from '@/lib/errors'
 import type { HarnessId, PrimeModelCatalog, PrimeModelDescriptor, PrimeProviderDescriptor, PrimeWorkApi } from '@/types/api'
 import { HARNESS_AGENT_NAMES } from '@/lib/harness'
 import { Modal } from '@/components/ui'
-import { ProviderSetupSection } from './ProviderSetupSection'
 
 interface ProviderSettingsProps {
   /** Active harness. OMP and Pi credentials stay CLI-owned; visibility toggles only affect VClaw. */
   harness?: HarnessId
   catalog: PrimeModelCatalog | null
-  /** Member-product provider setup bridge; null in the generic build (section hidden). */
-  setup?: PrimeWorkApi['providerSetup'] | null
-  memberId?: string | null
   onRefresh(): Promise<void>
   onSaveApiKey(providerId: string, apiKey: string): Promise<void>
   onLogout(providerId: string): Promise<void>
@@ -21,7 +17,8 @@ interface ProviderSettingsProps {
   onSetAllDisabled(): Promise<void>
   onSetModelEnabled(modelKey: string, enabled: boolean): Promise<void>
   onStartOAuth(providerId: string): Promise<void>
-  onOpenDocs(): void
+  /** Opens the provider's subscribe page (vizmaster: per-provider URL). */
+  onOpenDocs(providerId: string): void
 }
 
 function authDescription(provider: PrimeProviderDescriptor): string {
@@ -53,7 +50,7 @@ const VIZMASTER_PROVIDER_ALLOWLIST: Record<string, true> = {
   'kimi-code': true, 'moonshot': true, // Kimi family
 }
 
-export function ProviderSettings({ harness = 'prime', catalog, setup, memberId, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
+export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
   // OMP and Pi own their credentials in their CLIs; VClaw only toggles visibility.
   const externalAuth = harness !== 'prime'
   const agentName = HARNESS_AGENT_NAMES[harness]
@@ -139,7 +136,6 @@ export function ProviderSettings({ harness = 'prime', catalog, setup, memberId, 
 
   return (
     <section className="settings-group provider-settings">
-      {setup && memberId ? <ProviderSetupSection setup={setup} onCatalogRefresh={onRefresh} /> : null}
       <div className="settings-group__heading"><h2>{agentName} catalogue</h2><div className="provider-heading-actions">{catalog && disabledCount < providerCount ? <button type="button" className="button button--danger" disabled={Boolean(busyProvider)} onClick={() => void disableAll()}>{externalAuth ? 'Hide all' : 'Disable all'}</button> : null}{disabledCount ? <button type="button" className="button" disabled={Boolean(busyProvider)} onClick={() => void enableAll()}>{externalAuth ? 'Show all' : 'Enable all'}</button> : null}<button type="button" className="button button--icon" aria-label="Refresh providers" disabled={Boolean(busyProvider)} onClick={() => void run('refresh', onRefresh)}><RefreshCw size={13} /></button></div></div>
       <div className="provider-catalog-summary"><strong>{catalog ? `${providerCount.toLocaleString()} providers · ${modelCount.toLocaleString()} models` : 'Loading provider catalogue…'}</strong>{catalog ? <small>{externalAuth ? `${availableModelCount.toLocaleString()} models are shown in VClaw; ${agentName} checks credentials when you launch one` : `${availableModelCount.toLocaleString()} models are available with your current ${agentName} credentials`}</small> : null}</div>
       {catalog?.warning ? <p className="provider-catalog-warning" role="status">{catalog.warning}</p> : null}
@@ -155,10 +151,10 @@ export function ProviderSettings({ harness = 'prime', catalog, setup, memberId, 
           return <div className="provider-row" key={provider.id}>
             <label className="provider-row__toggle" title={provider.enabled ? `Hide provider in ${agentName}` : `Show provider in ${agentName}`}><input type="checkbox" aria-label={`Show ${provider.name} provider`} checked={provider.enabled} disabled={busy} onChange={(event) => void run(provider.id, () => onSetEnabled(provider.id, event.target.checked))} /><i aria-hidden="true"><span /></i></label>
             <div className="provider-row__identity"><strong>{provider.name}</strong><small>{externalAuth ? `${provider.authLabel ?? `Credentials managed by the ${harness} CLI`} · ${provider.availableModelCount.toLocaleString()} models` : authDescription(provider)}</small></div>
-            {externalAuth ? <div className="provider-row__actions"><button type="button" className="button" onClick={onOpenDocs}><ExternalLink size={13} /> Credential setup</button></div> : <div className="provider-row__actions">
+            {externalAuth ? <div className="provider-row__actions"><button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Subscribe this LLM</button></div> : <div className="provider-row__actions">
               {provider.authMethod === 'oauth' ? <button type="button" className="button" disabled={busy} onClick={() => void run(provider.id, () => onStartOAuth(provider.id))}><LogIn size={13} /> {provider.configured ? 'Reconnect' : 'Connect'}</button> : null}
               {provider.authMethod === 'api_key' ? <button type="button" className="button" disabled={busy} onClick={() => { setError(''); setApiKeyError(''); setApiKey(''); setApiKeyProvider(provider) }}><KeyRound size={13} /> {provider.configured ? 'Replace key' : 'Add key'}</button> : null}
-              {provider.authMethod === 'external' ? <button type="button" className="button" onClick={onOpenDocs}><ExternalLink size={13} /> Setup</button> : null}
+              {provider.authMethod === 'external' ? <button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Setup</button> : null}
               {provider.configured && provider.authSource === 'stored' ? <button type="button" className="button button--icon" aria-label={`Log out of ${provider.name}`} disabled={busy} onClick={() => void run(provider.id, () => onLogout(provider.id))}><LogOut size={13} /></button> : null}
             </div>}
           </div>

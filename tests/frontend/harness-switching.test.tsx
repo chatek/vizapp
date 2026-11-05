@@ -738,7 +738,6 @@ describe('harness settings surfaces', () => {
         providerCatalog={null}
         voice={null}
         pets={null}
-        setup={null}
         initialSection={initialSection}
         initialSectionRequestId={initialSectionRequestId}
         onClose={noop}
@@ -845,7 +844,7 @@ describe('harness settings surfaces', () => {
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2)
     const buttonLabels = [...container.querySelectorAll('button')].map((button) => button.textContent ?? '')
     expect(buttonLabels.some((text) => text.includes('Hide all'))).toBe(true)
-    expect(buttonLabels.some((text) => text.includes('Credential setup'))).toBe(true)
+    expect(buttonLabels.some((text) => text.includes('Subscribe this LLM'))).toBe(true)
     for (const label of ['Connect', 'Reconnect', 'Add key', 'Replace key', 'Disable all', 'Enable all']) {
       expect(buttonLabels.some((text) => text.includes(label))).toBe(false)
     }
@@ -872,7 +871,7 @@ describe('harness settings surfaces', () => {
     expect(toggles).toHaveLength(2)
     const buttonLabels = [...container.querySelectorAll('button')].map((button) => button.textContent ?? '')
     expect(buttonLabels.some((text) => text.includes('Hide all'))).toBe(true)
-    expect(buttonLabels.some((text) => text.includes('Credential setup'))).toBe(true)
+    expect(buttonLabels.some((text) => text.includes('Subscribe this LLM'))).toBe(true)
     for (const label of ['Connect', 'Reconnect', 'Add key', 'Replace key', 'Disable all', 'Enable all']) {
       expect(buttonLabels.some((text) => text.includes(label))).toBe(false)
     }
