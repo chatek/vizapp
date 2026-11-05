@@ -4,6 +4,26 @@ VClaw is a desktop workspace for [Pi](https://pi.dev/), [OMP](https://github.com
 
 <img width="2234" height="1332" alt="VClaw desktop workspace" src="https://github.com/user-attachments/assets/864ff0e1-71cc-49da-955f-f226710ef890" />
 
+## What the `vizmaster` branch adds
+
+This branch is the long-running **VizMaster member vertical** — a self-contained world that carries the product and the build/publish flow listed below. The generic product lives on `main`, which stays the single long-lived branch for Pi / OMP / Prime Agent users and the only branch the parent repo records; `vizmaster` is related to it only through the pinned-sha snapshot relationship described in [docs/MEMBER_BUILD.md](docs/MEMBER_BUILD.md). Lane ownership is canonical in [docs/BOUNDARIES.md](docs/BOUNDARIES.md).
+
+Relative to `main`, this branch adds — all of it exists only here, not on `main`:
+
+**Product** (profile: [`product/vizmaster.json`](product/vizmaster.json); [docs/PRODUCT_PROFILES.md](docs/PRODUCT_PROFILES.md)):
+
+- A marketplace home, an OMP-only harness menu, and the Catppuccin Mocha theme with its theming infrastructure (`a616c8a`).
+- A `browserHome` migration so the stored browser home page beats the old default, not just the code default (`c49cc37`).
+- Member posture tests pinning the above (`tests/frontend/vizmaster-posture.test.tsx`).
+
+**Build & publish** (full flow: [docs/BUILD.md](docs/BUILD.md) and [docs/RELEASE_FLOW.md](docs/RELEASE_FLOW.md)):
+
+- The validated OMP binary bundled into the app, with after-pack refusal of a drifted binary (`7c4c43c`) and the electron-builder numeric-arch fix (`cabbc52`).
+- The remote-first build flow with a single entry point, `scripts/release/build-remote.sh` (`1b2c62b`), producing an unsigned `.dmg` and `.app` `.zip` per architecture published as one draft (`16871f5`).
+- The member build path: member payload + profile, a pre-packaging assert, and explicit clean-state provenance (`babc937`, with the measured full-sha gate `346127d`/`736b96f`, source-remote provenance `4b0f901`, and the profile-must-match-HEAD refusal `f2b9a0f`).
+- Ruled identity: `VClaw` / `com.vclaw.desktop` with no hand-typed release id (`5ffc361`).
+- The Forgejo publish driver `scripts/release/release-forgejo.sh`, including `--skip-build` for publishing a proven build (`ee212d9` and successors).
+
 ## Three harnesses, one workspace
 
 Use the switcher in the top-left corner to move between Pi Work, OMP Work, and Prime Work. VClaw detects the harnesses installed on your computer and shows the ones that are ready. You can refresh detection or set a custom executable path in Settings.

@@ -6,6 +6,13 @@ This is the fork-side document of record for the branching solution agreed in sp
 
 ## WHAT — the solution in one paragraph
 
+> **Operator note, 2026-11-05:** the paragraph below is the sprint-agreed doctrine, kept as
+> dated history. As of 2026-11-05 the operator has ruled otherwise: the `vizmaster` branch
+> **is** the long-running member vertical — its own world, carrying its product features and
+> its member build/publish flow. `main` stays the generic product and the only branch the
+> parent repo records, so `main` remains the sole integration point; the two are related only
+> by the pinned-sha build relationship described here.
+
 There is exactly **one long-lived branch: `main`** — the generic product for Pi / OMP /
 Prime Agent users. A member vertical is **not a branch and not a fork**: the member's own
 repo holds their customizations (branding, hidden surfaces, member payload, updater

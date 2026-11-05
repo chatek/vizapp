@@ -13,6 +13,11 @@ that moves it.
 
 ## 1 · Branch doctrine
 
+> **Operator note, 2026-11-05:** the ruling below ("`origin/vizmaster` is legacy and
+> retiring") is superseded as of 2026-11-05: `vizmaster` is the long-running member vertical,
+> its own world, kept as-is; `main` remains the generic product and the only branch the parent
+> repo records. The paragraphs below are kept as dated history.
+
 **`main` is the single long-lived branch.** The generic product is whatever `main` packages.
 A member vertical is not a branch of this repo: the member rides `main` at a **pinned commit**
 and expresses its branding as a product profile (`product/<member>.json`, `FORK.md`), not as
