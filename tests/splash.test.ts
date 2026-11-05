@@ -5,8 +5,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test, vi } from 'vitest'
 import {
+  ambientFieldSpec,
+  ambientPalette,
   beginSplash,
   officialAttribution,
+  showSeed,
+  specEchoLine,
   OFFICIAL_VIZSHOW_FEATURED_URL,
   refreshOfficialSplashScene,
   selectSplashScene,
@@ -90,6 +94,7 @@ interface CachedPoster {
   fileName?: string
   fetchedAt?: number
   license?: string
+  passthrough?: Record<string, unknown>
 }
 
 function cachedState(poster: CachedPoster): string {
@@ -105,6 +110,7 @@ function cachedState(poster: CachedPoster): string {
       fileName,
       fetchedAt: poster.fetchedAt ?? 1_000,
       ...(poster.license ? { license: poster.license } : {}),
+      ...(poster.passthrough ? { passthrough: poster.passthrough } : {}),
     },
   })
 }
@@ -172,6 +178,7 @@ describe('selectSplashScene', () => {
       title: 'Stream Lines',
       authorHandle: 'vizmaster',
       license: null,
+      showId: 's1',
     })
   })
 
@@ -305,6 +312,8 @@ describe('refreshOfficialSplashScene', () => {
       title: 'Stream Lines',
       authorHandle: 'vizmaster',
       license: 'CC-BY-4.4',
+      showId: 'show-42',
+      passthrough: { tutorialId: 'tut-stream-lines', kind: 'line-chart', params: { series: 3 }, subject: 'visualization', lang: 'en' },
     })
   })
 
@@ -666,5 +675,136 @@ describe('splash wiring shape', () => {
 
   test('the overlay scene is delivered to the main window, not loaded into one', () => {
     expect(mainSource).toContain('splash?.deliverTo(')
+  })
+})
+
+describe('ambient presentation derivations', () => {
+  test('the same show id always derives the same field spec (determinism)', () => {
+    const first = ambientFieldSpec('01M5KWV79Y5AYN0YDYH2NHRYFS')
+    const second = ambientFieldSpec('01M5KWV79Y5AYN0YDYH2NHRYFS')
+    expect(first).toEqual(second)
+    expect(showSeed('01M5KWV79Y5AYN0YDYH2NHRYFS')).toBe(showSeed('01M5KWV79Y5AYN0YDYH2NHRYFS'))
+  })
+
+  test('field specs stay inside their documented ranges', () => {
+    for (const id of ['a', 'ulid-0001', '01M5KWV79Y5AYN0YDYH2NHRYFS', 'zzzz']) {
+      const spec = ambientFieldSpec(id)
+      expect(spec.particles).toBeGreaterThanOrEqual(14)
+      expect(spec.particles).toBeLessThanOrEqual(40)
+      expect(spec.driftDegrees).toBeGreaterThanOrEqual(0)
+      expect(spec.driftDegrees).toBeLessThan(360)
+      expect(spec.driftDegrees % 45).toBe(0)
+      expect(spec.speed).toBeGreaterThanOrEqual(0.4)
+      expect(spec.speed).toBeLessThanOrEqual(1.2)
+      expect(Number.isInteger(spec.seed)).toBe(true)
+    }
+  })
+
+  test('different ids derive different compositions (the surprise)', () => {
+    const specs = ['show-one', 'show-two', 'show-three', 'show-four'].map((id) => ambientFieldSpec(id))
+    const distinct = new Set(specs.map((spec) => `${spec.particles}/${spec.driftDegrees}/${spec.speed}`))
+    expect(distinct.size).toBeGreaterThan(1)
+  })
+
+  test('the subject hash maps onto the cool palette range, deterministically', () => {
+    const first = ambientPalette('mathematics')
+    expect(first).toEqual(ambientPalette('mathematics'))
+    expect(first.hue).toBeGreaterThanOrEqual(160)
+    expect(first.hue).toBeLessThanOrEqual(300)
+    expect(first.secondaryHue).toBeGreaterThanOrEqual(0)
+    expect(first.secondaryHue).toBeLessThan(360)
+    // A missing subject still yields a valid palette.
+    expect(ambientPalette(undefined).hue).toBeGreaterThanOrEqual(160)
+  })
+
+  test('the spec echo renders kind + params compactly', () => {
+    expect(specEchoLine('elucim', { a: 1, b: -2, c: -3 })).toBe('elucim · a=1 b=-2 c=-3')
+    expect(specEchoLine(undefined, undefined)).toBe('vizshow')
+    expect(specEchoLine('vectorplay', {})).toBe('vectorplay')
+    expect(specEchoLine('three', { size: [1, 2] })).toBe('three · size=[1,2]')
+  })
+})
+
+describe('poster presentation choreography', () => {
+  const presentation = {
+    title: 'Quadratic Functions, Live',
+    authorLine: 'Quadratic Functions, Live — vizmaster · CC-BY-4.0',
+    specEcho: 'elucim · a=1 b=-2 c=-3',
+    field: ambientFieldSpec('01M5KWV79Y5AYN0YDYH2NHRYFS'),
+    palette: ambientPalette('mathematics'),
+  }
+
+  test('the script builds the ambient SVG field from the seeded spec', () => {
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: null, presentation })
+    expect(script).toContain("createElementNS('http://www.w3.org/2000/svg', 'svg')")
+    expect(script).toContain(`const spec = ${JSON.stringify(presentation)}`)
+    expect(script).toContain('spec.field.particles')
+    expect(script).toContain("overlay.classList.add('vclaw-splash--ambient')")
+    // The page-side PRNG is seeded from the derived show seed, so the same
+    // show paints the same constellation.
+    expect(script).toContain('spec.field.seed')
+  })
+
+  test('the script stages the typography and the typewriter spec echo', () => {
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: null, presentation })
+    expect(script).toContain("querySelector('.vclaw-splash__title')")
+    expect(script).toContain('vclaw-splash__title-word')
+    expect(script).toContain("authorEl.textContent = spec.authorLine")
+    expect(script).toContain("querySelector('.vclaw-splash__spec')")
+    expect(script).toContain("echoEl.textContent = spec.specEcho")
+    expect(script).toContain("overlay.classList.add('vclaw-splash--presented')")
+  })
+
+  test('reduced motion is honored: the script checks the media query and skips animation setup', () => {
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: null, presentation })
+    expect(script).toContain("matchMedia('(prefers-reduced-motion: reduce)')")
+    expect(script).toContain('if (reduced) {')
+    expect(script).toContain('if (!reduced) {')
+  })
+
+  test('all show text lands via textContent, never markup sinks', () => {
+    const hostile = { ...presentation, title: '<script>', authorLine: '<img onerror=1>', specEcho: '</style>' }
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: null, presentation: hostile })
+    expect(script).not.toMatch(/innerHTML|insertAdjacentHTML|document\.write/)
+    // Text values are JSON-escaped string literals.
+    expect(script).toContain('span.textContent = word')
+    expect(script).toContain('authorEl.textContent = spec.authorLine')
+    expect(script).toContain('echoEl.textContent = spec.specEcho')
+  })
+
+  test('the hold jitter rides along as a dataset attribute', () => {
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: null, presentation }, 1_234)
+    expect(script).toContain(`overlay.dataset.vclawHoldJitter = ${JSON.stringify('1234')}`)
+    const plain = splashOverlaySceneScript({ mode: 'html', html: sceneHtml })
+    expect(plain).toContain(`overlay.dataset.vclawHoldJitter = ${JSON.stringify('0')}`)
+  })
+
+  test('beginSplash delivers a full presentation from the cached passthrough', async () => {
+    const poster = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+    const filesystem = fakeFs({
+      directories: { [showsDir]: [] },
+      files: {
+        [join(cacheDir, 'state.json')]: cachedState({
+          id: '01M5KWV79Y5AYN0YDYH2NHRYFS',
+          title: 'Quadratic Functions, Live',
+          authorHandle: 'vizmaster',
+          posterBytes: poster,
+          license: 'CC-BY-4.0',
+          fileName: 'poster.jpg',
+          passthrough: { tutorialId: 'quadratic-functions', kind: 'elucim', params: { a: 1, b: -2, c: -3 }, subject: 'mathematics', lang: 'en' },
+        }),
+        [join(cacheDir, 'poster.jpg')]: poster,
+      },
+    })
+    const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch(), holdJitter: () => 1_500 })
+    const scripts: string[] = []
+    const target = { executeJavaScript: async (script: string) => { scripts.push(script); return true }, isDestroyed: () => false }
+    presentation.deliverTo(target)
+    await vi.waitFor(() => expect(scripts).toHaveLength(1))
+    const script = scripts[0]
+    expect(script).toContain(`overlay.dataset.vclawHoldJitter = "1500"`)
+    expect(script).toContain('Quadratic Functions, Live — vizmaster · CC-BY-4.0')
+    expect(script).toContain('elucim · a=1 b=-2 c=-3')
+    expect(script).toContain(String(ambientFieldSpec('01M5KWV79Y5AYN0YDYH2NHRYFS').particles))
   })
 })

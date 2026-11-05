@@ -14,7 +14,7 @@ import { activityNotificationSignature, readClearedActivity, readClearedAttentio
 import { errorMessage } from '@/lib/errors'
 import { I18nProvider } from '@/lib/i18n'
 import { openExternalUrl, revealPath } from '@/lib/desktop-actions'
-import { dismissSplashOverlay } from '@/lib/splash-overlay'
+import { dismissSplashOverlay, primeSplashOverlayCap } from '@/lib/splash-overlay'
 import { createSingleFlightAdmission, findProjectForSession, gitStatusForWorkspace, shouldRefreshGitOnSessionTransition, workspaceCwd } from '@/lib/workspace'
 import { waitForVoiceSession } from '@/lib/voice'
 import { activeProjectScriptKind, ProjectScriptBusyError, setupNeedsRun } from '@/lib/project-scripts'
@@ -256,8 +256,11 @@ export default function App() {
     activateWorkspace: workspace.activateWorkspace, attachRuntime: workspace.attachRuntime,
     sessionHasOpenExtensionUi: extension.hasOpenRequestForSession, onHarnessSwitch, reportError,
   })
-  // The pre-React splash overlay (member builds) crossfades out once the app UI
-  // is initialized; a no-op everywhere the overlay is absent or already gone.
+  // The pre-React splash overlay (member builds) holds 3-5s and crossfades out
+  // once the app UI is initialized; a no-op everywhere the overlay is absent
+  // or already gone. The cap is armed once at mount so a stuck init can never
+  // hide the app's own loading state past the 5s bound.
+  useEffect(() => { primeSplashOverlayCap() }, [])
   useEffect(() => {
     if (initialized) dismissSplashOverlay()
   }, [initialized])
