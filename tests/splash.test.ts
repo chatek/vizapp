@@ -1,15 +1,20 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
-  buildPosterSplashShell,
-  OFFICIAL_VIZSHOW_FEATURED_URL,
+  beginSplash,
   officialAttribution,
+  OFFICIAL_VIZSHOW_FEATURED_URL,
   refreshOfficialSplashScene,
   selectSplashScene,
+  shouldPresentMainWindow,
   shouldShowSplash,
+  splashOverlaySceneScript,
+  SPLASH_OVERLAY_ID,
+  SPLASH_OVERLAY_REMOVE_SCRIPT,
   type SplashFetch,
   type SplashFilesystem,
 } from '../electron/main/splash'
@@ -220,56 +225,55 @@ describe('selectSplashScene', () => {
     expect(choice?.mode === 'html' ? choice.htmlPath : 'non-html').toBe(join(showsDir, 'scene.HTML'))
   })
 })
+const posterBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8])
+const posterUrl = 'https://vizmaster.app/posters/stream-lines.jpg'
 
-describe('refreshOfficialSplashScene', () => {
-  const posterBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8])
-  const posterUrl = 'https://vizmaster.app/posters/stream-lines.jpg'
+/** The live endpoint's wrapper shape: { show, rotatedAt }. */
+const splashPayload = {
+  show: {
+    id: 'show-42',
+    title: 'Stream Lines',
+    authorHandle: 'vizmaster',
+    license: 'CC-BY-4.4',
+    tutorialId: 'tut-stream-lines',
+    kind: 'line-chart',
+    params: { series: 3 },
+    posterUrl,
+    posterSha256: sha256(posterBytes),
+    subject: 'visualization',
+    lang: 'en',
+    publishedAt: '2026-11-01T00:00:00Z',
+  },
+  rotatedAt: '2026-11-05T09:00:00Z',
+}
 
-  /** The live endpoint's wrapper shape: { show, rotatedAt }. */
-  const splashPayload = {
-    show: {
-      id: 'show-42',
-      title: 'Stream Lines',
-      authorHandle: 'vizmaster',
-      license: 'CC-BY-4.4',
-      tutorialId: 'tut-stream-lines',
-      kind: 'line-chart',
-      params: { series: 3 },
-      posterUrl,
-      posterSha256: sha256(posterBytes),
-      subject: 'visualization',
-      lang: 'en',
-      publishedAt: '2026-11-01T00:00:00Z',
-    },
-    rotatedAt: '2026-11-05T09:00:00Z',
-  }
-
-  function officialFetch(options: { poster?: Uint8Array, contentType?: string, splashFails?: boolean, show?: Record<string, unknown> } = {}): SplashFetch & { calls: string[] } {
-    const calls: string[] = []
-    const impl: SplashFetch = async (url) => {
-      calls.push(url)
-      if (url === OFFICIAL_VIZSHOW_FEATURED_URL) {
-        if (options.splashFails) throw new Error('DNS is down')
-        return {
-          ok: true,
-          status: 200,
-          json: async () => (options.show ? { ...splashPayload, show: options.show } : splashPayload),
-          arrayBuffer: async () => new ArrayBuffer(0),
-          headers: { get: () => 'application/json' },
-        }
-      }
-      const poster = options.poster ?? posterBytes
+function officialFetch(options: { poster?: Uint8Array, contentType?: string, splashFails?: boolean, show?: Record<string, unknown> } = {}): SplashFetch & { calls: string[] } {
+  const calls: string[] = []
+  const impl: SplashFetch = async (url) => {
+    calls.push(url)
+    if (url === OFFICIAL_VIZSHOW_FEATURED_URL) {
+      if (options.splashFails) throw new Error('DNS is down')
       return {
         ok: true,
         status: 200,
-        json: async () => ({}),
-        arrayBuffer: async () => poster.slice().buffer,
-        headers: { get: (name: string) => (name.toLowerCase() === 'content-type' ? options.contentType ?? 'image/jpeg' : null) },
+        json: async () => (options.show ? { ...splashPayload, show: options.show } : splashPayload),
+        arrayBuffer: async () => new ArrayBuffer(0),
+        headers: { get: () => 'application/json' },
       }
     }
-    return Object.assign(impl, { calls })
+    const poster = options.poster ?? posterBytes
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+      arrayBuffer: async () => poster.slice().buffer,
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-type' ? options.contentType ?? 'image/jpeg' : null) },
+    }
   }
+  return Object.assign(impl, { calls })
+}
 
+describe('refreshOfficialSplashScene', () => {
   test('a successful refresh caches the poster with a content-derived extension and selectable metadata', async () => {
     const filesystem = fakeFs()
     const fetch = officialFetch()
@@ -455,27 +459,153 @@ describe('refreshOfficialSplashScene', () => {
   })
 })
 
-describe('poster splash shell', () => {
+describe('splash overlay delivery', () => {
   test('attribution line is `title — authorHandle`, with the license appended when present', () => {
     expect(officialAttribution('Stream Lines', 'vizmaster', null)).toBe('Stream Lines — vizmaster')
     expect(officialAttribution('Stream Lines', 'vizmaster', 'CC-BY-4.4')).toBe('Stream Lines — vizmaster · CC-BY-4.4')
   })
 
-  test('the shell renders the poster, Ken-Burns motion, and the escaped attribution corner', () => {
-    const shell = buildPosterSplashShell('poster.jpg', officialAttribution('Stream Lines', 'vizmaster', 'CC-BY-4.4'))
-    expect(shell).toContain('<img src="poster.jpg"')
-    expect(shell).toContain('@keyframes kenburns')
-    expect(shell).toContain('animation: kenburns')
-    expect(shell).toContain('Stream Lines — vizmaster · CC-BY-4.4')
-    expect(shell).toContain('>VClaw<')
-    // Self-contained: no network references.
-    expect(shell).not.toMatch(/https?:\/\//i)
+  test('the html scene script embeds a sandboxed srcdoc iframe and flips the overlay to scene mode', () => {
+    const script = splashOverlaySceneScript({ mode: 'html', html: sceneHtml })
+    expect(script).toContain(`document.getElementById("vclaw-splash")`)
+    expect(script).toContain("frame.setAttribute('sandbox', '')")
+    expect(script).toContain(`frame.srcdoc = ${JSON.stringify(sceneHtml)}`)
+    expect(script).toContain("overlay.classList.add('vclaw-splash--scene')")
+    // No URL fetch, no scripts inside the scene document: sandboxed and inert.
+    expect(script).not.toMatch(/https?:\/\//i)
   })
 
-  test('attribution text is HTML-escaped', () => {
-    const shell = buildPosterSplashShell('poster.jpg', officialAttribution('<script>', 'a&b', null))
-    expect(shell).not.toContain('<script>')
-    expect(shell).toContain('&lt;script&gt; — a&amp;b')
+  test('the poster script embeds a data-URL image and the escaped attribution corner', () => {
+    const script = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/jpeg;base64,QUJD', attribution: 'Stream Lines — vizmaster · CC-BY-4.4' })
+    expect(script).toContain(`image.src = "data:image/jpeg;base64,QUJD"`)
+    expect(script).toContain("credit.textContent = \"Stream Lines — vizmaster · CC-BY-4.4\"")
+    expect(script).toContain("overlay.classList.add('vclaw-splash--scene')")
+    // Attribution text is JSON-escaped, never raw markup.
+    const hostile = splashOverlaySceneScript({ mode: 'poster', dataUrl: 'data:image/png;base64,QUJD', attribution: '<script>' })
+    expect(hostile).toContain('credit.textContent = "<script>"')
+    expect(hostile).not.toMatch(/innerHTML|insertAdjacentHTML|document\.write/)
+  })
+
+  test('the overlay remove script strips the element without a fade', () => {
+    expect(SPLASH_OVERLAY_REMOVE_SCRIPT).toContain(`document.getElementById("vclaw-splash")?.remove()`)
+  })
+})
+
+describe('splash overlay presentation', () => {
+  const htmlScene = '<!doctype html><body>scene</body>'
+
+  function fakeTarget(): { scripts: string[], executeJavaScript: (script: string) => Promise<unknown>, isDestroyed: () => boolean } {
+    const scripts: string[] = []
+    return {
+      scripts,
+      executeJavaScript: (script: string) => {
+        scripts.push(script)
+        // Deterministically observable via microtask flush; no real timers.
+        return Promise.resolve(true)
+      },
+      isDestroyed: () => false,
+    }
+  }
+
+  test('a bundled scene is delivered into the overlay via executeJavaScript', async () => {
+    const filesystem = fakeFs({ directories: { [showsDir]: [], [bundledDir]: ['aurora-bars.html'] }, files: { [join(bundledDir, 'aurora-bars.html')]: htmlScene } })
+    const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch() })
+    const target = fakeTarget()
+    presentation.deliverTo(target)
+    // Selection + read + delivery settle on microtasks against the in-memory fs.
+    await vi.waitFor(() => expect(target.scripts).toHaveLength(1))
+    expect(target.scripts[0]).toContain(`frame.srcdoc = ${JSON.stringify(htmlScene)}`)
+  })
+
+  test('a cached official poster is delivered as a base64 data URL with its attribution', async () => {
+    const poster = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+    const filesystem = fakeFs({
+      directories: { [showsDir]: [] },
+      files: {
+        [join(cacheDir, 'state.json')]: cachedState({ id: 's1', title: 'Stream Lines', authorHandle: 'vizmaster', posterBytes: poster, license: 'CC-BY-4.0' }),
+        [join(cacheDir, 'poster.jpg')]: poster,
+      },
+    })
+    const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch() })
+    const target = fakeTarget()
+    presentation.deliverTo(target)
+    await vi.waitFor(() => expect(target.scripts).toHaveLength(1))
+    expect(target.scripts[0]).toContain(`image.src = "data:image/jpeg;base64,${Buffer.from(poster).toString('base64')}"`)
+    expect(target.scripts[0]).toContain('Stream Lines — vizmaster · CC-BY-4.0')
+  })
+
+  test('a null or destroyed target presents nothing and never throws', async () => {
+    const filesystem = fakeFs({ directories: { [showsDir]: [], [bundledDir]: ['aurora-bars.html'] }, files: { [join(bundledDir, 'aurora-bars.html')]: htmlScene } })
+    const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch() })
+    expect(() => presentation.deliverTo(null)).not.toThrow()
+    const destroyed = { scripts: [] as string[], executeJavaScript: async (script: string) => { destroyed.scripts.push(script); return true }, isDestroyed: () => true }
+    expect(() => presentation.deliverTo(destroyed)).not.toThrow()
+    // Give the (dropped) selection chain a microtask turn, then assert nothing ran.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(destroyed.scripts).toEqual([])
+  })
+
+  test('a scene that cannot be read fails soft: the shimmer fallback just continues', async () => {
+    const filesystem = fakeFs({ directories: { [showsDir]: ['broken.html'] }, files: {} })
+    const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch() })
+    const target = fakeTarget()
+    expect(() => presentation.deliverTo(target)).not.toThrow()
+    await vi.waitFor(() => expect(filesystem.directories.get(showsDir)).toBeDefined())
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(target.scripts).toEqual([])
+  })
+
+  test('a selection that misses the 2s swap deadline never swaps (shimmer holds)', async () => {
+    vi.useFakeTimers()
+    try {
+      const filesystem = fakeFs({ directories: { [showsDir]: [], [bundledDir]: ['aurora-bars.html'] }, files: { [join(bundledDir, 'aurora-bars.html')]: htmlScene } })
+      const presentation = beginSplash({ homeDir, profileId, bundledDir, filesystem, fetch: officialFetch(), sceneSwapDeadlineMs: 10 })
+      const target = fakeTarget()
+      await vi.advanceTimersByTimeAsync(11)
+      presentation.deliverTo(target)
+      await vi.advanceTimersByTimeAsync(20)
+      expect(target.scripts).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('index.html splash overlay', () => {
+  const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8')
+
+  test('carries the overlay with the id every module agrees on', () => {
+    expect(html).toContain(`id="${SPLASH_OVERLAY_ID}"`)
+    // The renderer-side dismissal module must target the same element id;
+    // compared as source text so this node-environment suite never imports
+    // the web bundle's module graph.
+    const dismissalSource = readFileSync(fileURLToPath(new URL('../src/lib/splash-overlay.ts', import.meta.url)), 'utf8')
+    expect(dismissalSource).toContain(`export const SPLASH_OVERLAY_ID = '${SPLASH_OVERLAY_ID}'`)
+  })
+
+  test('overlay structure: scene host, vignette, shimmer, progress bar, wordmark, attribution slot', () => {
+    for (const className of ['vclaw-splash__scene', 'vclaw-splash__vignette', 'vclaw-splash__shimmer', 'vclaw-splash__bar', 'vclaw-splash__mark', 'vclaw-splash__attribution']) {
+      expect(html).toContain(className)
+    }
+    expect(html).toContain('@keyframes vclaw-splash-shimmer')
+    expect(html).toContain('@keyframes vclaw-splash-kenburns')
+    expect(html).toContain('prefers-reduced-motion')
+  })
+
+  test('the overlay paints without scripts: only the bundle script tag exists', () => {
+    // Inline scripts are CSP-forbidden (script-src 'self'); everything behavioral
+    // arrives via main-process executeJavaScript.
+    const scriptTags = html.match(/<script\b[^>]*>/g) ?? []
+    expect(scriptTags).toEqual(['<script type="module" src="/src/main.tsx">'])
+  })
+
+  test('the overlay is self-contained: no network references', () => {
+    const overlay = html.slice(html.indexOf('id="vclaw-splash"'), html.indexOf('id="root"'))
+    expect(overlay).not.toMatch(/https?:\/\//i)
+    expect(overlay).not.toMatch(/src\s*=/i)
   })
 })
 
@@ -500,4 +630,41 @@ describe('bundled splash scenes', () => {
       expect(html).not.toMatch(/@import|url\(/i)
     },
   )
+})
+
+describe('main window presentation', () => {
+  test('a member window presents at first paint: ready-to-show is enough when the splash overlay paints', () => {
+    expect(shouldPresentMainWindow({ splashOverlay: true, readyToShow: true, rendererLoaded: false, overlayCleared: false })).toBe(true)
+    expect(shouldPresentMainWindow({ splashOverlay: true, readyToShow: true, rendererLoaded: true, overlayCleared: false })).toBe(true)
+  })
+
+  test('never presents before ready-to-show, whatever the mode', () => {
+    expect(shouldPresentMainWindow({ splashOverlay: true, readyToShow: false, rendererLoaded: false, overlayCleared: false })).toBe(false)
+    expect(shouldPresentMainWindow({ splashOverlay: false, readyToShow: false, rendererLoaded: true, overlayCleared: true })).toBe(false)
+  })
+
+  test('the generic build keeps its historical gate: load complete AND its overlay copy stripped', () => {
+    expect(shouldPresentMainWindow({ splashOverlay: false, readyToShow: true, rendererLoaded: false, overlayCleared: false })).toBe(false)
+    expect(shouldPresentMainWindow({ splashOverlay: false, readyToShow: true, rendererLoaded: true, overlayCleared: false })).toBe(false)
+    expect(shouldPresentMainWindow({ splashOverlay: false, readyToShow: true, rendererLoaded: false, overlayCleared: true })).toBe(false)
+    expect(shouldPresentMainWindow({ splashOverlay: false, readyToShow: true, rendererLoaded: true, overlayCleared: true })).toBe(true)
+  })
+})
+
+describe('splash wiring shape', () => {
+  const mainSource = readFileSync(fileURLToPath(new URL('../electron/main/index.ts', import.meta.url)), 'utf8')
+
+  test('the splash is in-frame only: no second BrowserWindow is created for it', () => {
+    // The splash module must no longer own a window; index.ts must not open one.
+    const splashSource = readFileSync(fileURLToPath(new URL('../electron/main/splash.ts', import.meta.url)), 'utf8')
+    expect(splashSource).not.toMatch(/new BrowserWindow/)
+    expect(mainSource).toContain('beginSplash(')
+    expect(mainSource).not.toContain('openSplash(')
+    expect(mainSource).not.toContain('followMainWindow(')
+    expect(mainSource).not.toContain('dismissActiveSplash(')
+  })
+
+  test('the overlay scene is delivered to the main window, not loaded into one', () => {
+    expect(mainSource).toContain('splash?.deliverTo(')
+  })
 })

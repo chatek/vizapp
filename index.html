@@ -4,8 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; form-action 'none'" />
-    <title>VClaw</title>
-  </head>
-  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+    <!-- Pre-React splash overlay (member products only): static markup + styles, no scripts —
+         script-src 'self' forbids inline scripts, so the main process drives all behavior via
+         executeJavaScript (scene swap) and the renderer fades it out once initialized. The
+         generic build never presents this: the main process removes it before first show. -->
+    <style>
+      #vclaw-splash { position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
+        background: radial-gradient(120% 120% at 30% 20%, #16181f 0%, #0a0b0f 62%);
+        display: flex; align-items: center; justify-content: center;
+        opacity: 1; transition: opacity 300ms ease }
+      #vclaw-splash.vclaw-splash--hidden { opacity: 0 }
+      .vclaw-splash__shimmer { font: 600 46px/1.1 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: .14em; color: transparent;
+        background: linear-gradient(100deg, #e7e5e4 20%, #9ca3af 40%, #f5f5f4 50%, #52525b 60%, #e7e5e4 80%);
+        background-size: 220% 100%; -webkit-background-clip: text; background-clip: text;
+        animation: vclaw-splash-shimmer 2.2s linear infinite }
+      @keyframes vclaw-splash-shimmer { from { background-position: 120% 0 } to { background-position: -120% 0 } }
+      .vclaw-splash__bar { position: absolute; left: 50%; bottom: 66px; width: 180px; height: 2px; margin-left: -90px;
+        border-radius: 2px; background: #26272e; overflow: hidden }
+      .vclaw-splash__bar i { position: absolute; top: 0; left: 0; height: 100%; width: 40%; border-radius: 2px;
+        background: linear-gradient(90deg, transparent, #a8a29e); animation: vclaw-splash-slide 1.6s ease-in-out infinite }
+      @keyframes vclaw-splash-slide { from { transform: translateX(-120%) } to { transform: translateX(320%) } }
+      #vclaw-splash .vclaw-splash__scene { position: absolute; inset: 0; display: none }
+      #vclaw-splash.vclaw-splash--scene .vclaw-splash__scene { display: block }
+      #vclaw-splash.vclaw-splash--scene .vclaw-splash__shimmer,
+      #vclaw-splash.vclaw-splash--scene .vclaw-splash__bar { display: none }
+      .vclaw-splash__frame, .vclaw-splash__poster { position: absolute; inset: 0; width: 100%; height: 100%; border: 0 }
+      .vclaw-splash__poster { object-fit: cover; animation: vclaw-splash-kenburns 16s ease-in-out infinite alternate }
+      @keyframes vclaw-splash-kenburns {
+        from { transform: scale(1.06) translate(-1.5%, -1%) }
+        to { transform: scale(1.17) translate(1.5%, 1.2%) }
+      }
+      .vclaw-splash__vignette { position: absolute; inset: 0; pointer-events: none; display: none;
+        background:
+          linear-gradient(180deg, rgba(10, 14, 25, .28) 0%, rgba(10, 14, 25, 0) 30%),
+          linear-gradient(0deg, rgba(10, 14, 25, .62) 0%, rgba(10, 14, 25, 0) 38%) }
+      #vclaw-splash.vclaw-splash--scene .vclaw-splash__vignette { display: block }
+      .vclaw-splash__mark { position: absolute; left: 28px; bottom: 24px; pointer-events: none; display: none;
+        font: 600 15px/1.2 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: .18em; color: rgba(244, 244, 245, .92); text-shadow: 0 1px 10px rgba(0, 0, 0, .6) }
+      #vclaw-splash.vclaw-splash--scene .vclaw-splash__mark { display: block }
+      .vclaw-splash__attribution { display: block; margin-top: 5px;
+        font: 400 10.5px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+        color: rgba(244, 244, 245, .6); text-shadow: 0 1px 6px rgba(0, 0, 0, .6) }
+      .vclaw-splash__attribution:empty { display: none }
+      @media (prefers-reduced-motion: reduce) { #vclaw-splash, #vclaw-splash * { animation: none !important } }
+    </style>
+   </head>
+  <body>
+    <div id="vclaw-splash" aria-hidden="true">
+      <div class="vclaw-splash__scene"></div>
+      <div class="vclaw-splash__vignette"></div>
+      <div class="vclaw-splash__shimmer">VClaw</div>
+      <div class="vclaw-splash__bar"><i></i></div>
+      <div class="vclaw-splash__mark">VClaw<small class="vclaw-splash__attribution"></small></div>
+    </div>
+    <div id="root"></div><script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
