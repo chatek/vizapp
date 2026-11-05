@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720">
+<title>Aurora Bars</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent }
+  .stage {
+    position: fixed; inset: 10px; border-radius: 20px; overflow: hidden;
+    background:
+      radial-gradient(130% 90% at 20% 0%, #17223a 0%, rgba(23, 34, 58, 0) 55%),
+      radial-gradient(120% 120% at 85% 100%, #10233a 0%, rgba(16, 35, 58, 0) 60%),
+      linear-gradient(160deg, #0b0f1c 0%, #0e1424 60%, #0a0e19 100%);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  /* faint grid so the scene reads as a chart, not just decoration */
+  .grid { position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+    background-size: 64px 48px;
+    mask-image: radial-gradient(120% 100% at 50% 60%, #000 40%, transparent 100%);
+    -webkit-mask-image: radial-gradient(120% 100% at 50% 60%, #000 40%, transparent 100%);
+  }
+  .bars { position: absolute; left: 56px; right: 56px; bottom: 72px; top: 88px;
+    display: flex; align-items: flex-end; gap: 22px; }
+  .bar { flex: 1; border-radius: 7px 7px 3px 3px; position: relative; transform-origin: bottom;
+    animation: rise 1.5s cubic-bezier(0.22, 1, 0.36, 1) both, glow 3.6s ease-in-out infinite;
+    background: linear-gradient(180deg, var(--top) 0%, var(--mid) 55%, rgba(13, 18, 33, 0.9) 100%);
+    box-shadow: 0 0 18px var(--halo), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  .bar::after { content: ''; position: absolute; left: 14%; right: 14%; top: 5px; height: 2px;
+    border-radius: 2px; background: rgba(255, 255, 255, 0.5); filter: blur(0.5px); }
+  .axis { position: absolute; left: 56px; right: 56px; bottom: 52px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.45), transparent); }
+  .axis::before, .axis::after { content: ''; position: absolute; bottom: 0; width: 1px; height: 132px;
+    background: linear-gradient(180deg, rgba(148, 163, 184, 0.4), transparent); }
+  .axis::before { left: 0 } .axis::after { right: 0 }
+  .scan { position: absolute; top: 0; bottom: 0; width: 140px;
+    background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.10), transparent);
+    animation: sweep 5.2s linear infinite; }
+  @keyframes rise { from { transform: scaleY(0.04); opacity: 0 } 40% { opacity: 1 } to { transform: scaleY(1) } }
+  @keyframes glow { 0%, 100% { filter: brightness(0.92) } 50% { filter: brightness(1.22) } }
+  @keyframes sweep { from { transform: translateX(-160px) } to { transform: translateX(760px) } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="grid"></div>
+  <div class="bars">
+    <div class="bar" style="--top:#38bdf8;--mid:#0ea5e9;--halo:rgba(56,189,248,.35); height:34%; animation-delay:.05s"></div>
+    <div class="bar" style="--top:#818cf8;--mid:#6366f1;--halo:rgba(129,140,248,.35); height:52%; animation-delay:.15s"></div>
+    <div class="bar" style="--top:#2dd4bf;--mid:#14b8a6;--halo:rgba(45,212,191,.35); height:41%; animation-delay:.25s"></div>
+    <div class="bar" style="--top:#a78bfa;--mid:#8b5cf6;--halo:rgba(167,139,250,.35); height:68%; animation-delay:.35s"></div>
+    <div class="bar" style="--top:#f472b6;--mid:#ec4899;--halo:rgba(244,114,182,.35); height:56%; animation-delay:.45s"></div>
+    <div class="bar" style="--top:#38bdf8;--mid:#0ea5e9;--halo:rgba(56,189,248,.35); height:79%; animation-delay:.55s"></div>
+    <div class="bar" style="--top:#4ade80;--mid:#22c55e;--halo:rgba(74,222,128,.35); height:63%; animation-delay:.65s"></div>
+    <div class="bar" style="--top:#818cf8;--mid:#6366f1;--halo:rgba(129,140,248,.35); height:88%; animation-delay:.75s"></div>
+    <div class="bar" style="--top:#fbbf24;--mid:#f59e0b;--halo:rgba(251,191,36,.35); height:72%; animation-delay:.85s"></div>
+    <div class="bar" style="--top:#2dd4bf;--mid:#14b8a6;--halo:rgba(45,212,191,.35); height:95%; animation-delay:.95s"></div>
+  </div>
+  <div class="axis"></div>
+  <div class="scan"></div>
+</div>
+</body>
+</html>

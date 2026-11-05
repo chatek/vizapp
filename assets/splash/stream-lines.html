@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=720">
+<title>Stream Lines</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent }
+  .stage { position: fixed; inset: 10px; border-radius: 20px; overflow: hidden;
+    background:
+      radial-gradient(120% 100% at 15% 0%, #1a1530 0%, rgba(26, 21, 48, 0) 55%),
+      radial-gradient(110% 110% at 90% 100%, #0d2233 0%, rgba(13, 34, 51, 0) 60%),
+      linear-gradient(165deg, #0b0d18 0%, #0d1020 58%, #090b14 100%);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+    background-size: 100% 56px;
+    mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent);
+  }
+  svg { position: absolute; inset: 0; width: 100%; height: 100% }
+  .flow { fill: none; stroke-width: 2.4; stroke-linecap: round;
+    stroke-dasharray: 1400; stroke-dashoffset: 1400;
+    animation: draw 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards, drift 7s ease-in-out 2.4s infinite alternate; }
+  .flow.thin { stroke-width: 1.4; opacity: 0.55; animation-duration: 2.8s, 9s; animation-delay: .3s, 2.8s }
+  .flow.a { stroke: #7dd3fc; filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.55)) }
+  .flow.b { stroke: #a78bfa; filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.5)) }
+  .flow.c { stroke: #f472b6; filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.45)) }
+  .flow.d { stroke: #5eead4; filter: drop-shadow(0 0 6px rgba(94, 234, 212, 0.45)) }
+  .dot { fill: #e2eaf6; animation: travel 5s linear infinite }
+  .dot.d2 { animation-delay: 1.6s; fill: #7dd3fc }
+  .dot.d3 { animation-delay: 3.1s; fill: #a78bfa }
+  @keyframes draw { to { stroke-dashoffset: 0 } }
+  @keyframes drift { from { transform: translateY(-5px) } to { transform: translateY(5px) } }
+  @keyframes travel { from { offset-distance: 0% } to { offset-distance: 100% } }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="grid"></div>
+  <svg viewBox="0 0 720 480" preserveAspectRatio="none">
+    <defs>
+      <path id="w1" d="M-20 300 C 90 210, 170 360, 265 285 S 430 130, 520 235 S 640 330, 745 250"/>
+      <path id="w2" d="M-20 340 C 110 280, 190 390, 290 320 S 450 190, 545 280 S 655 355, 745 300"/>
+    </defs>
+    <use class="flow a" href="#w1"/>
+    <use class="flow b thin" href="#w2"/>
+    <path class="flow c thin" d="M-20 240 C 120 300, 240 160, 340 230 S 500 320, 610 200 S 690 150, 745 190"/>
+    <path class="flow d" d="M-20 380 C 130 330, 250 420, 360 370 S 520 260, 640 330 S 700 370, 745 350"/>
+    <circle class="dot" r="4.5" style="offset-path: path('M-20 300 C 90 210, 170 360, 265 285 S 430 130, 520 235 S 640 330, 745 250')"/>
+    <circle class="dot d2" r="3.6" style="offset-path: path('M-20 380 C 130 330, 250 420, 360 370 S 520 260, 640 330 S 700 370, 745 350')"/>
+    <circle class="dot d3" r="3.2" style="offset-path: path('M-20 240 C 120 300, 240 160, 340 230 S 500 320, 610 200 S 690 150, 745 190')"/>
+  </svg>
+</div>
+</body>
+</html>
