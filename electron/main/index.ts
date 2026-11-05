@@ -48,7 +48,7 @@ import { TerminalService } from './terminal'
 import { RepositoryUseGate } from './repository-use-gate'
 import { VoiceService, voiceSecretStorageStatus } from './voice'
 import { isAllowedRendererAudioPermission } from './voice-permissions'
-import { dismissActiveSplash, openSplash, shouldShowSplash } from './splash'
+import { beginSplash, shouldPresentMainWindow, shouldShowSplash, SPLASH_OVERLAY_REMOVE_SCRIPT, type SplashOverlayPresentation } from './splash'
 import { createManualUpdateCheck, getAutoUpdater, UpdateService } from './updates'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'prime-work', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
@@ -419,9 +419,31 @@ async function createWindow(): Promise<BrowserWindow | null> {
   renderer.on('render-process-gone', () => ipc?.revoke(rendererId))
   let rendererLoaded = false
   let readyToShow = false
+  // Member products paint the in-frame splash overlay (static HTML in index.html)
+  // at first paint; the generic build strips its unused overlay copy before the
+  // window can ever present it, keeping its show-on-loaded timing unchanged.
+  const splashOverlay = shouldShowSplash(productProfile.id, {
+    startInBackground,
+    hiddenForTests: keepTestWindowsHidden,
+    smokeRun: Boolean(packagedSmokeMarkerFile),
+  })
+  let overlayCleared = splashOverlay
+  const presentWhenAllowed = () => {
+    if (!shouldPresentMainWindow({ splashOverlay, readyToShow, rendererLoaded, overlayCleared })) return
+    if (!keepTestWindowsHidden && !backgroundMode?.isBackgrounded() && !shutdownStarted && !window.isDestroyed() && mainWindow === window) window.show()
+  }
   window.once('ready-to-show', () => {
     readyToShow = true
-    if (!keepTestWindowsHidden && !backgroundMode?.isBackgrounded() && rendererLoaded && !shutdownStarted && !window.isDestroyed() && mainWindow === window) window.show()
+    if (splashOverlay || overlayCleared) {
+      presentWhenAllowed()
+      return
+    }
+    // The window is still hidden here, so the generic build's overlay copy can be
+    // removed outright — no fade, no flash — before its historical show gate opens.
+    void renderer.executeJavaScript(SPLASH_OVERLAY_REMOVE_SCRIPT).catch(() => {}).then(() => {
+      overlayCleared = true
+      presentWhenAllowed()
+    })
   })
   window.on('close', (event) => {
     if (shutdownStarted || shutdownApproved) return
@@ -452,7 +474,7 @@ async function createWindow(): Promise<BrowserWindow | null> {
     return null
   }
   rendererLoaded = true
-  if (!keepTestWindowsHidden && !backgroundMode?.isBackgrounded() && readyToShow) window.show()
+  presentWhenAllowed()
   return window
 }
 
@@ -608,14 +630,16 @@ async function bootstrap(): Promise<void> {
   // Product-scoped agent-sdk root: a member product's spool and credentials live
   // under ~/.<profile-id> (read here, and written by the child via VCLAW_HOME).
   setVclawSdkRootDirectory(productProfile.id)
-  // Member products show a splash scene while the rest of bootstrap runs; the
-  // generic product never does, and neither do background/test/smoke launches.
-  const splash = shouldShowSplash(productProfile.id, {
+  // Member products paint the in-frame splash overlay (static HTML in index.html)
+  // while the rest of bootstrap runs; the generic product never does, and neither
+  // do background/test/smoke launches. Selection starts now so the scene is ready
+  // the moment the main window's overlay can receive it.
+  const splash: SplashOverlayPresentation | null = shouldShowSplash(productProfile.id, {
     startInBackground,
     hiddenForTests: keepTestWindowsHidden,
     smokeRun: Boolean(packagedSmokeMarkerFile),
   })
-    ? openSplash({
+    ? beginSplash({
         homeDir: homedir(),
         profileId: productProfile.id,
         bundledDir: app.isPackaged ? join(process.resourcesPath, 'splash') : join(app.getAppPath(), 'assets', 'splash'),
@@ -1214,7 +1238,7 @@ async function bootstrap(): Promise<void> {
   })
   backgroundMode.start()
   const window = await ensureWindow()
-  splash?.followMainWindow(window)
+  splash?.deliverTo(window?.webContents ?? null)
   if (packagedSmokeMarkerFile) {
     await runPackagedSmoke(window, packagedSmokeMarkerFile)
     return
@@ -1289,7 +1313,6 @@ else void app.whenReady().then(async () => {
   const failureDialog = startupFailureDialog(error)
   if (failureDialog) dialog.showErrorBox(failureDialog.title, failureDialog.detail)
   if (!shutdownStarted) console.error(`VClaw failed to start: ${boundedErrorMessage(error)}`)
-  dismissActiveSplash()
   app.quit()
 })
 

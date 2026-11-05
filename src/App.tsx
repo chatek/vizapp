@@ -14,6 +14,7 @@ import { activityNotificationSignature, readClearedActivity, readClearedAttentio
 import { errorMessage } from '@/lib/errors'
 import { I18nProvider } from '@/lib/i18n'
 import { openExternalUrl, revealPath } from '@/lib/desktop-actions'
+import { dismissSplashOverlay } from '@/lib/splash-overlay'
 import { createSingleFlightAdmission, findProjectForSession, gitStatusForWorkspace, shouldRefreshGitOnSessionTransition, workspaceCwd } from '@/lib/workspace'
 import { waitForVoiceSession } from '@/lib/voice'
 import { activeProjectScriptKind, ProjectScriptBusyError, setupNeedsRun } from '@/lib/project-scripts'
@@ -255,6 +256,11 @@ export default function App() {
     activateWorkspace: workspace.activateWorkspace, attachRuntime: workspace.attachRuntime,
     sessionHasOpenExtensionUi: extension.hasOpenRequestForSession, onHarnessSwitch, reportError,
   })
+  // The pre-React splash overlay (member builds) crossfades out once the app UI
+  // is initialized; a no-op everywhere the overlay is absent or already gone.
+  useEffect(() => {
+    if (initialized) dismissSplashOverlay()
+  }, [initialized])
   const platform = meta?.platform ?? detectRendererPlatform()
   const detectedHarnesses = useMemo(
     () => meta ? HARNESS_IDS.filter((harness) => Boolean(meta.harnesses[harness].path)) : [],
