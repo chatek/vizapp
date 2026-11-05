@@ -274,6 +274,12 @@ jobs:
       - name: Install member dependencies
         run: npm ci
         working-directory: member
+      # The emitter runs BEFORE the bundle and BEFORE integrate: build-info reads the vclaw
+      # checkout's tracked state, and integrate deliberately dirties that checkout. Emitting
+      # after integrate would stamp vclawDirty: true and fail the mounted-dmg assert.
+      - name: Emit member provenance for the payload
+        run: VCLAW_SRC="$GITHUB_WORKSPACE" node scripts/build-info.mjs --out app/build
+        working-directory: member
       - name: Bundle the member payload at the pinned sha
         run: npm run "$MEMBER_BUNDLE_SCRIPT"
         working-directory: member
@@ -293,7 +299,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - name: Build, sign, notarize the member package
-        run: npm run package:mac -- --skip-verify --arch ${{ matrix.arch }} --member "$MEMBER_ID"
+        run: npm run package:mac -- --skip-verify --arch ${{ matrix.arch }} --member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"
         env:
           RELEASE_SIGNING_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
@@ -309,9 +315,13 @@ jobs:
           MOUNT=$(mktemp -d)
           hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
           trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
-          BUILD="$MOUNT/VClaw.app/Contents/Resources/$MEMBER_ID/BUILD.json"
+          BUILD="$MOUNT/VClaw.app/Contents/Resources/product/payload/BUILD.json"
           test -f "$BUILD" || { echo "::error::member payload BUILD.json missing from the dmg"; exit 1; }
           cat "$BUILD"
+          # Handoff metadata: keep the payload's provenance BESIDE the dmg, so the handoff
+          # directory carries the vclaw sha (vclawCommit/vclawVersion) without inferring it
+          # from artifact-name ordering.
+          cp "$BUILD" "release/mac/${{ matrix.arch }}/BUILD.json"
           node -e '
             const fs = require("node:fs");
             const b = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -331,8 +341,21 @@ jobs:
       - name: Checksums
         run: |
           cd release/mac/${{ matrix.arch }}
-          shasum -a 256 ./*.dmg ./*.zip > SHA256SUMS
+          shasum -a 256 ./*.dmg ./*.zip ./BUILD.json > SHA256SUMS
           cat SHA256SUMS
+      - name: Publish the immutable staging prefix for the handoff
+        run: >-
+          node scripts/release/publish-member-staging.mjs
+          --dir "release/mac/${{ matrix.arch }}"
+          --member "$MEMBER_ID"
+          --arch "${{ matrix.arch }}"
+          --vclaw-sha "$GITHUB_SHA"
+          --branch "$GITHUB_REF_NAME"
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vclaw-member-${{ inputs.member }}-macos-${{ matrix.arch }}
@@ -340,6 +363,9 @@ jobs:
             release/mac/${{ matrix.arch }}/*.dmg
             release/mac/${{ matrix.arch }}/*.zip
             release/mac/${{ matrix.arch }}/latest*.yml
+            release/mac/${{ matrix.arch }}/BUILD.json
+            release/mac/${{ matrix.arch }}/handoff.json
+            release/mac/${{ matrix.arch }}/tuple.json
             release/mac/${{ matrix.arch }}/SHA256SUMS
           if-no-files-found: error
 

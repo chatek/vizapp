@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { assertSupportedToolchain, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
+import { assertSupportedToolchain, renderStagedProfile, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
 
 const args = new Set(process.argv.slice(2))
 const isPublic = args.has('--public')
@@ -52,12 +52,29 @@ function run(command, commandArgs, env = process.env) {
   runCommand(command, commandArgs, { env })
 }
 
+/**
+ * True when `directory` holds at least one file that is member content. The generic checkout
+ * ships `product/payload/README.md` alone; an integrated member build replaces it with the
+ * member's bundle, so README-only is the signature of a missing (or early) integrate.
+ */
+function hasMemberContent(directory) {
+  if (!existsSync(directory)) return false
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (hasMemberContent(resolve(directory, entry.name))) return true
+    } else if (entry.name !== 'README.md' && entry.name !== '.DS_Store') {
+      return true
+    }
+  }
+  return false
+}
+
 try {
   assertSupportedToolchain()
   if (process.platform !== platformHosts[platform]) throw new Error(`${platform} packaging must run natively on ${platformHosts[platform]}`)
   if (isPublic && platform === 'mac') validateReleaseCredentials(process.env)
   if (isPublic && platform === 'win') validateWindowsReleaseCredentials(process.env)
-  
+
   // The profile decides the product, so validate it BEFORE any work: a profile that cannot
   // start the app must never become an artefact. 'development' is the honest source here —
   // the profile is a file in this checkout, not yet the packaged copy.
@@ -90,7 +107,50 @@ try {
     console.error(`--member ${member} contradicts profile id "${profile.id}" (${profilePath})`)
     process.exit(2)
   }
-  
+
+  // Contract v2: ONE payload location, `product/payload`, shipped by the static extraResources
+  // entry and named by `defaultProject.from`. The legacy integrator copied to `vendor/<member>` and
+  // appended its own extraResources row; that layout seeds an empty ~/VizMaster under this profile
+  // and is retired (decision 1+3 land together). The mount assert in release.yml reads the v2 path.
+  //
+  // A missing or early integrate packages NO member content and raises NO error: the seeded
+  // directory exists but is empty, and electron-builder happily packages it. This check runs before
+  // electron-builder and names both the missing path and the release the profile must stamp.
+  // A member build is `--member` OR a profile carrying `defaultProject` (the documented
+  // `--profile product/<member>.json` invocation has no --member).
+  const memberBuildId = member ?? (profile.defaultProject ? profile.id : undefined)
+  let memberRelease = ''
+  if (memberBuildId !== undefined) {
+    const label = member !== undefined ? `--member ${member}` : `profile ${profile.id}`
+    if (profile.defaultProject && profile.defaultProject.from !== 'product/payload') {
+      console.error(`${label} seeds from "${profile.defaultProject.from}", but a member build ships its payload at product/payload; the v2 convention is defaultProject.from = "product/payload"`)
+      process.exit(2)
+    }
+    const payloadDirectory = resolve('product', 'payload')
+    if (!existsSync(resolve(payloadDirectory, 'dist'))) {
+      console.error(`${label} but product/payload/dist does not exist; the v2 integrator must copy the member payload into product/payload (the legacy vendor/<member> layout is not supported)`)
+      process.exit(2)
+    }
+    if (!hasMemberContent(payloadDirectory)) {
+      console.error(`${label} but product/payload carries no member content (README.md only); the member payload was not integrated`)
+      process.exit(2)
+    }
+    // The emitted tuple is the single source of the release id: the profile's checked-in
+    // defaultProject.version is a placeholder, and the packaged profile is rendered from this file.
+    const buildInfoPath = resolve(payloadDirectory, 'BUILD.json')
+    try {
+      const buildInfo = JSON.parse(readFileSync(buildInfoPath, 'utf8'))
+      memberRelease = typeof buildInfo.release === 'string' ? buildInfo.release.trim() : ''
+    } catch (error) {
+      console.error(`${label} but ${buildInfoPath} is unreadable (${error instanceof Error ? error.message : String(error)}); the payload's release identity is required`)
+      process.exit(2)
+    }
+    if (memberRelease === '') {
+      console.error(`${label} but ${buildInfoPath} has no release id; refusing to stage a placeholder defaultProject.version`)
+      process.exit(2)
+    }
+  }
+
   const verifyScript = skipVerify ? 'build:bundle' : platform === 'mac' ? 'release:verify' : 'release:verify:package'
   run('npm', ['run', verifyScript], withoutReleaseCredentials(process.env))
   if (!dryRun) rmSync(resolve('release', platform, arch), { recursive: true, force: true })
@@ -98,16 +158,15 @@ try {
   const builderArgs = [`--${platform}`, `--${arch}`, '--publish', 'never', `--config.directories.output=release/${platform}/${arch}`]
   // Ship THIS profile as resources/product.json: electron-builder reads a static extraResources
   // entry, so the selection is applied by staging the chosen file. Removed in the finally below,
-  // so a failed build does not leave a stale product identity behind for the next one.
+  // so a failed build does not leave a stale product identity behind for the next one. A member
+  // profile is rendered with the payload's release id so the seed and the artifact share one tuple.
   const stagedProfile = resolve('product', 'profile.active.json')
   mkdirSync(resolve('product'), { recursive: true })
-  writeFileSync(stagedProfile, `${JSON.stringify(profile, null, 2)}\n`)
+  writeFileSync(stagedProfile, `${JSON.stringify(renderStagedProfile(profile, memberRelease), null, 2)}\n`)
 
   // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
   // asserts the two agree, and this is the one place that makes them agree by construction.
-  const artifactName = profile.id === 'vclaw'
-    ? 'VClaw-${version}-${arch}.${ext}'
-    : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
+  const artifactName = profile.id === 'vclaw' ? 'VClaw-${version}-${arch}.${ext}' : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
   // Per-platform key, not the top-level one: package.json sets build.mac.artifactName, and a
   // platform artifactName WINS over the generic one — so `--config.artifactName` was silently
   // ignored and every member build kept the plain ${productName}-${version}-${arch} name.

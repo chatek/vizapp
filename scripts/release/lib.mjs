@@ -20,6 +20,20 @@ export function validateAbsoluteSingleLinePath(value, label, platform = process.
 }
 
 /**
+ * The profile staged as `resources/product.json`. A member tuple exists only at build time, so the
+ * checked-in `defaultProject.version` is a placeholder; the packaged copy must carry the release id
+ * from the payload `BUILD.json`, or the seeded project's `BUILD.json` names a different (stale)
+ * release than the artifact it came from.
+ */
+export function renderStagedProfile(profile, release) {
+  if (!profile.defaultProject) return profile
+  if (typeof release !== 'string' || release.trim() === '') {
+    throw new Error('cannot stage a member profile without the payload release id')
+  }
+  return { ...profile, defaultProject: { ...profile.defaultProject, version: release.trim() } }
+}
+
+/**
  * Resolves a release-script command to a spawn invocation that works on every platform.
  * Windows npm and npx ship as .cmd shims Node refuses to spawn without a shell, so known
  * commands run their JavaScript entrypoint directly under the current Node executable.

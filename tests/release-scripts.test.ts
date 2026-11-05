@@ -80,6 +80,7 @@ import {
   assertSupportedToolchain,
   assertUnpackedNativeLayout,
   expectedUnpackedNativeLayout,
+  renderStagedProfile,
   parseToolchainMetadata,
   parseArchitectures,
   parseTeamIdentifier,
@@ -106,6 +107,7 @@ import {
 import { parseDraftAssetNames, staleDraftReleaseAssets } from '../scripts/release/prune-draft-release-assets.mjs'
 import { assertBundleSizeBudgets, assertPackageSizeBudgets, BUNDLE_SIZE_BUDGETS, collectBundleSizeMetrics, collectPackageSizeMetrics, PACKAGE_SIZE_BUDGETS } from '../scripts/release/size-budgets.mjs'
 import { assertReleaseTag } from '../scripts/release/validate-release-tag.mjs'
+import { assertCleanBuild, handoffManifest, handoffTuple, runStaging, stagingPrefix } from '../scripts/release/publish-member-staging.mjs'
 // after-pack.cjs is CommonJS; the interop layer exposes module.exports properties as named exports.
 import { executablePath } from '../scripts/release/after-pack.cjs'
 import { collectAuditAdvisories, describeAuditEvaluation, evaluateAuditReport, parseAuditExceptions, readAuditExceptions } from '../scripts/release/audit-exceptions.mjs'
@@ -315,6 +317,224 @@ describe('release preflight', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('DRY RUN — nothing executed.')
     expect(result.stdout).not.toContain('pipeline passed')
+  })
+
+  toolchainTest('package.mjs --member refuses an un-integrated payload before electron-builder', () => {
+    // The generic checkout ships product/payload/README.md only, and a member build without a
+    // prior integrate used to package that placeholder with every gate green. product/payload/dist
+    // is absent here independently of any real member bundle.
+    const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
+    const directory = mkdtempSync(join(tmpdir(), 'vclaw-member-preflight-'))
+    const profile = join(directory, 'profile.json')
+    writeFileSync(profile, JSON.stringify({ profileVersion: 1, id: 'preflight-test', harnesses: ['omp'] }))
+    try {
+      const result = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--member', 'preflight-test', '--profile', profile, '--dry-run'], { encoding: 'utf8' })
+      expect(result.status, result.stderr).toBe(2)
+      expect(result.stderr).toContain('product/payload/dist does not exist')
+
+      // A profile carrying defaultProject is a member build even without --member (the
+      // documented `--profile product/<member>.json` invocation). It must fail the same way.
+      const memberProfile = join(directory, 'member-profile.json')
+      writeFileSync(
+        memberProfile,
+        JSON.stringify({
+          profileVersion: 1,
+          id: 'preflight-member',
+          harnesses: ['omp'],
+          projects: 'single',
+          defaultProject: { name: 'X', from: 'product/payload', to: '~/X', version: '0.0.0+unrendered' },
+        }),
+      )
+      const profileOnly = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', memberProfile, '--dry-run'], { encoding: 'utf8' })
+      expect(profileOnly.status, profileOnly.stderr).toBe(2)
+      expect(profileOnly.stderr).toContain('profile preflight-member but product/payload/dist does not exist')
+
+      // The retired layout fails with the coupling named, rather than seeding an empty project.
+      const legacyProfile = join(directory, 'legacy-profile.json')
+      writeFileSync(
+        legacyProfile,
+        JSON.stringify({
+          profileVersion: 1,
+          id: 'preflight-legacy',
+          harnesses: ['omp'],
+          projects: 'single',
+          defaultProject: { name: 'X', from: 'vizmaster', to: '~/X', version: '0.0.0+unrendered' },
+        }),
+      )
+      const legacy = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', legacyProfile, '--dry-run'], { encoding: 'utf8' })
+      expect(legacy.status, legacy.stderr).toBe(2)
+      expect(legacy.stderr).toContain('the v2 convention is defaultProject.from = "product/payload"')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('the member job emits provenance, selects its profile, and guards the payload', () => {
+    const workflow = readFileSync('.github/workflows/release.yml', 'utf8')
+    // Without --profile, package.mjs defaults to product/profile.json (id vclaw) and rejects
+    // --member; the member's integrated profile is product/<member>.json.
+    expect(workflow).toContain('--member "$MEMBER_ID" --profile "product/$MEMBER_ID.json"')
+
+    // build-info reads the vclaw checkout's tracked state. Integrate deliberately dirties that
+    // checkout, so the emitter must run after deps and BEFORE bundle/integrate, or the payload
+    // records vclawDirty: true and the mounted-dmg assert rejects it.
+    const dependencies = workflow.indexOf('name: Install member dependencies')
+    const emitter = workflow.indexOf('name: Emit member provenance for the payload')
+    const bundle = workflow.indexOf('name: Bundle the member payload at the pinned sha')
+    const integrate = workflow.indexOf('name: Integrate the overlay into this checkout')
+    expect(dependencies).toBeGreaterThan(-1)
+    expect(emitter).toBeGreaterThan(dependencies)
+    expect(bundle).toBeGreaterThan(emitter)
+    expect(integrate).toBeGreaterThan(bundle)
+    expect(workflow).toContain('run: VCLAW_SRC="$GITHUB_WORKSPACE" node scripts/build-info.mjs --out app/build')
+
+    const packageScript = readFileSync('scripts/release/package.mjs', 'utf8')
+    expect(packageScript).toContain("resolve('product', 'payload')")
+    expect(packageScript).toContain("resolve(payloadDirectory, 'dist')")
+    expect(packageScript).toContain('renderStagedProfile(profile, memberRelease)')
+    expect(packageScript).toContain("resolve(payloadDirectory, 'BUILD.json')")
+    expect(packageScript).toContain('the v2 convention is defaultProject.from = "product/payload"')
+    expect(packageScript).toContain('carries no member content (README.md only)')
+
+    // One payload location: the static extraResources entry ships product/payload, the profile
+    // seeds from it, and the mounted-dmg assert reads the same v2 path. The checked-in version is
+    // a placeholder because the packaged profile is rendered from BUILD.json.
+    const profile = JSON.parse(readFileSync('product/vizmaster.json', 'utf8'))
+    expect(profile.defaultProject.from).toBe('product/payload')
+    expect(profile.defaultProject.version).toBe('0.0.0+unrendered')
+    expect(profile.defaultProject.version).not.toBe('1.0.0+20261101')
+    expect(workflow).toContain('Resources/product/payload/BUILD.json')
+
+    // The handoff directory gets the payload provenance beside the dmg (vclawCommit/vclawVersion
+    // named explicitly), and SHA256SUMS covers it.
+    expect(workflow).toContain('cp "$BUILD" "release/mac/${{ matrix.arch }}/BUILD.json"')
+    expect(workflow).toContain('shasum -a 256 ./*.dmg ./*.zip ./BUILD.json > SHA256SUMS')
+    expect(workflow).toContain('release/mac/${{ matrix.arch }}/BUILD.json')
+
+    // The public staging upload runs after the digest claim is written and before the Actions
+    // artifact, uses the committed sha as the key, and carries the tuple.
+    const checksums = workflow.indexOf('name: Checksums')
+    const staging = workflow.indexOf('name: Publish the immutable staging prefix for the handoff')
+    const upload = workflow.indexOf('name: vclaw-member-${{ inputs.member }}-macos-${{ matrix.arch }}')
+    expect(checksums).toBeGreaterThan(-1)
+    expect(staging).toBeGreaterThan(checksums)
+    expect(upload).toBeGreaterThan(staging)
+    expect(workflow).toContain('--vclaw-sha "$GITHUB_SHA"')
+    expect(workflow).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}')
+    expect(workflow).toContain('release/mac/${{ matrix.arch }}/tuple.json')
+    expect(workflow).toContain('release/mac/${{ matrix.arch }}/handoff.json')
+  })
+
+  test('staging keys are release- and commit-scoped and append-only by construction', () => {
+    const sha = 'a'.repeat(40)
+    expect(stagingPrefix({ member: 'vizmaster', release: '1.0.0+20261105.abc1234', vclawSha: sha, arch: 'arm64' })).toBe(`staging/member/vizmaster/1.0.0+20261105.abc1234/${sha}/arm64`)
+    expect(() => stagingPrefix({ member: 'vizmaster', release: '../x', vclawSha: sha, arch: 'arm64' })).toThrow(/release/)
+    expect(() => stagingPrefix({ member: 'vizmaster', release: '1.0.0', vclawSha: 'abc', arch: 'arm64' })).toThrow(/40-character/)
+    expect(() => stagingPrefix({ member: 'VizMaster', release: '1.0.0', vclawSha: sha, arch: 'arm64' })).toThrow(/member/)
+  })
+
+  test('staging refuses a dirty build instead of recording dirty in the tuple', () => {
+    expect(handoffTuple({ sha: 'b'.repeat(40), branch: 'main' })).toEqual({ sha: 'b'.repeat(40), branch: 'main', dirty: false })
+    expect(assertCleanBuild({ dirty: false, vclawDirty: false, release: '1.0.0+x', vclawCommit: 'abc1234' })).toEqual({
+      release: '1.0.0+x',
+      vclawCommit: 'abc1234',
+    })
+    expect(() => assertCleanBuild({ dirty: true, vclawDirty: false, release: '1.0.0+x' })).toThrow(/dirty/)
+    expect(() => assertCleanBuild({ dirty: 'false', vclawDirty: false, release: '1.0.0+x' })).toThrow(/dirty/)
+    expect(() => assertCleanBuild({ dirty: false, vclawDirty: true, release: '1.0.0+x' })).toThrow(/vclawDirty/)
+  })
+
+  test('handoff manifest prefers full shas and refuses a missing builtAt', () => {
+    const sha = 'e'.repeat(40)
+    const full = `abc1234${'e'.repeat(33)}`
+    expect(
+      handoffManifest({
+        buildInfo: { vizmasterCommit: 'abc1234', vizmasterCommitFull: full, builtAt: '2026-11-05T00:00:00.000Z' },
+        vclawSha: sha,
+        arch: 'arm64',
+      }),
+    ).toEqual({ vizmasterSha: full, vclawSha: sha, arch: 'arm64', dirty: false, builtAt: '2026-11-05T00:00:00.000Z' })
+    expect(
+      handoffManifest({
+        buildInfo: { vizmasterCommit: 'abc1234', builtAt: '2026-11-05T00:00:00.000Z' },
+        vclawSha: sha,
+        arch: 'x64',
+      }).vizmasterSha,
+    ).toBe('abc1234')
+    expect(() => handoffManifest({ buildInfo: { vizmasterCommit: 'abc1234' }, vclawSha: sha, arch: 'arm64' })).toThrow(/builtAt/)
+  })
+
+  test('staging dry-run prints the immutable prefix and writes the clean tuple', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vclaw-staging-'))
+    const sha = 'c'.repeat(40)
+    const dmg = 'VClaw-1.1.17-vizmaster-arm64.dmg'
+    const zip = 'VClaw-1.1.17-vizmaster-arm64.zip'
+    writeFileSync(
+      join(directory, 'BUILD.json'),
+      JSON.stringify({
+        release: '1.0.0+20261105.abc1234',
+        vizmasterVersion: '1.0.0',
+        vizmasterCommit: 'abc1234',
+        vizmasterCommitFull: `abc1234${'d'.repeat(33)}`,
+        vclawVersion: '1.1.17',
+        vclawCommit: 'c'.repeat(7),
+        vclawCommitFull: sha,
+        vclawDirty: false,
+        builtAt: '2026-11-05T00:00:00.000Z',
+        dirty: false,
+      }),
+    )
+    writeFileSync(join(directory, dmg), 'dmg bytes')
+    writeFileSync(join(directory, zip), 'zip bytes')
+    // The updater feed must never leave the build host through the staging uploader: a member
+    // stage that carried latest*.yml would change every user's update channel.
+    writeFileSync(join(directory, 'latest-mac.yml'), 'version: 1.1.17\n')
+    const sums = [dmg, zip, 'BUILD.json']
+      .map(
+        (name) =>
+          `${createHash('sha256')
+            .update(readFileSync(join(directory, name)))
+            .digest('hex')}  ./${name}`,
+      )
+      .join('\n')
+    writeFileSync(join(directory, 'SHA256SUMS'), `${sums}\n`)
+    const lines: string[] = []
+    try {
+      await runStaging(['--dir', directory, '--member', 'vizmaster', '--arch', 'arm64', '--vclaw-sha', sha, '--branch', 'main', '--dry-run'], {}, (line: string) => lines.push(line))
+      expect(lines.join('\n')).toContain(`staging/member/vizmaster/1.0.0+20261105.abc1234/${sha}/arm64`)
+      expect(lines.join('\n')).not.toContain('latest-mac.yml')
+      expect(JSON.parse(readFileSync(join(directory, 'tuple.json'), 'utf8'))).toEqual({ sha, branch: 'main', dirty: false })
+      expect(JSON.parse(readFileSync(join(directory, 'handoff.json'), 'utf8'))).toEqual({
+        vizmasterSha: `abc1234${'d'.repeat(33)}`,
+        vclawSha: sha,
+        arch: 'arm64',
+        dirty: false,
+        builtAt: '2026-11-05T00:00:00.000Z',
+      })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('renders a member profile from the payload release without changing its seed source', () => {
+    const profile = {
+      profileVersion: 1,
+      id: 'vizmaster',
+      identity: { productName: 'VClaw', appId: 'com.vclaw.desktop' },
+      harnesses: ['omp'],
+      projects: 'single',
+      defaultProject: { name: 'VizMaster', from: 'product/payload', to: '~/VizMaster', version: '0.0.0+unrendered' },
+      source: 'development',
+    }
+    const rendered = renderStagedProfile(profile, ' 1.0.0+20261105.abc1234 ')
+    expect(rendered.defaultProject?.version).toBe('1.0.0+20261105.abc1234')
+    expect(rendered.defaultProject?.from).toBe('product/payload')
+    expect(rendered.id).toBe('vizmaster')
+    expect(rendered.identity).toEqual({ productName: 'VClaw', appId: 'com.vclaw.desktop' })
+    expect(profile.defaultProject.version).toBe('0.0.0+unrendered')
+    expect(() => renderStagedProfile(profile, '')).toThrow(/payload release id/)
+    const generic = { profileVersion: 1, id: 'vclaw', harnesses: ['omp'], source: 'development' }
+    expect(renderStagedProfile(generic, '')).toBe(generic)
   })
 
   test('verify-package runs when invoked as a script and fails closed on a missing entrypoint', async () => {
@@ -788,7 +1008,7 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     }
   })
 
-  test('confines workflow secrets to the signing and notarization release steps', () => {
+  test('confines workflow secrets to the signing/notarization and member-staging steps', () => {
     const releaseSteps = parseWorkflowSteps(readFileSync('.github/workflows/release.yml', 'utf8'))
     const secretSteps = releaseSteps.filter((step) => step.secretLines.length > 0)
     expect(secretSteps.map((step) => `${step.job}: ${step.name}`).sort()).toEqual([
@@ -796,6 +1016,7 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
       'package-member: Fail closed on an incomplete member request',
       'package-member: Fail closed unless every release credential is configured',
       'package-member: Fetch the member repo at the pinned sha',
+      'package-member: Publish the immutable staging prefix for the handoff',
       'package-windows: Build, Authenticode-sign, and verify Windows packages',
       'package: Build, sign, notarize, and verify release packages',
       'package: Fail closed unless every release credential is configured',

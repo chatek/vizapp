@@ -238,6 +238,10 @@
         "to": "pets"
       },
       {
+        "from": "assets/splash",
+        "to": "splash"
+      },
+      {
         "from": "product/payload",
         "to": "product/payload"
       },

@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import { createCoverageInventory, familyCoverageThresholds } from './scripts/release/coverage-inventory'
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url))
@@ -12,6 +12,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
+    // tests/e2e belongs to Playwright (playwright.config.ts testDir, docs/AGENTS.md). Playwright's
+    // default testMatch also accepts `*.test.ts`, so without this a name added there would run
+    // twice — once with no Electron window, as a plain Node test.
+    exclude: [...configDefaults.exclude, 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       include: coverageInventory.includePatterns,
