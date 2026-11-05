@@ -190,8 +190,9 @@ async function press(element: Element): Promise<void> {
 describe('project ordering controls in App', () => {
   it('switches sidebar sorting persistently and pins projects while excluding inferred records', async () => {
     await act(async () => root.render(<App />))
-    await waitFor(() => container.querySelector('.sidebar__section-heading'))
-
+    // The vizmaster posture opens with the sidebar folded; the sort controls live inside it.
+    await waitFor(() => container.querySelector<HTMLButtonElement>('button[aria-label^="Show sidebar"]'))
+    await press(container.querySelector('button[aria-label^="Show sidebar"]')!)
     expect([...container.querySelectorAll('.project-row__main')].map((button) => button.textContent)).toEqual(['Inferred', 'Alpha', 'Zeta'])
     await press(container.querySelector('[aria-label="Sort projects"]')!)
     await press([...container.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) => item.textContent?.includes('Alphabetical'))!)

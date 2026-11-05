@@ -9,7 +9,7 @@ import type { InspectorProps } from '../../src/components/Inspector'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const observed = vi.hoisted(() => ({ inspectorProps: [] as unknown[], changesPanelRenders: 0 }))
+const observed = vi.hoisted(() => ({ inspectorProps: [] as unknown[], browserPanelRenders: 0 }))
 
 // Wraps the memoized Inspector, so every App render is observed even when the
 // memo (correctly) skips the inspector subtree.
@@ -25,14 +25,15 @@ vi.mock('../../src/components/Inspector', async (importOriginal) => {
 })
 
 // Rendered inside the memo, so its render count is exactly the number of times
-// the memo let a re-render through on the changes tab.
-vi.mock('../../src/components/inspector/ChangesPanel', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/components/inspector/ChangesPanel')>()
+// the memo let a re-render through on the browser tab (the vizmaster default;
+// the Changes tab is hidden, and Browser is the tab that consumes no transcript).
+vi.mock('../../src/components/inspector/BrowserPanel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/components/inspector/BrowserPanel')>()
   return {
     ...actual,
-    ChangesPanel(props: Parameters<typeof actual.ChangesPanel>[0]) {
-      observed.changesPanelRenders += 1
-      return <actual.ChangesPanel {...props} />
+    BrowserPanel(props: Parameters<typeof actual.BrowserPanel>[0]) {
+      observed.browserPanelRenders += 1
+      return <actual.BrowserPanel {...props} />
     },
   }
 })
@@ -42,7 +43,7 @@ let root: Root
 
 beforeEach(() => {
   observed.inspectorProps = []
-  observed.changesPanelRenders = 0
+  observed.browserPanelRenders = 0
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
@@ -71,19 +72,19 @@ const renderApp = async () => {
   await act(async () => {})
 }
 
-const openChangesTab = async () => {
-  const changesTab = [...container.querySelectorAll<HTMLButtonElement>('.inspector__tabs button')].find((button) => button.textContent?.startsWith('Changes'))
-  expect(changesTab).toBeDefined()
-  await act(async () => { changesTab?.click() })
-  expect(container.querySelector('#inspector-panel-changes')).not.toBeNull()
+const openBrowserTab = async () => {
+  const browserTab = [...container.querySelectorAll<HTMLButtonElement>('.inspector__tabs button')].find((button) => button.textContent?.startsWith('Browser'))
+  expect(browserTab).toBeDefined()
+  await act(async () => { browserTab?.click() })
+  expect(container.querySelector('#inspector-panel-browser')).not.toBeNull()
 }
 
 describe('inspector re-render containment', () => {
-  it('keeps the memoized inspector subtree mounted across App re-renders on the changes tab', async () => {
+  it('keeps the memoized inspector subtree mounted across App re-renders on the browser tab', async () => {
     await renderApp()
-    await openChangesTab()
+    await openBrowserTab()
 
-    const rendersAfterTabChange = observed.changesPanelRenders
+    const rendersAfterTabChange = observed.browserPanelRenders
     const appRendersAfterTabChange = observed.inspectorProps.length
     expect(rendersAfterTabChange).toBeGreaterThan(0)
 
@@ -92,16 +93,16 @@ describe('inspector re-render containment', () => {
 
     // App re-rendered, the memo held: no work reached the inspector subtree.
     expect(observed.inspectorProps.length).toBeGreaterThan(appRendersAfterTabChange)
-    expect(observed.changesPanelRenders).toBe(rendersAfterTabChange)
+    expect(observed.browserPanelRenders).toBe(rendersAfterTabChange)
   })
 
-  it('hands the inspector stable messages, git and annotation identities while the changes tab is active', async () => {
+  it('hands the inspector stable messages, git and annotation identities while the browser tab is active', async () => {
     await renderApp()
     const props = observed.inspectorProps as InspectorProps[]
     // The summary tab is the default and does consume the transcript.
     expect(props[props.length - 1].messages.length).toBeGreaterThan(0)
 
-    await openChangesTab()
+    await openBrowserTab()
     const first = props[props.length - 1]
     await toggleSidebar()
     const last = props[props.length - 1]
