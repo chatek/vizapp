@@ -7,6 +7,9 @@ export const CHAT_MIN = 360
 export const TERMINAL_MIN = 170
 export const TERMINAL_DEFAULT = 310
 export const WORKSPACE_ROW_MIN = 220
+// vizmaster (2026-11-05, operator): the middle/right vertical separator defaults to a
+// 50/50 split of the workspace row and follows window resizes until the user drags it.
+const INSPECTOR_WIDTH_KEY = 'prime-work.inspector-width-v2'
 export const SMALLEST_LAYOUT_BREAKPOINT = 720
 
 const readPanelSize = (key: string, fallback: number) => {
@@ -36,10 +39,12 @@ export function usePanelLayout({
   const [smallestLayout, setSmallestLayout] = useState(() => window.matchMedia(`(max-width: ${SMALLEST_LAYOUT_BREAKPOINT}px)`).matches)
   const [smallestSidebarAllowed, setSmallestSidebarAllowed] = useState(false)
   const [smallestInspectorAllowed, setSmallestInspectorAllowed] = useState(false)
-  const [inspectorWidth, setInspectorWidth] = useState(() => readPanelSize('prime-work.inspector-width', INSPECTOR_DEFAULT))
-  const [terminalHeight, setTerminalHeight] = useState(() => readPanelSize('prime-work.terminal-height', TERMINAL_DEFAULT))
+  const [inspectorWidth, setInspectorWidth] = useState(() => readPanelSize(INSPECTOR_WIDTH_KEY, INSPECTOR_DEFAULT))
+  const [inspectorAuto, setInspectorAuto] = useState(() => typeof window === 'undefined' || !window.localStorage.getItem(INSPECTOR_WIDTH_KEY))
+  const [workspaceRowWidth, setWorkspaceRowWidth] = useState(0)
   const [inspectorMax, setInspectorMax] = useState(660)
   const [terminalMax, setTerminalMax] = useState(520)
+  const [terminalHeight, setTerminalHeight] = useState(() => readPanelSize('prime-work.terminal-height', TERMINAL_DEFAULT))
   const workspaceRowRef = useRef<HTMLDivElement>(null)
   const sessionWorkspaceRef = useRef<HTMLDivElement>(null)
   const compactRestoreRef = useRef<'inspector' | null>(null)
@@ -98,6 +103,8 @@ export function usePanelLayout({
     const syncBounds = () => {
       if (!window.matchMedia('(max-width: 980px)').matches) {
         setInspectorMax(Math.max(INSPECTOR_MIN, row.clientWidth - CHAT_MIN))
+        setWorkspaceRowWidth(row.clientWidth)
+        if (inspectorAuto) setInspectorWidth(Math.max(INSPECTOR_MIN, Math.round(row.clientWidth / 2)))
       }
       setTerminalMax(Math.max(TERMINAL_MIN, workspace.clientHeight - WORKSPACE_ROW_MIN))
     }
@@ -106,13 +113,16 @@ export function usePanelLayout({
     observer.observe(row)
     observer.observe(workspace)
     return () => observer.disconnect()
-  }, [inspectorOpen, terminalOpen, view])
-
-  useEffect(() => setInspectorWidth((value) => Math.min(inspectorMax, Math.max(INSPECTOR_MIN, value))), [inspectorMax])
+  }, [inspectorAuto, inspectorOpen, terminalOpen, view])
   useEffect(() => setTerminalHeight((value) => Math.min(terminalMax, Math.max(TERMINAL_MIN, value))), [terminalMax])
-  useEffect(() => { window.localStorage.setItem('prime-work.inspector-width', String(inspectorWidth)) }, [inspectorWidth])
+  useEffect(() => { if (!inspectorAuto) window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(inspectorWidth)) }, [inspectorAuto, inspectorWidth])
   useEffect(() => { window.localStorage.setItem('prime-work.terminal-height', String(terminalHeight)) }, [terminalHeight])
 
+  // A manual drag pins the width; before that the split stays an auto 50/50 that tracks resizes.
+  const updateInspectorWidth = (value: number) => {
+    setInspectorAuto(false)
+    setInspectorWidth(value)
+  }
   return {
     compactLayout,
     sidebarSuppressed,
@@ -121,7 +131,9 @@ export function usePanelLayout({
     setSmallestInspectorAllowed,
     compactRestoreRef,
     inspectorWidth,
-    setInspectorWidth,
+    inspectorAuto,
+    inspectorAutoWidth: Math.max(INSPECTOR_MIN, Math.round(workspaceRowWidth / 2)),
+    setInspectorWidth: updateInspectorWidth,
     terminalHeight,
     setTerminalHeight,
     inspectorMax,

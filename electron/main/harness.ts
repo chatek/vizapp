@@ -21,6 +21,7 @@ export interface HarnessDescriptor {
   candidateDirs: (platform: NodeJS.Platform, home: string, env: NodeJS.ProcessEnv) => string[]
   /** Official npm `.cmd` shim on Windows and the package entrypoint below `<shim dir>\node_modules`. */
   windowsNpmShim?: { shim: string; entrypoint: readonly string[] }
+  /** Home-relative state root for this harness; OMP's is product-profile-scoped. */
   agentDir: (home: string) => string
   sessionRoot: (home: string) => string
 }
@@ -55,8 +56,8 @@ export const HARNESSES: Record<HarnessId, HarnessDescriptor> = {
       if (platform === 'win32') return env.LOCALAPPDATA ? [win32.join(env.LOCALAPPDATA, 'omp')] : []
       return env.PI_INSTALL_DIR ? [env.PI_INSTALL_DIR] : []
     },
-    agentDir: (home) => join(home, '.omp', 'agent'),
-    sessionRoot: (home) => join(home, '.omp', 'agent', 'sessions'),
+    agentDir: (home) => join(home, ompStateDirectory(), 'agent'),
+    sessionRoot: (home) => join(home, ompStateDirectory(), 'agent', 'sessions'),
   },
   pi: {
     id: 'pi',
@@ -72,4 +73,30 @@ export const HARNESSES: Record<HarnessId, HarnessDescriptor> = {
     agentDir: (home) => join(home, '.pi', 'agent'),
     sessionRoot: (home) => join(home, '.pi', 'agent', 'sessions'),
   },
+}
+
+/**
+ * Home-relative directory holding OMP state for a product profile. The generic
+ * app (id 'vclaw') keeps the harness's own ~/.omp layout byte-for-byte; a
+ * member product isolates ALL of its OMP state — app-side paths and the
+ * child's own writes — under ~/.<profile-id> instead.
+ */
+export function ompStateDirName(profileId: string): string {
+  return profileId === 'vclaw' ? '.omp' : `.${profileId}`
+}
+
+let ompStateDir: string = ompStateDirName('vclaw')
+
+/**
+ * Pins the OMP state directory from the active product profile. Called once at
+ * startup, after the profile loads and before any harness state (session
+ * roots, plugin discovery, child spawn environments) is resolved.
+ */
+export function setOmpStateDirectory(profileId: string): void {
+  ompStateDir = ompStateDirName(profileId)
+}
+
+/** The pinned OMP state directory, relative to the user's home. */
+export function ompStateDirectory(): string {
+  return ompStateDir
 }

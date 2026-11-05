@@ -6,14 +6,14 @@ import { validateProductProfile } from '../electron/main/product-profile'
 const context = { isPackaged: true, resourcesPath: '/res', appPath: '/app' }
 const homeDir = '/home/user'
 const payloadPath = join('/res', 'vendor', 'vizmaster')
-const target = join(homeDir, 'VizMaster')
+const target = join(homeDir, '.vizmaster', 'default')
 
 const memberProfile = validateProductProfile(
   {
     profileVersion: 1,
     id: 'vizmaster',
     harnesses: ['omp'],
-    defaultProject: { name: 'VizMaster', from: 'vendor/vizmaster', to: '~/VizMaster', version: '1.0.0+20261029.7263596' },
+    defaultProject: { name: 'VizMaster', from: 'vendor/vizmaster', to: '~/.vizmaster/default', version: '1.0.0+20261029.7263596' },
   },
   'packaged',
 )
@@ -170,6 +170,28 @@ describe('seedDefaultProject', () => {
     const [path, contents] = filesystem.writes[0]
     expect(path).toBe(join(target, 'BUILD.json'))
     expect(JSON.parse(contents)).toMatchObject({ release: '1.0.0+20261029.7263596', name: 'VizMaster' })
+  })
+
+  test('a single-project product seeds into the machine folder <home>/.vizmaster/default', async () => {
+    // The operator's contract: the app's ONE project lives at ~/.vizmaster/default, seeded from
+    // the shipped payload — not a visible ~/VizMaster folder in the home directory.
+    const profile = validateProductProfile(
+      {
+        profileVersion: 1,
+        id: 'vizmaster',
+        harnesses: ['omp'],
+        projects: 'single',
+        defaultProject: { name: 'VizMaster', from: 'vendor/vizmaster', to: '~/.vizmaster/default', version: '1.0.0+20261029.7263596' },
+      },
+      'packaged',
+    )
+    const projects = fakeStore()
+    const filesystem = fakeFs()
+    await expect(seedDefaultProject({ profile, context, homeDir, projects, filesystem })).resolves.toEqual({ status: 'seeded' })
+    expect(filesystem.directories.has(join(homeDir, '.vizmaster', 'default'))).toBe(true)
+    expect(filesystem.copied).toEqual(['index.js'])
+    expect(projects.calls).toEqual(['seedStatus', 'ensureProject'])
+    expect(filesystem.writes[0][0]).toBe(join(target, 'BUILD.json'))
   })
 
   test('excludes user-owned subtrees from the payload copy', async () => {

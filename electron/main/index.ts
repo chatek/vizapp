@@ -17,6 +17,7 @@ import { CheckoutService } from './checkouts'
 import { isTrustedRendererUrl, registerIpc, type IpcRegistration } from './ipc'
 import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'
 import { offeredHarnesses } from './harness-offering'
+import { setOmpStateDirectory } from './harness'
 import { beginProcessShutdown, runProcess, stopChildProcesses } from './process-utils'
 import { PluginService, beginPluginDiscoveryShutdown } from './plugins'
 import { PrimeProviderService } from './providers'
@@ -598,6 +599,11 @@ async function bootstrap(): Promise<void> {
   if (productProfile.id !== 'vclaw') {
     app.setPath('userData', join(app.getPath('appData'), productProfile.id))
   }
+  // Product-scoped OMP state: a member product keeps ALL of its OMP state —
+  // session roots, skills and plugin paths, and the harness child's own writes
+  // (PI_CONFIG_DIR at spawn) — under ~/.<profile-id> instead of host ~/.omp.
+  // Must run before any harness state is resolved; the generic build is a no-op.
+  setOmpStateDirectory(productProfile.id)
   const userDataPath = app.getPath('userData')
   configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)

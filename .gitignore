@@ -34,8 +34,19 @@ __pycache__/
 # Staged build input: package.mjs copies the --profile here so electron-builder ships it as
 # resources/product.json. Never committed — it is whichever profile this build selected.
 product/profile.active.json
-# Integrated member payload: a member integrator writes its bundle to product/payload/
-# (contract v2) in its snapshot. The generic product ships the placeholder README alone,
-# so integrated bytes must never look like tracked generic content.
+# Product seed payload. On this branch the seed content that installs into
+# ~/.vizmaster/default (AGENTS.md, templates/, skills/, code/) is AUTHORED repo
+# content and MUST be tracked — an ignored payload would ship README-only from a
+# fresh clone (estate rule: durable artefacts are tracked). The member integrator
+# (contract v2) still writes its bundle into product/payload/ in its build
+# snapshot; anything it writes that is not one of the whitelisted authored paths
+# stays untracked by the /product/payload/* rule below.
 /product/payload/*
 !/product/payload/README.md
+!/product/payload/AGENTS.md
+!/product/payload/templates/
+!/product/payload/templates/**
+!/product/payload/skills/
+!/product/payload/skills/**
+!/product/payload/code/
+!/product/payload/code/**
