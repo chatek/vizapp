@@ -9,8 +9,8 @@
   },
   "paths": {
     "$comment": "Repo-side paths are private to this repo: the carrier only ever sees the bundle OUTPUT directory.",
-    "app": "dashboard",
-    "content": "project",
+    "app": "product/app",
+    "content": "product/content",
     "bundleOutput": "payload/vizmaster",
     "artifactDir": "app/build"
   },
@@ -31,13 +31,13 @@
   "overlay": {
     "$comment": "Electron-main code we own. It imports nothing from electron — host objects (app, session, shell, safeStorage) and the capture callback are injected — so it compiles and tests IN THIS REPO (typecheck:overlay, test:overlay). That is the carrier owner's required alternative to moving it into the carrier.",
     "inRepo": [
-      "packaging/vcclaw/vizshare: api.ts, broker.ts, oidc.ts, index.ts (+2 test files, 5 tests)"
+      "release/overlay/vizshare: api.ts, broker.ts, oidc.ts, index.ts (+2 test files, 5 tests)"
     ],
     "inCarrier": [
       "host wiring that constructs the Electron objects and calls startVizShare"
     ],
     "notCompiledHere": [
-      "packaging/vcclaw/defaultProject.ts: the v1 rollback seeder imports carrier types (src/types/api) and is copied only when CARRIER === 'v1'"
+      "release/overlay/defaultProject.ts: the v1 rollback seeder imports carrier types (src/types/api) and is copied only when CARRIER === 'v1'"
     ]
   },
   "contractPackage": {
