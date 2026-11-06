@@ -10,7 +10,9 @@ export const WORKSPACE_ROW_MIN = 220
 // vizmaster (2026-11-06, operator): the agent chat column defaults to 1/3 of the
 // workspace row and the right (inspector/Browser) panel to 2/3; the split follows
 // window resizes until the user drags it.
-const INSPECTOR_WIDTH_KEY = 'prime-work.inspector-width-v2'
+// v3 (2026-11-06): the ratio changed 50/50 -> chat 1/3 + inspector 2/3; a new key
+// drops any width pinned under the old ratio so everyone starts at the new default.
+const INSPECTOR_WIDTH_KEY = 'prime-work.inspector-width-v3'
 export const SMALLEST_LAYOUT_BREAKPOINT = 720
 
 const readPanelSize = (key: string, fallback: number) => {
