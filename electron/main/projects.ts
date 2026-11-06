@@ -10,7 +10,7 @@ import { listGitWorktrees } from './git'
 import { HARNESSES } from './harness'
 import { mapLimit } from './lib/async'
 import type { FolderIdentity, JsonStateStore, PersistedProject } from './store'
-import { singleProjectFilter } from './defaultProject'
+import { singleProjectFilter } from './product-profile'
 import { isPathWithin, rejectUnknownKeys, requireBoolean, requireExistingDirectory, requireExistingPath, requireId, requireInteger, requireRecord, requireString } from './validation'
 
 const MAX_CONCURRENT_BRANCH_LOOKUPS = 4

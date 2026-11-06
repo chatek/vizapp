@@ -41,6 +41,11 @@ export type DefaultProjectResult =
   | { status: 'suppressed'; reason: 'dismissed' }
   | { status: 'existing' }
   | { status: 'seeded' }
+  /**
+   * The payload moved to a new release and the installed tree was re-seeded from it. `from` is
+   * the release that was there before (null when the tree carried no readable BUILD.json).
+   */
+  | { status: 'upgraded'; from: string | null; to: string }
 
 /**
  * The project RECORD exists but the payload did not fully land. Thrown, never silently
@@ -89,6 +94,18 @@ async function exists(path: string, filesystem: DefaultProjectFilesystem): Promi
   }
 }
 
+/** The release a tree or payload records in its BUILD.json, or null when absent/unreadable. */
+async function installedRelease(dir: string, filesystem: DefaultProjectFilesystem): Promise<string | null> {
+  try {
+    const parsed: unknown = JSON.parse(await filesystem.readFile(join(dir, 'BUILD.json'), 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const release = (parsed as { release?: unknown }).release
+    return typeof release === 'string' && release.trim() ? release.trim() : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Seeds the product's default project on first run.
  *
@@ -112,7 +129,24 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
   if (!payloadPath || !target) return { status: 'skipped', reason: 'no-default-project' }
   // The target check outranks the payload check: a directory that already exists is the
   // user-data fact, and it must be reported even if the payload were missing.
-  if (await exists(target, filesystem)) return { status: 'skipped', reason: 'target-exists' }
+  if (await exists(target, filesystem)) {
+    // One seeder, one rule: an EXISTING tree is re-copied when the shipped release changed, and
+    // never otherwise. The KEEP SET below is the same filter first-run uses, so `lessons/`,
+    // `node_modules/` and `.git/` are not part of the copy either way — a re-seed can add and
+    // replace payload files, but it cannot delete or overwrite user-owned subtrees.
+    if (await exists(payloadPath, filesystem)) {
+      const state = await projects.seedStatus(target)
+      if (state !== 'dismissed') {
+        const wanted = (await installedRelease(payloadPath, filesystem)) ?? spec.version
+        const installed = await installedRelease(target, filesystem)
+        if (wanted !== installed) {
+          await upgradeProject(target, payloadPath, spec, filesystem)
+          return { status: 'upgraded', from: installed, to: wanted }
+        }
+      }
+    }
+    return { status: 'skipped', reason: 'target-exists' }
+  }
   if (!(await exists(payloadPath, filesystem))) return { status: 'skipped', reason: 'payload-absent' }
 
   const state = await projects.seedStatus(target)
@@ -164,11 +198,7 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
       // A collision would mean the target gained files between the exists check and
       // now; erroring beats overwriting.
       force: false,
-      filter: (source) => {
-        const entry = relative(payloadPath, source)
-        if (entry === '') return true
-        return USER_OWNED_SUBTREES[entry.split(sep)[0]] !== true
-      },
+      filter: payloadCopyFilter(payloadPath),
     })
   } catch (error) {
     throw new SeedIncompleteError(target, 'payload-copy', error)
@@ -179,6 +209,46 @@ export async function seedDefaultProject(options: DefaultProjectOptions): Promis
     throw new SeedIncompleteError(target, 'build-json', error)
   }
   return { status: 'seeded' }
+}
+
+/**
+ * Re-copies the payload over an existing tree. NO backup, NO deletion of stale entries: the
+ * earlier v1 upgrader did both (and replaced the directory identity besides), which is exactly
+ * why this verb exists as one rule instead of two.
+ */
+async function upgradeProject(
+  target: string,
+  payloadPath: string,
+  spec: NonNullable<ProductProfile['defaultProject']>,
+  filesystem: DefaultProjectFilesystem,
+): Promise<void> {
+  try {
+    await filesystem.cp(payloadPath, target, {
+      recursive: true,
+      // Unlike the first run, an upgrade is SUPPOSED to replace the payload's own files.
+      force: true,
+      filter: payloadCopyFilter(payloadPath),
+    })
+  } catch (error) {
+    throw new SeedIncompleteError(target, 'payload-copy', error)
+  }
+  try {
+    await writeBuildJson(target, spec, filesystem)
+  } catch (error) {
+    throw new SeedIncompleteError(target, 'build-json', error)
+  }
+}
+
+/**
+ * THE filter: one predicate for first-run and re-seed, so the KEEP SET cannot drift between
+ * them. Everything except the user-owned top-level names is the payload's.
+ */
+function payloadCopyFilter(payloadPath: string): (source: string) => boolean {
+  return (source) => {
+    const entry = relative(payloadPath, source)
+    if (entry === '') return true
+    return USER_OWNED_SUBTREES[entry.split(sep)[0]] !== true
+  }
 }
 
 /**

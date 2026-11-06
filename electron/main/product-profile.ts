@@ -268,3 +268,28 @@ export function describeProductProfile(profile: ProductProfile): ProductProfileS
       : {}),
   }
 }
+
+/**
+ * True for a build whose packaged resources carry the member payload — the last v1-era
+ * packaging fact this tree still reads. The profile names the payload now, but a v1-seeded
+ * install keeps the id `vizmaster-default`, so the project filter below must still recognise it.
+ */
+const DEFAULT_PROJECT_ID = 'vizmaster-default'
+
+/** Electron adds `process.resourcesPath`; @types/node does not declare it. */
+const electronProcess = process as NodeJS.Process & { resourcesPath?: string }
+
+export function isBundledVizMaster(resourcesPath: string = electronProcess.resourcesPath ?? ''): boolean {
+  return resourcesPath.length > 0 && existsSync(join(resourcesPath, 'vizmaster', 'package.json'))
+}
+
+/**
+ * Single-project mode. `ProjectService.list()` merges persisted records with
+ * inferred session roots, so an "only one project" build has to filter the
+ * result rather than just seed one row.
+ */
+export function singleProjectFilter<T extends { id: string }>(records: T[]): T[] {
+  if (!isBundledVizMaster()) return records
+  const only = records.filter((record) => record.id === DEFAULT_PROJECT_ID)
+  return only.length > 0 ? only : records
+}
