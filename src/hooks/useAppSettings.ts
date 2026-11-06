@@ -6,6 +6,7 @@ import {
   type PanelSettingKey,
 } from '@/lib/settings-state'
 import type { AppSettings, InspectorTab, PrimeWorkApi } from '@/types/api'
+import { themeForLocalTime } from '@/lib/theme-clock'
 
 interface UseAppSettingsOptions {
   bridge: PrimeWorkApi | null
@@ -122,13 +123,24 @@ export function useAppSettings({ bridge, reportError }: UseAppSettingsOptions) {
       document.documentElement.dataset.theme = theme
       void bridge?.app?.setTitleBarTheme?.(theme)?.catch(() => undefined)
     }
-    applyTheme(settings.theme === 'system' ? media.matches ? 'dark' : 'light' : settings.theme)
+    // vizmaster (2026-11-07, operator): 'system' auto-tunes by the user's LOCAL TIME — light
+    // 06:00–17:59, dark 18:00–05:59 — and re-evaluates every minute, so the app follows the
+    // day without a manual toggle. The OS preference remains a hint for the boundary-less case
+    // (a clock that cannot be read falls back to prefers-color-scheme). An explicit light/dark
+    // choice is unchanged and always wins over the clock.
+    applyTheme(settings.theme === 'system' ? themeForLocalTime(media) : settings.theme)
     document.documentElement.classList.toggle('reduce-motion', settings.reduceMotion)
     const sync = () => {
-      if (settings.theme === 'system') applyTheme(media.matches ? 'dark' : 'light')
+      if (settings.theme === 'system') applyTheme(themeForLocalTime(media))
     }
     media.addEventListener('change', sync)
-    return () => media.removeEventListener('change', sync)
+    // Minute-resolution re-tune: two checks a day are what actually change the answer,
+    // but a minute tick keeps the switch within ~60s of the boundary with trivial cost.
+    const clock = window.setInterval(sync, 60_000)
+    return () => {
+      media.removeEventListener('change', sync)
+      window.clearInterval(clock)
+    }
   }, [bridge, settings.reduceMotion, settings.theme])
 
   const selectInspectorTab = useCallback((tab: InspectorTab) => {
