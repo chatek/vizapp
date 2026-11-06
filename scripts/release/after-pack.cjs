@@ -76,8 +76,40 @@ function verifyDashboardPayload(context) {
       throw new Error(`vizshow payload: ${marker} missing under ${payload} — the integration is incomplete (P0)`)
     }
   }
+  // Belt-and-braces for the member's bundle gate (bundle-vizmaster.mjs fails closed on
+  // the same condition at bundle time): the payload is seeded to ~/.vizmaster/default and
+  // runs `npm ci` on the USER's machine, where no @vizmaster/* workspace package exists —
+  // such a row resolves against the public registry and 404s, breaking the seeded project
+  // on first launch (measured 2026-11-07: tools-smoke.ts's dep declaration did exactly
+  // this). The member gate guards the bundle; this guards the artefact, so a member-side
+  // regression cannot ship.
+  let manifest
+  try {
+    manifest = JSON.parse(fs.readFileSync(join(payload, 'package.json'), 'utf8'))
+  } catch (error) {
+    throw new Error(`vizshow payload: package.json under ${payload} is not parseable JSON — ${error.message}`)
+  }
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const deps = manifest[section]
+    if (deps === undefined) continue
+    if (typeof deps !== 'object' || deps === null || Array.isArray(deps)) {
+      throw new Error(`vizshow payload: package.json ${section} is not an object`)
+    }
+    for (const [name, spec] of Object.entries(deps)) {
+      if (name.startsWith('@vizmaster/')) {
+        throw new Error(
+          `vizshow payload: package.json declares ${name} (${section}) — @vizmaster/* are private workspace packages; a seeded project's npm ci resolves them against the public registry and 404s (P0)`,
+        )
+      }
+      if (typeof spec === 'string' && spec.startsWith('workspace:')) {
+        throw new Error(`vizshow payload: package.json declares ${name}@${spec} (${section}) — workspace: protocols cannot resolve outside the member repo (P0)`)
+      }
+    }
+  }
   console.log(`  after-pack: vizshow payload verified (${payload})`)
 }
+
+exports.verifyDashboardPayload = verifyDashboardPayload
 
 function executablePath(context, platform = process.platform) {
   const { appOutDir, packager } = context

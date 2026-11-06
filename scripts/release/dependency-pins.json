@@ -17,6 +17,10 @@
       "resolved": "file:vendor/vclawhub-agent-1.5.0.tgz",
       "integrity": "sha512-W+wviKgOTicxtEnYNLsxLLjoz+Afwk7phNTn2S3oy/Gd+NTC8lFvTKZr5ZX0B52waWo9XypECN5OV92xBrdo+Q=="
     },
+    "node_modules/@vizmaster/vizshow-contract": {
+      "resolved": "file:vendor/vizmaster-vizshow-contract-0.1.1.tgz",
+      "integrity": "sha512-/JRzB5ijO5HRI4Y2SrMcBbGXfIUX4VgcSmSITFwvO1wy5nJQgAVwbsBQb7WHxmYJCLtF4xfI0aT+vqR03DkMIw=="
+    },
     "node_modules/prime-agent": {
       "resolved": "file:vendor/prime-agent-0.7.0-gooeypi.1.tgz",
       "integrity": "sha512-WrsxPwAFfhuTnpL2q6x7wftoZJuzFJDVZ4YbmfkFLqqum05rE8GB8H6HGFAM9rCWa4mXBou4qoOpe7ryWU5j9Q=="

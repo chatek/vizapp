@@ -109,7 +109,7 @@ import { assertBundleSizeBudgets, assertPackageSizeBudgets, BUNDLE_SIZE_BUDGETS,
 import { assertReleaseTag } from '../scripts/release/validate-release-tag.mjs'
 import { assertCleanBuild, handoffManifest, handoffTuple, runStaging, stagingPrefix } from '../scripts/release/publish-member-staging.mjs'
 // after-pack.cjs is CommonJS; the interop layer exposes module.exports properties as named exports.
-import { executablePath } from '../scripts/release/after-pack.cjs'
+import { executablePath, verifyDashboardPayload } from '../scripts/release/after-pack.cjs'
 import { collectAuditAdvisories, describeAuditEvaluation, evaluateAuditReport, parseAuditExceptions, readAuditExceptions } from '../scripts/release/audit-exceptions.mjs'
 import {
   assertValidAuthenticode,
@@ -1016,10 +1016,12 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
       'package-member: Fail closed on an incomplete member request',
       'package-member: Fail closed unless every release credential is configured',
       'package-member: Fetch the member repo at the pinned sha',
+      'package-member: Fetch the pinned omp binary for this arch',
       'package-member: Publish the immutable staging prefix for the handoff',
       'package-windows: Build, Authenticode-sign, and verify Windows packages',
       'package: Build, sign, notarize, and verify release packages',
       'package: Fail closed unless every release credential is configured',
+      'package: Fetch the pinned omp binary for this arch',
     ])
     for (const step of secretSteps) {
       // Secrets may only be consumed as env-var assignments inside the step's
@@ -1506,6 +1508,66 @@ describe('fuse hardening configuration', () => {
     expect(packageJson.build.afterPack).toBe('scripts/release/after-pack.cjs')
     expect(() => readFileSync('scripts/afterPack.cjs', 'utf8')).toThrow()
     expect(readFileSync(packageJson.build.afterPack, 'utf8')).toContain('FuseV1Options.OnlyLoadAppFromAsar')
+  })
+})
+
+describe('after-pack vizshow payload gate', () => {
+  // The payload is seeded to ~/.vizmaster/default and npm-ci'd on the user's machine,
+  // where @vizmaster/* workspace packages do not exist — such a row 404s against the
+  // public registry and breaks the seeded project on first launch (measured 2026-11-07).
+  // The linux candidate path is <appOutDir>/app/resources/product/payload; the fixture
+  // builds exactly that, and the gate finds it via its BUILD.json probe.
+  const makeContext = (root: string) => {
+    const payload = join(root, 'app', 'resources', 'product', 'payload')
+    const writePayload = (packageJson: Record<string, unknown>) => {
+      mkdirSync(payload, { recursive: true })
+      writeFileSync(join(payload, 'BUILD.json'), '{}')
+      writeFileSync(join(payload, 'package.json'), JSON.stringify(packageJson))
+      mkdirSync(join(payload, '.omp', 'tools'), { recursive: true })
+      writeFileSync(join(payload, '.omp', 'tools', 'math-renderer.ts'), '')
+      mkdirSync(join(payload, 'src'), { recursive: true })
+    }
+    return {
+      context: {
+        appOutDir: root,
+        electronPlatformName: 'linux',
+        packager: { appInfo: { productFilename: 'app', sanitizedName: 'app' } },
+      },
+      writePayload,
+    }
+  }
+
+  test('accepts a payload whose dependencies all resolve publicly', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload } = makeContext(root)
+      writePayload({ name: 'default', dependencies: { '@earendil-works/pi-ai': '^1.0.0' } })
+      expect(() => verifyDashboardPayload(context)).not.toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses an @vizmaster/* dependency — it cannot resolve on the user machine', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload } = makeContext(root)
+      writePayload({ name: 'default', dependencies: { '@vizmaster/vizshow-contract': 'file:vendor/x.tgz' } })
+      expect(() => verifyDashboardPayload(context)).toThrow(/@vizmaster\/vizshow-contract.*npm ci resolves them against the public registry and 404s/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses a workspace: protocol in any dependency section', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload } = makeContext(root)
+      writePayload({ name: 'default', devDependencies: { foo: 'workspace:*' } })
+      expect(() => verifyDashboardPayload(context)).toThrow(/workspace: protocols cannot resolve outside the member repo/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
