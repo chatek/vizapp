@@ -94,10 +94,12 @@ async function press(key: string, init: KeyboardEventInit = {}): Promise<void> {
   })
 }
 
+// `Promise.withResolvers` is not in this project's test lib (ES2022); the executor form is the
+// same wait with no extra dependency.
 async function idle(ms = 200): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>()
-  setTimeout(resolve, ms)
-  await act(async () => { await promise })
+  await act(async () => {
+    await new Promise<void>((resolve) => { setTimeout(resolve, ms) })
+  })
 }
 
 beforeEach(() => {

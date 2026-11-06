@@ -65,6 +65,13 @@ export interface PromptConfig {
   natsUrl: string
   vgateUrl: string
   name: string
+  /**
+   * The OIDC access token (`aud vizmaster-vcc`) the service authenticates a HUMAN with. The
+   * desktop does not run an OIDC client, so this is a CONFIGURED credential: when it is absent
+   * the vclaw identity JWT from `fetchNatsUserJWT` is presented instead and a refusal surfaces
+   * as a typed `unauthorized` rather than a guess.
+   */
+  accessToken?: string
   subjects: PromptSubjects
 }
 
@@ -158,6 +165,7 @@ export function resolvePromptConfig(
   const server = nonEmpty(env.VCLAW_PROMPTS_NATS_URL) ?? nonEmpty(env.VCLAW_NATS_URL) ?? nonEmpty(config?.server) ?? 'nats://vchat3:4223'
   const vgateUrl = nonEmpty(env.VCLAW_PROMPTS_VGATE_URL) ?? nonEmpty(env.VCLAW_API_URL) ?? nonEmpty(env.VCLAW_VGATE_URL) ?? nonEmpty(config?.vgateUrl) ?? 'https://api.vclawhub.com'
   const segment = segmentFor(env)
+  const accessToken = nonEmpty(env.VCLAW_PROMPTS_ACCESS_TOKEN) ?? nonEmpty(config?.vizmasterAccessToken)
   return {
     ok: true,
     config: {
@@ -167,20 +175,95 @@ export function resolvePromptConfig(
       natsUrl: server,
       vgateUrl: vgateUrl.replace(/\/+$/, ''),
       name: `vclaw-desktop-prompts:${identity.nkey.slice(-8)}`,
+      ...(accessToken ? { accessToken } : {}),
       subjects: promptSubjects(segment, subHmac),
     },
   }
+}
+
+/**
+ * Both headers carry the SAME token: the service reads `Authorization` case-insensitively and
+ * falls back to `X-Vizmaster-Token` for transports whose header framing cannot take the
+ * triple-slash value. Sending both is one field on the wire and removes a whole class of
+ * "which client mangled my header" failures.
+ */
+export function bearerHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, 'X-Vizmaster-Token': token }
+}
+
+/** Request options the service owns; the transport only forwards them. */
+export interface SuggestionsRequestOptions {
+  timeoutMs: number
+  /** Sent as-is on the request; `Authorization: Bearer <jwt>` is the service's auth (§3). */
+  headers?: Record<string, string>
 }
 
 /** Minimal surface the service consumes, so tests drive it with a fake and no SDK import. */
 export interface SuggestionsNatsLike {
   subscribe(subject: string, handler: (data: Uint8Array) => void): Promise<() => void>
   publish(subject: string, data: Uint8Array): void
-  request(subject: string, data: Uint8Array, timeoutMs: number): Promise<Uint8Array>
+  request(subject: string, data: Uint8Array, options: SuggestionsRequestOptions): Promise<Uint8Array>
+  /** The identity's bearer token, minted from vgate by agent-sdk; cached until it nears expiry. */
+  authToken(): Promise<string | null>
+  /** Re-mints the bearer token after the service refused the cached one. */
+  refreshAuthToken(): Promise<string | null>
   close(): Promise<void>
 }
 
 export type SuggestionsConnector = () => Promise<SuggestionsNatsLike>
+
+/** Tokens are re-minted this long before `exp` so a request never races the expiry. */
+const TOKEN_EXPIRY_SKEW_MS = 60_000
+
+/** `exp` from a JWT payload, in epoch milliseconds, or null when the token carries none. */
+export function jwtExpiresAt(token: string): number | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const exp = (parsed as { exp?: unknown }).exp
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1_000 : null
+  } catch {
+    return null
+  }
+}
+
+export interface BearerTokenSource {
+  token(): Promise<string | null>
+  refresh(): Promise<string | null>
+}
+
+/**
+ * Caches one minted token until shortly before it expires. Concurrent callers share a single
+ * in-flight mint, and a failed mint keeps the previous token: presenting a stale token is a
+ * typed `unauthorized` the UI can show, while presenting none is a silent 401 with no recovery.
+ */
+export function createBearerTokenSource(
+  mint: () => Promise<string>,
+  options: { now?: () => number; skewMs?: number } = {},
+): BearerTokenSource {
+  const now = options.now ?? Date.now
+  const skew = options.skewMs ?? TOKEN_EXPIRY_SKEW_MS
+  let cached: string | null = null
+  let expiresAt: number | null = null
+  let pending: Promise<string> | null = null
+  const mintOnce = (): Promise<string> => {
+    pending ??= mint()
+      .then((token) => { cached = token; expiresAt = jwtExpiresAt(token); return token })
+      .finally(() => { pending = null })
+    return pending
+  }
+  return {
+    token: async () => {
+      if (cached && (expiresAt === null || expiresAt - now() > skew)) return cached
+      try { return await mintOnce() } catch { return cached }
+    },
+    refresh: async () => {
+      try { return await mintOnce() } catch { return cached }
+    },
+  }
+}
 
 /**
  * agent-sdk's `connectViaJWT` ends the PROCESS when the fabric error-closes the connection
@@ -209,25 +292,37 @@ const encoder = new TextEncoder()
 
 /**
  * The real connection: agent-sdk mints a NATS user JWT from the vgate token endpoint and
- * connects with it, refreshing on the same 50-minute cadence the CLI uses so a reconnect never
- * presents an expired token.
+ * connects with it. The same token authenticates the connection AND authorises each Micro
+ * request (`Authorization: Bearer …`), so one cache feeds both — a reconnect and a retry after
+ * `unauthorized` therefore present the same fresh token, never an expired one.
  */
 export async function connectSuggestionsNats(config: PromptConfig): Promise<SuggestionsNatsLike> {
   installSdkExitGuard()
   // Dynamic on purpose: agent-sdk pulls @nats-io/{transport-node,nats-core} plus zod and the MCP
   // SDK. A static import would pay that parse on EVERY app launch, including the many launches
   // where `VCLAW_PROMPTS` is off and no connection is ever made.
-  const { connectViaJWT, fetchNatsUserJWT } = await import('@vclawhub/agent')
-  let currentJwt = await fetchNatsUserJWT(config.vgateUrl, config.identity.nkey, config.identity.seed)
-  const refresh = setInterval(() => {
-    void fetchNatsUserJWT(config.vgateUrl, config.identity.nkey, config.identity.seed)
-      .then((next) => { currentJwt = next })
-      .catch((error: unknown) => {
-        console.warn('[vclaw-prompts] JWT refresh failed; keeping the current token:', error instanceof Error ? error.message : error)
-      })
-  }, JWT_REFRESH_MS)
+  const [{ connectViaJWT, fetchNatsUserJWT }, { headers: natsHeaders }] = await Promise.all([
+    import('@vclawhub/agent'),
+    // `headers()` builds the MsgHdrs nats.js requires; a plain object throws `hdrs.encode is not
+    // a function` on the wire, which is exactly how the missing Authorization was invisible.
+    import('@nats-io/nats-core'),
+  ])
+  const tokens = createBearerTokenSource(() => config.accessToken
+    ? Promise.resolve(config.accessToken)
+    : fetchNatsUserJWT(config.vgateUrl, config.identity.nkey, config.identity.seed))
+  const minted = await tokens.token()
+  if (!minted) throw new Error('vgate returned no NATS token')
+  // `jwtAuthenticator` takes a SYNCHRONOUS provider that it re-reads on every (re)connect; this
+  // mirror is what a refresh updates, so a reconnect presents the token the cache just minted.
+  let current = minted
+  const adopt = async (next: Promise<string | null>): Promise<string | null> => {
+    const token = await next
+    if (token) current = token
+    return token
+  }
+  const nc = await connectViaJWT(config.natsUrl, () => current, config.identity.seed, config.name)
+  const refresh = setInterval(() => { void adopt(tokens.refresh()) }, JWT_REFRESH_MS)
   refresh.unref?.()
-  const nc = await connectViaJWT(config.natsUrl, () => currentJwt, config.identity.seed, config.name)
   armedConnections += 1
   return {
     subscribe: async (subject, handler) => {
@@ -237,10 +332,17 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
       return () => { try { sub.unsubscribe() } catch { /* already closed */ } }
     },
     publish: (subject, data) => nc.publish(subject, data),
-    request: async (subject, data, timeoutMs) => {
-      const message = await nc.request(subject, data, { timeout: timeoutMs })
+    request: async (subject, data, options) => {
+      const frame = options.headers ? natsHeaders() : null
+      if (frame) for (const [name, value] of Object.entries(options.headers ?? {})) frame.set(name, value)
+      const message = await nc.request(subject, data, {
+        timeout: options.timeoutMs,
+        ...(frame ? { headers: frame } : {}),
+      })
       return message.data
     },
+    authToken: () => adopt(tokens.token()),
+    refreshAuthToken: () => adopt(tokens.refresh()),
     close: async () => {
       clearInterval(refresh)
       armedConnections = Math.max(0, armedConnections - 1)
@@ -468,28 +570,56 @@ export class SuggestionsService {
     }
   }
 
+  /**
+   * One Micro request, carrying the identity's token in `Authorization` + `X-Vizmaster-Token`.
+   * Only `unauthorized` re-mints and retries EXACTLY once — a second refusal is terminal and
+   * `forbidden_segment` is passed through untouched, because a loop would turn a wrong-segment
+   * client into a request storm.
+   *
+   * Endpoint NAMES (`vizregistry_prompts`, `room_open`, …) never appear here — the service's
+   * names cannot contain dots, so the only strings the desktop builds are SUBJECTS.
+   */
   async #request(
     connection: SuggestionsNatsLike,
     subject: string,
     payload: Record<string, unknown>,
   ): Promise<PromptSuggestionInvokeResult> {
-    let reply: Uint8Array
-    try {
-      reply = await connection.request(subject, encoder.encode(JSON.stringify(payload)), REQUEST_TIMEOUT_MS)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, error: /timeout/i.test(message) ? 'timeout' : 'unavailable' }
+    const body = encoder.encode(JSON.stringify(payload))
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // A token source that fails must not throw through an IPC handler: an absent header is a
+      // typed `unauthorized` from the service, which the renderer can render.
+      const token = await (attempt === 0 ? connection.authToken() : connection.refreshAuthToken()).catch(() => null)
+      let reply: Uint8Array
+      try {
+        reply = await connection.request(subject, body, {
+          timeoutMs: REQUEST_TIMEOUT_MS,
+          ...(token ? { headers: bearerHeaders(token) } : {}),
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, error: /timeout/i.test(message) ? 'timeout' : 'unavailable' }
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(textDecoder.decode(reply))
+      } catch {
+        return { ok: false, error: 'invalid_reply' }
+      }
+      if (!isRecord(parsed)) return { ok: false, error: 'invalid_reply' }
+      const refusal = typeof parsed.rejected === 'string' && parsed.rejected
+        ? parsed.rejected
+        : typeof parsed.code === 'string' && parsed.code
+          ? parsed.code
+          : typeof parsed.error === 'string' && parsed.error
+            ? parsed.error
+            : parsed.ok === false
+              ? 'refused'
+              : null
+      if (refusal === 'unauthorized' && attempt === 0) continue
+      if (refusal) return { ok: false, error: refusal }
+      return { ok: true, data: parsed }
     }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(textDecoder.decode(reply))
-    } catch {
-      return { ok: false, error: 'invalid_reply' }
-    }
-    if (!isRecord(parsed)) return { ok: false, error: 'invalid_reply' }
-    if (typeof parsed.rejected === 'string' && parsed.rejected) return { ok: false, error: parsed.rejected }
-    if (parsed.ok === false) return { ok: false, error: typeof parsed.error === 'string' && parsed.error ? parsed.error : 'refused' }
-    return { ok: true, data: parsed }
+    return { ok: false, error: 'unauthorized' }
   }
 
   async stop(): Promise<void> {

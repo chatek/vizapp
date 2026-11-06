@@ -19,7 +19,7 @@ vi.mock('electron', () => electronMocks)
 
 import { registerIpc } from '../../electron/main/ipc'
 import type { VclawInboxService } from '../../electron/main/inbox-service'
-import type { VclawInboxSnapshot } from '../../src/types/api'
+import type { PromptSuggestionInvokeResult, VclawInboxSnapshot } from '../../src/types/api'
 
 
 /**
@@ -411,9 +411,9 @@ describe('prompt suggestion IPC', () => {
       unsubscribe,
       onSuggestion: vi.fn((listener: (suggestion: Suggestion) => void) => { notify = listener; return unsubscribe }),
       setDraft: vi.fn(),
-      openSession: vi.fn(async () => ({ ok: true as const, data: { roomId: 'room-1', peer: 'UTEACHER' } })),
-      closeSession: vi.fn(async () => ({ ok: true as const, data: { closed: true } })),
-      feedback: vi.fn(async () => ({ ok: true as const, data: { ok: true } })),
+      openSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER' } })),
+      closeSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { closed: true } })),
+      feedback: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { ok: true } })),
     }
   }
 
@@ -512,6 +512,19 @@ describe('prompt suggestion IPC', () => {
     await expect(feedback('sug-2', 'archived')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
     await expect(feedback('', 'rejected')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
     expect(suggestions.feedback).toHaveBeenCalledTimes(1)
+    registration.dispose()
+  })
+
+  it('passes a typed unauthorized refusal straight through to the renderer', async () => {
+    const suggestions = {
+      ...suggestionsStub(),
+      feedback: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: false, error: 'unauthorized' })),
+      openSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: false, error: 'unauthorized' })),
+    }
+    const { registration, consent, feedback } = register(suggestions)
+
+    await expect(feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'unauthorized' })
+    await expect(consent({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })).resolves.toEqual({ ok: false, error: 'unauthorized' })
     registration.dispose()
   })
 
