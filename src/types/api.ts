@@ -55,6 +55,39 @@ export interface PromptSuggestionViz {
   params: PromptSuggestionVizParams
 }
 
+/**
+ * One per-prompt build produced by the payload's `buildVizShow` tool under
+ * `~/.vizmaster/vizshow/<id>/`: BUILD.json says it is `done`, and the static server serves it.
+ * Everything here is read from an untrusted file, so every field is optional except the id.
+ */
+export interface VizshowBuild {
+  id: string
+  /** Lowercased `status` from BUILD.json; only `done` builds are offered. */
+  status: string
+  /** Entry document relative to the build directory (defaults to `index.html`). */
+  entry: string
+  prompt?: string
+  createdAt?: string
+}
+
+/** What the renderer knows about the vizshow surface: the latest build and the server's port. */
+export interface VizshowSnapshot {
+  latest: VizshowBuild | null
+  /** How many ready builds exist under the output root. */
+  builds: number
+  port: number | null
+  baseUrl: string | null
+}
+
+/** Outcome of the live-project preview (5174). `note` explains a navigate-anyway outcome. */
+export interface VizmasterPreviewResult {
+  ok: boolean
+  url: string
+  started: boolean
+  note?: 'already_serving' | 'started' | 'not_ready'
+  error?: 'no_project' | 'npm_missing' | 'spawn_failed'
+}
+
 /** One parameter a catalogue manifest accepts. `values` lists the legal strings, when closed. */
 export interface PromptCatalogueParam {
   key: string
@@ -972,6 +1005,19 @@ export interface AgentBrowserPointerEvent {
 }
 
 export interface PrimeWorkApi {
+  /**
+   * The two preview surfaces. `vizshow` is the immutable per-prompt builds (a loopback static
+   * server over `~/.vizmaster/vizshow/`); the live project lives on `http://localhost:5174/`.
+   */
+  vizshow: {
+    state(): Promise<VizshowSnapshot>
+    onChanged(callback: (snapshot: VizshowSnapshot) => void): () => void
+    /** Resolves a build id (or the latest build) to a URL the pane may load. */
+    url(buildId?: string): Promise<{ ok: true; url: string; build: VizshowBuild } | { ok: false; error: string }>
+    /** Spawns `npm run preview|dev` in the seeded project; answers the URL either way. */
+    preview(mode?: 'preview' | 'dev'): Promise<VizmasterPreviewResult>
+  }
+
   app: { getMeta(): Promise<AppMeta>; refreshHarnesses(): Promise<{ meta: AppMeta; settings: AppSettings }>; openExternal(url: string): Promise<boolean>; revealPath(path: string): Promise<boolean>; popupMenu(menu: ApplicationMenuName, x: number, y: number): Promise<boolean>; setTitleBarTheme(theme: TitleBarTheme): Promise<boolean>; onOpenSettings(callback: () => void): () => void }
   updates: {
     getState(): Promise<AppUpdateState>

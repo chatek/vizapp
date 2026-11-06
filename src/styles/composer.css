@@ -233,3 +233,19 @@
   .composer--busy::after { animation: none; --composer-flow: 210deg; opacity: .6; }
 }
 .reduce-motion .composer--busy::after { animation: none; --composer-flow: 210deg; opacity: .6; }
+
+/* The two preview surfaces, above the composer: an immutable per-prompt VizShow (loopback
+   static server) and the LIVE project on 5174. Neither steals focus; both navigate the pane. */
+.vizshow-chip-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 2px 6px; }
+.vizshow-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); background: var(--surface-subtle); font-size: 10.5px; cursor: pointer; }
+.vizshow-chip:hover { color: var(--text); background: var(--surface-hover); }
+.vizshow-chip[aria-busy='true'] { opacity: .7; }
+.vizshow-chip__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vizshow-chip--build { border-color: color-mix(in srgb, var(--focus) 38%, var(--border)); }
+.vizshow-chip--build.is-fresh { border-color: var(--focus); color: var(--text); animation: vizshow-pulse 1.6s ease-in-out 2; }
+.vizshow-chip__fresh { padding: 0 5px; border-radius: 999px; color: var(--canvas); background: var(--focus); font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
+.vizshow-chip__error { color: var(--danger); font-size: 10.5px; }
+@keyframes vizshow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 35%, transparent); }
+}

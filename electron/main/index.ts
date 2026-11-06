@@ -42,6 +42,7 @@ import { configureVClawAgentMessageSigning, loadOrCreateVClawAgentMessageKey } f
 import { extensionInjection, resolveExtensionPath, type ExtensionCapability } from './extension-manifest'
 import { SessionService } from './sessions'
 import { VclawInboxService } from './inbox-service'
+import { VizshowService } from './vizshow-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
@@ -75,6 +76,7 @@ let agentScheduleBridges: AgentScheduleBridge[] = []
 let agentBrowser: AgentBrowserService | null = null
 let agentBrowserBridge: AgentBrowserBridge | null = null
 let agentCollaborationBridge: AgentCollaborationBridge | null = null
+let vizshowService: VizshowService | null = null
 let backgroundMode: MacBackgroundController | null = null
 let shutdownStarted = false
 let shutdownApproved = false
@@ -1160,6 +1162,10 @@ async function bootstrap(): Promise<void> {
     return { meta: structuredClone(meta), settings: currentSettings }
   }
   trustedRendererUrl = resolveRendererUrl()
+  // The per-prompt VizShow surface. Constructing it only WATCHES: the loopback listener binds on
+  // the first URL the renderer asks for, so a desktop that never shows a build opens no port.
+  const vizshow = new VizshowService()
+  vizshowService = vizshow
   const inboxService = new VclawInboxService({
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
@@ -1168,11 +1174,13 @@ async function bootstrap(): Promise<void> {
     meta, refreshHarnesses, projects, checkouts, sessions, agents, terminals, git, plugins, providers, settings, updates, cuaDriver, heartbeats, schedules, browser: browserService, voice, pets,
     popupApplicationMenu, setTitleBarTheme,
     inbox: inboxService,
+    vizshow,
     omp: { projects: ompProjects, sessions: ompSessions, agents: ompManager, catalog: ompCatalog, plugins: ompPlugins },
     pi: { projects: piProjects, sessions: piSessions, agents: piManager, catalog: piCatalog, plugins: piPlugins },
     applyInterfaceZoom,
   }, trustedRendererUrl)
   inboxService.start()
+  vizshow.start()
   // Both managers share the one renderer forwarding path: envelopes carry the
   // runtimeId and RuntimeInfo carries the harness, so the renderer can route.
   const forwardAgentEvent = (envelope: PrimeEventEnvelope): void => {
@@ -1330,6 +1338,7 @@ app.on('before-quit', (event) => {
   providerService?.cancelAll()
   agentBrowser?.beginShutdown()
   void settleShutdown([
+    vizshowService?.stop() ?? Promise.resolve(),
     ...agentScheduleBridges.map((bridge) => bridge.stop()),
     agentBrowserBridge?.stop() ?? Promise.resolve(),
     agentCollaborationBridge?.stop() ?? Promise.resolve(),

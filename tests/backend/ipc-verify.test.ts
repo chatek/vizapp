@@ -74,6 +74,7 @@ function services() {
     settings: serviceStub(),
     heartbeats: serviceStub(),
     inbox: inboxStub(),
+    vizshow: { snapshot: () => ({ latest: null, builds: 0, port: null, baseUrl: null }), onChanged: () => () => undefined, urlFor: async () => ({ ok: false as const, error: 'no_build' }) },
     schedules: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined) },
     browser: { ...serviceStub(), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
     pets: { list: vi.fn(async () => [{ id: 'orb' }]), sprite: vi.fn(async () => 'data:image/webp;base64,pet') },

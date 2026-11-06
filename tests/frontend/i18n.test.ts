@@ -45,6 +45,15 @@ describe('i18n', () => {
     // The capability chip interpolates the tutorial and its formatted params, in both locales.
     expect(translate('en', 'composer.suggest.renders', values)).toBe('quadratic-functions · a=1 b=-3 c=2')
     expect(translate('zh-CN', 'composer.suggest.renders', values)).toBe('quadratic-functions · 参数 a=1 b=-3 c=2')
+    // Brand-bearing strings are intentionally identical across catalogs (`VizShow` is the
+    // product's name), so they are checked for PRESENCE, not for a difference.
+    for (const key of ['vizshow.latest', 'vizshow.new', 'vizshow.open', 'vizshow.preview', 'vizshow.previewLabel', 'vizshow.previewStarting', 'vizshow.previewFailed'] as const) {
+      expect(translate('en', key, { id: 'b-9f2c' }), key).not.toBe(key)
+      expect(translate('zh-CN', key, { id: 'b-9f2c' }), key).not.toBe(key)
+    }
+    expect(translate('en', 'vizshow.latest', { id: 'b-9f2c' })).toBe('VizShow · b-9f2c')
+    expect(translate('zh-CN', 'vizshow.previewFailed')).toBe('项目预览未能启动')
+
     // The badge's singular/plural selection is wired to the count, not to the locale.
     expect(translate('en', 'composer.suggest.badge', { count: 1, source: 'agent' })).toBe('1 suggestion from agent')
     expect(translate('en', 'composer.suggest.badge', { count: 2, source: 'agent' })).toBe('2 suggestions from agent')

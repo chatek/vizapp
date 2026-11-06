@@ -21,6 +21,8 @@ import type { UpdateService } from './updates'
 import type { AgentBrowserService } from './browser/agent-service'
 import { isRecord, requireExistingPath, requireRecord, requireString, requireWebUrl } from './validation'
 import type { SuggestionsService } from './suggestions-service'
+import type { VizshowService } from './vizshow-service'
+import { ensureProjectPreview } from './vizmaster-preview'
 
 interface Services {
   meta: AppMeta
@@ -53,6 +55,8 @@ interface Services {
   applyInterfaceZoom?(scale: number): void
   /** vclaw inbox: reads the frozen spool and pushes state changes. */
   inbox: VclawInboxService
+  /** Per-prompt VizShow builds: the loopback static server and the build watch. */
+  vizshow: VizshowService
   /**
    * Shared prompt auto-complete: NATS subscriber + invoke bridge (contract §4). ABSENT while
    * `VCLAW_PROMPTS` is off — that absence is how the flag reaches the IPC layer, where every
@@ -513,6 +517,21 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
     if (!service) return { ok: false, error: 'disabled' }
     return service.link()
   })
+  // The vizshow surface: state + URL resolution + the live-project preview. The URL is ALWAYS
+  // resolved by main, so the renderer never composes a loopback origin of its own.
+  handle('vclaw-vizshow:state', () => services.vizshow.snapshot())
+  handle('vclaw-vizshow:url', (_event, buildId) => {
+    if (buildId !== null && buildId !== undefined && typeof buildId !== 'string') return { ok: false, error: 'invalid_build' }
+    return services.vizshow.urlFor(typeof buildId === 'string' ? buildId : undefined)
+  })
+  handle('vclaw-vizshow:preview', (_event, mode) => ensureProjectPreview({ mode: mode === 'dev' ? 'dev' : 'preview' }))
+  const unsubscribeVizshow = services.vizshow.onChanged((snapshot) => {
+    for (const [id, contents] of authorized) {
+      if (contents.isDestroyed()) { authorized.delete(id); continue }
+      if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+        && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-vizshow:changed', snapshot)
+    }
+  })
   // Cached in main for the process lifetime: the endpoint costs ~2 s, and the renderer may ask
   // on every mount. A failure is a typed value, never a throw.
   handle('vclaw-suggestions:catalogue', () => services.suggestions
@@ -616,6 +635,7 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       unsubscribePiSessionChanges()
       unsubscribeInbox()
       unsubscribeSuggestions()
+      unsubscribeVizshow()
       unsubscribeDraftOutcomes()
       if (typeof unsubscribeScheduleChanges === 'function') unsubscribeScheduleChanges()
       if (typeof unsubscribeBrowserChanges === 'function') unsubscribeBrowserChanges()

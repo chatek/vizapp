@@ -3,6 +3,7 @@ import type { Components } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { openExternalUrl } from '@/lib/desktop-actions'
+import { openVizshow } from '@/lib/vizshow-open'
 
 interface MarkdownTextProps {
   text: string
@@ -15,6 +16,14 @@ function openMarkdownLink(event: MouseEvent<HTMLAnchorElement>, href?: string): 
   event.preventDefault()
   if (href.startsWith('#')) {
     try { document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({ block: 'start' }) } catch { /* malformed fragment */ }
+    return
+  }
+  // A produced VizShow is a pane page, not an external site: main resolves the build to the
+  // loopback URL (binding the server on first use), then the App navigates the pane there.
+  if (/^vizshow:\/\//i.test(href)) {
+    void openVizshow(href).then((opened) => {
+      if (!opened) console.error('Opening a VizShow link failed:', href)
+    })
     return
   }
   if (!/^(https?:|mailto:)/i.test(href)) return
@@ -32,12 +41,22 @@ function openMarkdownLink(event: MouseEvent<HTMLAnchorElement>, href?: string): 
 const markdownPlugins = [remarkGfm]
 
 /**
+ * react-markdown's default transform drops every scheme except http(s)/mailto/tel, which would
+ * silently turn a `vizshow://<build-id>` link into dead text. This keeps the allowlist explicit
+ * (no `javascript:`, no `data:`) and adds only the one scheme this app defines.
+ */
+function allowMarkdownUrl(url: string): string {
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return url
+  return /^(https?:|mailto:|tel:|vizshow:)/i.test(url) ? url : ''
+}
+
+/**
  * Each block resolves its own base direction from its first strong character.
  * The browser skips descendants that carry their own `dir`, so a paragraph
  * opening with LTR code still lays out RTL prose correctly.
  */
 const markdownComponents: Components = {
-  a: ({ node: _node, href, children, ...props }) => href && (/^(https?:|mailto:|#)/i.test(href))
+  a: ({ node: _node, href, children, ...props }) => href && (/^(https?:|mailto:|vizshow:|#)/i.test(href))
     ? <a {...props} href={href} rel="noreferrer" onClick={(event) => openMarkdownLink(event, href)}><bdi>{children}</bdi></a>
     : <span className="markdown-link-unsupported" title={href ? `Project-relative link: ${href}` : undefined}>{children}</span>,
   blockquote: ({ node: _node, ...props }) => <blockquote {...props} dir="auto" />,
@@ -123,7 +142,7 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
   // unparsed suffix as a sibling block makes punctuation and partial words
   // jump onto separate lines while tokens are still arriving.
   const markdown = useMemo(
-    () => <ReactMarkdown remarkPlugins={markdownPlugins} skipHtml components={markdownComponents}>{parsedText}</ReactMarkdown>,
+    () => <ReactMarkdown remarkPlugins={markdownPlugins} skipHtml components={markdownComponents} urlTransform={allowMarkdownUrl}>{parsedText}</ReactMarkdown>,
     [parsedText],
   )
   return <div className="prose">{markdown}</div>
