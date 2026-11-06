@@ -50,7 +50,9 @@ export interface InspectorProps {
   overlay?: boolean
 }
 
-const tabs: Array<{ id: InspectorTab; label: string }> = [{ id: 'summary', label: 'Summary' }, { id: 'changes', label: 'Changes' }, { id: 'browser', label: 'Browser' }, { id: 'files', label: 'Files' }, { id: 'inbox', label: 'Inbox' }]
+// vizmaster (2026-11-06, operator): tab order left→right is Browser (default open), Summary, Files, Inbox;
+// Changes is HIDDEN from the strip — reachable only programmatically, so deep links keep working.
+const tabs: Array<{ id: InspectorTab; label: string }> = [{ id: 'browser', label: 'Browser' }, { id: 'summary', label: 'Summary' }, { id: 'files', label: 'Files' }, { id: 'inbox', label: 'Inbox' }]
 
 /** Memoized so streaming transcript updates (which this component no longer consumes outside the Summary tab) do not re-render the inspector shell. */
 export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClose, agentName, shortName, project, cwd, runtime, messages, git, automations, heartbeats, onOpenAutomation, browserHome, browserNavigationRequest, onBrowserNavigationRequestHandled, browserAnnotations, agentBrowserTabs, activeAgentTabId, agentPreviewSelected, onSelectAgentTab, onCloseAgentTab, onShowBrowserPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent, onNavigateAgentTab, onRefreshGit, onOpenExternal, onRevealPath, onGrantProject, overlay = false, platform = 'darwin' }: InspectorProps) {

@@ -71,10 +71,14 @@ const renderApp = async () => {
   await act(async () => {})
 }
 
+// vizmaster (2026-11-06, operator): the Changes tab is HIDDEN from the inspector strip (Browser /
+// Summary / Files / Inbox only). The panel still renders for activeTab === 'changes', which the
+// app sets through onTabChange — the programmatic path a hidden tab is meant to use. The observed
+// inspector props give us that callback without depending on the removed button.
 const openChangesTab = async () => {
-  const changesTab = [...container.querySelectorAll<HTMLButtonElement>('.inspector__tabs button')].find((button) => button.textContent?.startsWith('Changes'))
-  expect(changesTab).toBeDefined()
-  await act(async () => { changesTab?.click() })
+  const inspectorProps = observed.inspectorProps.at(-1)
+  expect(inspectorProps).toBeDefined()
+  await act(async () => { inspectorProps?.onTabChange('changes') })
   expect(container.querySelector('#inspector-panel-changes')).not.toBeNull()
 }
 

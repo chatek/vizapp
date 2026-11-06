@@ -432,6 +432,13 @@ async function createWindow(): Promise<BrowserWindow | null> {
   const presentWhenAllowed = () => {
     if (!shouldPresentMainWindow({ splashOverlay, readyToShow, rendererLoaded, overlayCleared })) return
     if (!keepTestWindowsHidden && !backgroundMode?.isBackgrounded() && !shutdownStarted && !window.isDestroyed() && mainWindow === window) window.show()
+    // vizmaster (2026-11-06, operator): the app takes the full screen estate by default — maximize on FIRST
+    // presentation only, so a user who deliberately un-maximizes keeps their choice for the session.
+    if (!keepTestWindowsHidden && !shutdownStarted && !window.isDestroyed() && mainWindow === window
+      && !(window as BrowserWindow & { __maximizedOnce?: boolean }).__maximizedOnce) {
+      ;(window as BrowserWindow & { __maximizedOnce?: boolean }).__maximizedOnce = true
+      window.maximize()
+    }
   }
   window.once('ready-to-show', () => {
     readyToShow = true
