@@ -74,34 +74,13 @@ export function vizmasterProjectRoot(env: NodeJS.ProcessEnv = process.env): stri
   return env.VIZMASTER_DEFAULT_DIR?.trim() || join(vizmasterHome(env), 'default')
 }
 
-/**
- * Build ids are directory names, so they are constrained to a conservative alphabet here and
- * re-checked against the traversal rules at serve time.
- */
-export function isBuildId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value) && !value.includes('..')
-}
-
-/**
- * Reads one build's manifest. `BUILD.json` is written by the payload's `buildVizShow` tool, so it
- * is untrusted input: unknown fields are ignored, and a manifest that cannot prove `id` +
- * `status` is not a build this desktop will offer.
- */
-export function parseBuildManifest(raw: unknown, fallbackId: string): VizshowBuild | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-  const record = raw as Record<string, unknown>
-  const id = isBuildId(record.id) ? record.id : fallbackId
-  const status = typeof record.status === 'string' ? record.status.trim().toLowerCase() : ''
-  if (!status) return null
-  const entry = typeof record.entry === 'string' && record.entry.trim() ? record.entry.trim() : 'index.html'
-  return {
-    id,
-    status,
-    entry,
-    ...(typeof record.prompt === 'string' && record.prompt.trim() ? { prompt: record.prompt.trim().slice(0, 2_000) } : {}),
-    ...(typeof record.createdAt === 'string' && record.createdAt.trim() ? { createdAt: record.createdAt.trim() } : {}),
-  }
-}
+// vizmaster (2026-11-07): the parser contract is CANONICAL in @vizmaster/vizshow-contract
+// (packages/vizshow-contract, sha 9133a36; vendored as the tarball in vendor/ per the
+// established file:-dependency mechanism). This module re-exports it so existing importers
+// keep working; the definitions are no longer duplicated here — the 'defined twice' hole
+// (which produced the built/done drift) is closed at the source.
+export { isBuildId, parseBuildManifest } from '@vizmaster/vizshow-contract'
+import { isBuildId, parseBuildManifest } from '@vizmaster/vizshow-contract'
 
 export interface VizshowServiceOptions {
   root?: string

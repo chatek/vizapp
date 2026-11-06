@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import { join } from 'node:path'
+import { parseShowRecord } from '@vizmaster/vizshow-contract'
 import { isBuildId, vizmasterHome } from './vizshow-service'
 import type { VizshowBuild, VizshowShow, VizshowShowsSnapshot } from '../../src/types/api'
 
@@ -50,22 +51,33 @@ function parseBuildList(value: unknown): string[] {
  * Parses one SHOW.json. Returns null for anything that cannot be proven — including an `id` that
  * disagrees with the directory it sits in (a copied directory is not that show).
  */
+// vizmaster (2026-11-07): composed on @vizmaster/vizshow-contract's parseShowRecord (canonical,
+// sha 9133a36). The contract parses the record; THIS service adds the desktop's stricter rules —
+// the id must match the directory, and name/slug must be present — because a copied show dir is
+// not that show. One definition of the shape, one place for the stricter policy.
 export function parseShowManifest(raw: unknown, fallbackId: string): VizshowShow | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
-  const record = raw as Record<string, unknown>
-  const id = nonEmptyString(record.id, 128)
-  if (!id || !isBuildId(id) || id !== fallbackId) return null
-  const name = nonEmptyString(record.name, 200)
-  const slug = nonEmptyString(record.slug, 128)
-  if (!name || !slug) return null
-  const show: VizshowShow = { id, name, slug, builds: parseBuildList(record.builds) }
-  const prompt = nonEmptyString(record.prompt, 2_000)
-  if (prompt) show.prompt = prompt
-  const createdAt = nonEmptyString(record.createdAt, 64)
-  if (createdAt) show.createdAt = createdAt
-  const updatedAt = nonEmptyString(record.updatedAt, 64)
-  if (updatedAt) show.updatedAt = updatedAt
-  return show
+  // An EXPLICIT but invalid id is a refusal, never a fallback rescue: '../escape' as an id is
+  // a traversal attempt even when the directory happens to carry the same name.
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    const rawId = (raw as Record<string, unknown>).id
+    if (rawId !== undefined && !isBuildId(rawId)) return null
+    // The contract substitutes name||slug; the desktop requires name to be PRESENT and non-empty.
+    const rawName = (raw as Record<string, unknown>).name
+    if (typeof rawName !== 'string' || rawName.trim() === '') return null
+  }
+  const parsed = parseShowRecord(raw, fallbackId)
+  if (parsed === null) return null
+  if (parsed.id !== fallbackId) return null
+  if (!parsed.name.trim() || !parsed.slug.trim()) return null
+  return {
+    id: parsed.id,
+    name: parsed.name,
+    slug: parsed.slug,
+    builds: parseBuildList(parsed.builds),
+    ...(parsed.prompt ? { prompt: parsed.prompt } : {}),
+    ...(parsed.createdAt ? { createdAt: parsed.createdAt } : {}),
+    ...(parsed.updatedAt ? { updatedAt: parsed.updatedAt } : {}),
+  }
 }
 
 /** The newest build of a show, judged by the vizshow service's own `createdAt` ordering. */
