@@ -56,19 +56,19 @@ function verifyDashboardPayload(context) {
   const { appOutDir, packager } = context
   const productName = packager.appInfo.productFilename
   const candidates = [
-    context.electronPlatformName === 'darwin'
-      ? join(appOutDir, `${productName}.app`, 'Contents', 'Resources', 'product', 'payload')
-      : join(appOutDir, productName, 'resources', 'product', 'payload'),
+    context.electronPlatformName === 'darwin' ? join(appOutDir, `${productName}.app`, 'Contents', 'Resources', 'product', 'payload') : join(appOutDir, productName, 'resources', 'product', 'payload'),
     join(appOutDir, 'resources', 'product', 'payload'),
   ]
   const payload = candidates.find((dir) => fs.existsSync(join(dir, 'BUILD.json')))
   if (!payload) {
-    throw new Error([
-      'vizshow payload: product/payload is missing its BUILD.json — the dashboard bytes are absent.',
-      '  The payload is integrator-written build state (untracked by design): before building, run',
-      '  VizMaster/scripts/bundle-vizmaster.mjs then integrate-vcclaw.mjs, or this build ships a product',
-      '  whose prompt→VizShow loop silently cannot work. (packaging review §8 gap 1 — P0)',
-    ].join('\n'))
+    throw new Error(
+      [
+        'vizshow payload: product/payload is missing its BUILD.json — the dashboard bytes are absent.',
+        '  The payload is integrator-written build state (untracked by design): before building, run',
+        '  VizMaster/scripts/bundle-vizmaster.mjs then integrate-vcclaw.mjs, or this build ships a product',
+        '  whose prompt→VizShow loop silently cannot work. (packaging review §8 gap 1 — P0)',
+      ].join('\n'),
+    )
   }
   const markers = ['package.json', join('.omp', 'tools', 'math-renderer.ts'), 'src']
   for (const marker of markers) {
