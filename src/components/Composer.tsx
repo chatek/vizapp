@@ -1,6 +1,6 @@
-import { ArrowUp, AtSign, ChevronDown, Clock3, Command, Edit3, Gauge, ImageIcon, LoaderCircle, MessageCirclePlus, Mic, Paperclip, Plus, Square, SquareTerminal, Trash2, X, Zap } from 'lucide-react'
+import { ArrowUp, AtSign, ChevronDown, Clock3, Command, Edit3, Gauge, ImageIcon, LoaderCircle, MessageCirclePlus, Mic, Paperclip, Plus, Sparkles, Square, SquareTerminal, Trash2, X, Zap } from 'lucide-react'
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type {
   BrowserAnnotation,
   CheckoutAction,
@@ -15,6 +15,7 @@ import type {
   PrimeWorkApi,
   PromptDeliveryIntent,
   PromptImage,
+  PromptSuggestion,
   QueuedPrompt,
   SessionRecord,
   SkillRecord,
@@ -22,6 +23,7 @@ import type {
   TerminalSelectionContext,
   VoiceTranscriptionProvider,
 } from '@/types/api'
+import { useI18n } from '@/lib/i18n'
 import { appendAnnotationsToPrompt } from '@/lib/browser-annotations'
 import { appendCapabilityRouting } from '@/lib/capability-mentions'
 import { appendTerminalContextToPrompt } from '@/lib/terminal-context'
@@ -29,8 +31,10 @@ import { appendSessionRouting, findSessionMentions } from '@/lib/session-mention
 import { clearComposerDraft, readComposerDraft, saveComposerDraft, takeComposerDraft } from '@/lib/composer-draft'
 import { contextDialLabel } from '@/lib/format-cost'
 import { messageActionForKey } from '@/lib/message-shortcuts'
+import { diffPrompts } from '@/lib/prompt-diff'
 import { useComposerImages } from '@/hooks/useComposerImages'
 import { useDictation } from '@/hooks/useDictation'
+import { usePromptSuggestions } from '@/hooks/usePromptSuggestions'
 import { IconButton, SelectControl } from './ui'
 import { ExecutingModelChip, type ExecutingModelChipProps } from './ExecutingModelChip'
 import { ModelPicker } from './ModelPicker'
@@ -121,6 +125,22 @@ const reasoningLabels: Record<PrimeThinkingLevel, string> = {
 
 const MAX_IMAGE_PROMPT_BYTES = 2 * 1024 * 1024
 
+/** §4: how long the draft must be untouched before a pushed suggestion may take the listbox. */
+const SUGGESTION_IDLE_MS = 150
+
+/**
+ * One listbox row. `content` is the rich rendering the suggestion variant needs (diff + source
+ * chip); the other variants keep the label/detail pair.
+ */
+interface ComposerMenuRow {
+  key: string
+  label: string
+  detail: string
+  icon: ReactNode
+  choose(): void
+  content?: ReactNode
+}
+
 const EMPTY_ANNOTATIONS: BrowserAnnotation[] = []
 const noop = () => undefined
 
@@ -172,7 +192,15 @@ export const Composer = memo(function Composer({
   draftKey,
 }: ComposerProps) {
   const [value, setValue] = useState(() => (draftKey ? readComposerDraft(draftKey)?.text : undefined) ?? takeComposerDraft())
-  const [menu, setMenu] = useState<'add' | 'mention' | 'command' | null>(null)
+  const [menu, setMenu] = useState<'add' | 'mention' | 'command' | 'suggest' | null>(null)
+  const promptSuggestions = usePromptSuggestions()
+  const { t, locale } = useI18n()
+  // IME: a composing editor owns every key, so the menu must not open, move, or accept until
+  // `compositionend`. The ref mirrors the state for timers that outlive the current render.
+  const [composing, setComposing] = useState(false)
+  const composingRef = useRef(false)
+  const lastTypedAtRef = useRef(0)
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [sessionReferenceIds, setSessionReferenceIds] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [activeSuggestion, setActiveSuggestion] = useState(0)
   const [annotationsOpen, setAnnotationsOpen] = useState(false)
@@ -218,7 +246,10 @@ export const Composer = memo(function Composer({
       && value.slice(acceptedMention.start, acceptedMention.start + acceptedMention.text.length) === acceptedMention.text,
     )
     if (acceptedMention && !suppressAcceptedMention) acceptedMentionRef.current = null
-    setMenu(value.startsWith('/') && !value.includes(' ') ? 'command' : mentionMatch && !suppressAcceptedMention ? 'mention' : null)
+    const derived: 'command' | 'mention' | null = value.startsWith('/') && !value.includes(' ') ? 'command' : mentionMatch && !suppressAcceptedMention ? 'mention' : null
+    // Typing never closes the suggestion list — its diff follows the draft. An explicit `/` or
+    // `@` still takes the menu, so the pickers keep priority while the student is naming things.
+    setMenu((current) => derived ?? (current === 'suggest' ? 'suggest' : null))
   }, [value])
   useEffect(() => {
     setSessionReferenceIds((current) => {
@@ -249,8 +280,15 @@ export const Composer = memo(function Composer({
       if (target instanceof Element && target.closest('[data-composer-menu-trigger]')) return
       setMenu(null)
     }
+    // Escape is a REFUSAL, not a hide: the service records `rejected` so the teacher learns the
+    // suggestion missed instead of wondering whether it was ever seen.
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key !== 'Escape') return
+      if (menu === 'suggest') {
+        const active = promptSuggestions.suggestions[activeSuggestion] ?? promptSuggestions.suggestions[0]
+        if (active) promptSuggestions.dismiss(active)
+      }
+      setMenu(null)
     }
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', onEscape)
@@ -258,8 +296,35 @@ export const Composer = memo(function Composer({
       document.removeEventListener('mousedown', close)
       document.removeEventListener('keydown', onEscape)
     }
-  }, [menu])
+  }, [activeSuggestion, menu, promptSuggestions])
 
+
+  // §4 arrival rule: a suggestion never steals focus and never interrupts typing. The list opens
+  // once the draft has been idle for 150 ms (or stays open once it is), and otherwise a quiet
+  // badge is the only signal. An IME composition defers the reveal entirely.
+  const suggestionsKey = promptSuggestions.suggestions.map((item) => item.suggestionId).join('\n')
+  const revealSuggestions = () => {
+    if (revealTimerRef.current) { clearTimeout(revealTimerRef.current); revealTimerRef.current = null }
+    if (composingRef.current || !promptSuggestions.suggestions.length) return
+    const open = () => setMenu((current) => (current === 'suggest' ? current : 'suggest'))
+    const remaining = SUGGESTION_IDLE_MS - (Date.now() - lastTypedAtRef.current)
+    if (remaining <= 0) { open(); return }
+    revealTimerRef.current = setTimeout(() => {
+      revealTimerRef.current = null
+      if (!composingRef.current) open()
+    }, remaining)
+  }
+  useEffect(() => {
+    revealSuggestions()
+  }, [suggestionsKey])
+  useEffect(() => () => {
+    clearTimeout(revealTimerRef.current ?? undefined)
+  }, [])
+  // An empty queue can never keep an empty list open.
+  useEffect(() => {
+    if (promptSuggestions.suggestions.length) return
+    setMenu((current) => (current === 'suggest' ? null : current))
+  }, [promptSuggestions.suggestions.length])
 
   // Ctrl/Cmd+Enter in the annotation popover bumps sendSignal to submit the
   // draft (with the just-saved annotation) without switching focus here.
@@ -389,9 +454,30 @@ export const Composer = memo(function Composer({
     textarea?.focus()
   }
 
+  /**
+   * Accepting REPLACES the selection (or inserts at the caret) with the teacher's prompt and
+   * records `accepted`. The chip is a claim — `agent` means the service verified a bound owner,
+   * which the renderer cannot and does not check.
+   */
+  const acceptSuggestion = (suggestion: PromptSuggestion) => {
+    const textarea = textareaRef.current
+    if (textarea) insertAtCaret(textarea, suggestion.prompt)
+    else setValue((current) => `${current}${suggestion.prompt}`)
+    promptSuggestions.accept(suggestion)
+    setMenu(null)
+    textarea?.focus()
+  }
+  const suggestionSource = (suggestion: PromptSuggestion) => suggestion.from.kind === 'agent'
+    ? (suggestion.from.ownerHandle
+      ? t('composer.suggest.source.agentOf', { handle: suggestion.from.ownerHandle })
+      : t('composer.suggest.source.agent'))
+    : t('composer.suggest.source.human', {
+      handle: suggestion.from.display ?? suggestion.from.ownerHandle ?? suggestion.from.nkey.slice(-8),
+    })
+
   const mentionQuery = /(?:^|\s)@([^@\n]*)$/.exec(value)?.[1]?.toLocaleLowerCase().trim() ?? ''
 
-  const suggestions =
+  const suggestions: ComposerMenuRow[] =
     menu === 'command'
       ? (harness === 'prime' ? primeCommands : commands)
           .filter((item) => item.command.startsWith(value))
@@ -428,7 +514,30 @@ export const Composer = memo(function Composer({
               { key: 'files', label: 'Add files', detail: 'Attach images, audio, video, or other files', icon: <Paperclip size={14} />, choose: () => { setMenu(null); fileInputRef.current?.click() } },
               { key: 'mention', label: 'Mention a session or skill', detail: 'Reference sidebar work or an enabled capability', icon: <AtSign size={14} />, choose: () => insert('@') },
             ]
-          : []
+          : menu === 'suggest'
+            ? promptSuggestions.suggestions.map((suggestion) => ({
+                key: suggestion.suggestionId,
+                label: suggestion.prompt,
+                detail: suggestionSource(suggestion),
+                icon: <Sparkles size={14} />,
+                choose: () => acceptSuggestion(suggestion),
+                // The row shows the TEACHING, not just the replacement: text the draft already
+                // has stays plain, and only what accepting would add is marked.
+                content: (
+                  <span className="composer-suggest__body">
+                    <span className="composer-suggest__text">
+                      {diffPrompts(value, suggestion.prompt).map((part, index) => part.kind === 'insert'
+                        ? <mark key={index} title={t('composer.suggest.inserted')}>{part.text}</mark>
+                        : <span key={index}>{part.text}</span>)}
+                    </span>
+                    <small className="composer-suggest__meta">
+                      <span className={`composer-suggest__chip composer-suggest__chip--${suggestion.from.kind}`}>{suggestionSource(suggestion)}</span>
+                      {suggestion.rationale ? <span className="composer-suggest__rationale">{suggestion.rationale}</span> : null}
+                    </small>
+                  </span>
+                ),
+              }))
+            : []
 
   useEffect(() => {
     setActiveSuggestion(0)
@@ -492,7 +601,25 @@ export const Composer = memo(function Composer({
             aria-expanded={Boolean(menu && suggestions.length)}
             aria-controls={menu ? menuId : undefined}
             aria-activedescendant={menu && suggestions.length ? `${menuId}-option-${activeSuggestion}` : undefined}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              lastTypedAtRef.current = Date.now()
+              setValue(event.target.value)
+              // Fire-and-forget: the main process drops this unless a consent session is open.
+              window.prime?.suggestions?.draft({
+                text: event.target.value,
+                locale,
+                cursor: event.target.selectionStart ?? undefined,
+              })
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true
+              setComposing(true)
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false
+              setComposing(false)
+              revealSuggestions()
+            }}
             onPaste={(event) => {
               const files = [...event.clipboardData.items]
                 .filter((item) => item.kind === 'file')
@@ -507,13 +634,22 @@ export const Composer = memo(function Composer({
               void imageAttachments.ingest(files)
             }}
             onKeyDown={(event) => {
+              // IME: while composing, the editor owns every key. Opening, steering, accepting or
+              // dismissing a menu mid-composition eats a candidate — the bug `isComposing` on
+              // Enter alone does not cover (arrows and Tab).
+              if (composing || event.nativeEvent.isComposing) return
               if (event.key === 'Backspace') acceptedMentionRef.current = null
               if (menu && suggestions.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                 event.preventDefault()
                 setActiveSuggestion((current) => (event.key === 'ArrowDown' ? (current + 1) % suggestions.length : (current - 1 + suggestions.length) % suggestions.length))
                 return
               }
-              if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.nativeEvent.isComposing && menu && suggestions.length) {
+              if (menu === 'suggest' && suggestions.length && (event.key === 'Tab' || (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey))) {
+                event.preventDefault()
+                chooseSuggestion(activeSuggestion)
+                return
+              }
+              if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && menu && suggestions.length) {
                 event.preventDefault()
                 chooseSuggestion(activeSuggestion)
                 return
@@ -535,13 +671,34 @@ export const Composer = memo(function Composer({
               }
               if (event.key === 'Escape') {
                 event.preventDefault()
+                if (menu === 'suggest') {
+                  const active = promptSuggestions.suggestions[activeSuggestion] ?? promptSuggestions.suggestions[0]
+                  if (active) promptSuggestions.dismiss(active)
+                }
                 setMenu(null)
               }
             }}
           />
         </div>
+        {menu === null && promptSuggestions.suggestions.length > 0 ? (
+          <button
+            type="button"
+            className="composer-suggest-badge"
+            aria-label={t('composer.suggest.badgeLabel')}
+            onClick={() => {
+              setMenu('suggest')
+              textareaRef.current?.focus()
+            }}
+          >
+            <Sparkles size={12} aria-hidden="true" />
+            {t('composer.suggest.badge', {
+              count: promptSuggestions.suggestions.length,
+              source: suggestionSource(promptSuggestions.suggestions[promptSuggestions.suggestions.length - 1]),
+            })}
+          </button>
+        ) : null}
         {menu && suggestions.length ? (
-          <div ref={menuRef} id={menuId} className="composer-menu" role="listbox" aria-label={menu === 'command' ? 'Commands' : menu === 'mention' ? 'Sessions and skills' : 'Add context'}>
+          <div ref={menuRef} id={menuId} className="composer-menu" role="listbox" aria-label={menu === 'command' ? 'Commands' : menu === 'mention' ? 'Sessions and skills' : menu === 'suggest' ? t('composer.suggest.list') : 'Add context'}>
             {suggestions.map((suggestion, index) => (
               <button
                 id={`${menuId}-option-${index}`}
@@ -549,16 +706,19 @@ export const Composer = memo(function Composer({
                 role="option"
                 tabIndex={-1}
                 aria-selected={activeSuggestion === index}
+                aria-label={menu === 'suggest' ? `${t('composer.suggest.accept')}: ${suggestion.label}` : undefined}
                 className={activeSuggestion === index ? 'is-active' : ''}
                 key={suggestion.key}
                 onMouseEnter={() => setActiveSuggestion(index)}
                 onClick={suggestion.choose}
               >
                 {suggestion.icon}
-                <span>
-                  <strong>{suggestion.label}</strong>
-                  <small>{suggestion.detail}</small>
-                </span>
+                {suggestion.content ?? (
+                  <span>
+                    <strong>{suggestion.label}</strong>
+                    <small>{suggestion.detail}</small>
+                  </span>
+                )}
               </button>
             ))}
           </div>

@@ -43,6 +43,7 @@
     "postinstall": "node scripts/release/install-app-deps.mjs"
   },
   "dependencies": {
+    "@vclawhub/agent": "file:vendor/vclawhub-agent-1.5.0.tgz",
     "electron-updater": "^6.8.9",
     "js-yaml": "^5.3.0",
     "node-pty": "^1.1.0",
@@ -76,6 +77,7 @@
     "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
     "jsdom": "^30.0.1",
     "lucide-react": "^1.31.0",
+    "nats": "^2.29.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",

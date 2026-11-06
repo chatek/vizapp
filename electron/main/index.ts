@@ -39,6 +39,7 @@ import { configureVClawAgentMessageSigning, loadOrCreateVClawAgentMessageKey } f
 import { extensionInjection, resolveExtensionPath, type ExtensionCapability } from './extension-manifest'
 import { SessionService } from './sessions'
 import { VclawInboxService } from './inbox-service'
+import { PROMPTS_FLAG, SuggestionsService, connectSuggestionsNats, resolvePromptConfig, suggestionsEnabled } from './suggestions-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
@@ -71,6 +72,7 @@ let agentScheduleBridges: AgentScheduleBridge[] = []
 let agentBrowser: AgentBrowserService | null = null
 let agentBrowserBridge: AgentBrowserBridge | null = null
 let agentCollaborationBridge: AgentCollaborationBridge | null = null
+let suggestionsService: SuggestionsService | null = null
 let backgroundMode: MacBackgroundController | null = null
 let shutdownStarted = false
 let shutdownApproved = false
@@ -1107,15 +1109,40 @@ async function bootstrap(): Promise<void> {
   const inboxService = new VclawInboxService({
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
+  // Shared prompt auto-complete (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8). Two conditions, both
+  // explicit: the flag is on AND this identity's `<subHmac>` is configured, because the service
+  // derives it server-side and a client-invented one would subscribe to nobody's subject.
+  // Anything missing keeps the whole feature dark — no connection, handlers answer `disabled`.
+  const promptSuggestions = ((): SuggestionsService | null => {
+    if (!suggestionsEnabled()) return null
+    const resolved = resolvePromptConfig()
+    if (!resolved.ok) {
+      console.warn(`Prompt suggestions: ${PROMPTS_FLAG}=1 but ${resolved.error === 'missing_sub_hmac'
+        ? 'this identity has no subHmac (set VCLAW_PROMPTS_SUB_HMAC or claim the identity)'
+        : 'no vclaw credentials were found'}; staying off.`)
+      return null
+    }
+    try {
+      return new SuggestionsService({ connector: () => connectSuggestionsNats(resolved.config), config: resolved.config })
+    } catch (error) {
+      console.warn('Prompt suggestions unavailable:', error instanceof Error ? error.message : error)
+      return null
+    }
+  })()
+  suggestionsService = promptSuggestions
   ipc = registerIpc({
     meta, refreshHarnesses, projects, checkouts, sessions, agents, terminals, git, plugins, providers, settings, updates, cuaDriver, heartbeats, schedules, browser: browserService, voice, pets,
     popupApplicationMenu, setTitleBarTheme,
     inbox: inboxService,
+    suggestions: promptSuggestions ?? undefined,
     omp: { projects: ompProjects, sessions: ompSessions, agents: ompManager, catalog: ompCatalog, plugins: ompPlugins },
     pi: { projects: piProjects, sessions: piSessions, agents: piManager, catalog: piCatalog, plugins: piPlugins },
     applyInterfaceZoom,
   }, trustedRendererUrl)
   inboxService.start()
+  // Never awaited: a broker that is down must not block app startup. Push delivery resumes on
+  // reconnect; `invoke` reports `unavailable` until the connection exists.
+  void promptSuggestions?.start()
   // Both managers share the one renderer forwarding path: envelopes carry the
   // runtimeId and RuntimeInfo carries the harness, so the renderer can route.
   const forwardAgentEvent = (envelope: PrimeEventEnvelope): void => {
@@ -1272,6 +1299,7 @@ app.on('before-quit', (event) => {
   providerService?.cancelAll()
   agentBrowser?.beginShutdown()
   void settleShutdown([
+    suggestionsService?.stop() ?? Promise.resolve(),
     ...agentScheduleBridges.map((bridge) => bridge.stop()),
     agentBrowserBridge?.stop() ?? Promise.resolve(),
     agentCollaborationBridge?.stop() ?? Promise.resolve(),

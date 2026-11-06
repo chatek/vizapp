@@ -398,3 +398,134 @@ describe('IPC registration lifecycle', () => {
     warn.mockRestore()
   })
 })
+
+describe('prompt suggestion IPC', () => {
+  const expectedUrl = 'prime-work://app/'
+  type Suggestion = Parameters<Parameters<NonNullable<Parameters<typeof registerIpc>[0]['suggestions']>['onSuggestion']>[0]>[0]
+
+  function suggestionsStub() {
+    let notify: ((suggestion: Suggestion) => void) | null = null
+    const unsubscribe = vi.fn()
+    return {
+      push: (suggestion: Suggestion) => notify?.(suggestion),
+      unsubscribe,
+      onSuggestion: vi.fn((listener: (suggestion: Suggestion) => void) => { notify = listener; return unsubscribe }),
+      setDraft: vi.fn(),
+      openSession: vi.fn(async () => ({ ok: true as const, data: { roomId: 'room-1', peer: 'UTEACHER' } })),
+      closeSession: vi.fn(async () => ({ ok: true as const, data: { closed: true } })),
+      feedback: vi.fn(async () => ({ ok: true as const, data: { ok: true } })),
+    }
+  }
+
+  function register(suggestions?: ReturnType<typeof suggestionsStub>) {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
+    electronMocks.ipcMain.handle.mockImplementation((channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) => {
+      handlers.set(channel, listener)
+    })
+    electronMocks.ipcMain.on.mockImplementation((channel: string, listener: (event: unknown, ...args: unknown[]) => void) => {
+      listeners.set(channel, listener)
+    })
+    const services = {
+      ...unrelatedServices(),
+      meta: {},
+      projects: serviceStub(),
+      sessions: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined) },
+      agents: serviceStub(),
+      terminals: serviceStub(),
+      git: serviceStub(),
+      plugins: serviceStub(),
+      settings: serviceStub(),
+      schedules: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined) },
+      browser: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined), onPointer: vi.fn(() => () => undefined), onActivity: vi.fn(() => () => undefined) },
+      omp: harnessStub(),
+      inbox: inboxStub(),
+      pi: harnessStub(),
+      ...(suggestions ? { suggestions } : {}),
+    } satisfies ServiceFixtures
+    const registration = registerIpc(services as never, expectedUrl)
+    const trusted = { id: 1, getURL: () => expectedUrl, mainFrame: { url: expectedUrl }, isDestroyed: () => false, send: vi.fn() }
+    let navigatedUrl = expectedUrl
+    const navigated = { id: 2, getURL: () => expectedUrl, mainFrame: { get url() { return navigatedUrl } }, isDestroyed: () => false, send: vi.fn() }
+    registration.authorize(trusted as never)
+    registration.authorize(navigated as never)
+    navigatedUrl = 'https://example.com/'
+    const event = { sender: trusted, senderFrame: trusted.mainFrame }
+    const consent = (request: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:consent')!(event, request))
+    const feedback = (suggestionId: unknown, outcome: unknown, ms?: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:feedback')!(event, suggestionId, outcome, ms))
+    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback }
+  }
+
+  const pushed = {
+    suggestionId: 'sug-1',
+    roomId: 'room-1',
+    requestId: 'req-1',
+    prompt: '一元二次方程',
+    from: { kind: 'agent' as const, nkey: 'UAGENT' },
+  }
+
+  it('forwards a pushed suggestion to trusted renderers only and unsubscribes on dispose', () => {
+    const suggestions = suggestionsStub()
+    const { registration, trusted, navigated, handlers } = register(suggestions)
+    expect(suggestions.onSuggestion).toHaveBeenCalledTimes(1)
+
+    suggestions.push(pushed)
+    expect(trusted.send).toHaveBeenCalledWith('vclaw-suggestions:changed', pushed)
+    expect(navigated.send).not.toHaveBeenCalled()
+    expect(handlers.has('vclaw-suggestions:consent')).toBe(true)
+    expect(handlers.has('vclaw-suggestions:feedback')).toBe(true)
+
+    registration.dispose()
+    expect(suggestions.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers disabled for every verb when the flag kept the service off', async () => {
+    const { registration, consent, feedback, listeners, event } = register()
+    await expect(consent({ action: 'open', peer: 'U', conversationId: 'c' })).resolves.toEqual({ ok: false, error: 'disabled' })
+    await expect(feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'disabled' })
+    const draft = listeners.get('vclaw-suggestions:draft')
+    expect(draft).toBeTypeOf('function')
+    expect(() => draft!(event, { text: 'draft' })).not.toThrow()
+    registration.dispose()
+  })
+
+  it('validates the consent verb before it reaches the fabric', async () => {
+    const suggestions = suggestionsStub()
+    const { registration, consent } = register(suggestions)
+
+    await expect(consent({ action: 'open', peer: '  ', conversationId: 'c' })).resolves.toEqual({ ok: false, error: 'invalid_payload' })
+    await expect(consent({ action: 'open', peer: 'UTEACHER', conversationId: '' })).resolves.toEqual({ ok: false, error: 'invalid_payload' })
+    await expect(consent({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1', ttlS: 60 })).resolves.toEqual({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER' } })
+    expect(suggestions.openSession).toHaveBeenCalledWith({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1', ttlS: 60 })
+    await expect(consent({ action: 'close' })).resolves.toEqual({ ok: true, data: { closed: true } })
+    expect(suggestions.closeSession).toHaveBeenCalledWith(undefined)
+    await expect(consent({ action: 'nope' })).resolves.toEqual({ ok: false, error: 'unknown_action' })
+    registration.dispose()
+  })
+
+  it('maps feedback outcomes and refuses an outcome outside the lifecycle', async () => {
+    const suggestions = suggestionsStub()
+    const { registration, feedback } = register(suggestions)
+
+    await expect(feedback('sug-1', 'accepted', 1200)).resolves.toEqual({ ok: true, data: { ok: true } })
+    expect(suggestions.feedback).toHaveBeenCalledWith('sug-1', 'accepted', 1200)
+    await expect(feedback('sug-2', 'archived')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
+    await expect(feedback('', 'rejected')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
+    expect(suggestions.feedback).toHaveBeenCalledTimes(1)
+    registration.dispose()
+  })
+
+  it('drops a draft it cannot read and hands a valid one to the service', () => {
+    const suggestions = suggestionsStub()
+    const { registration, listeners, event } = register(suggestions)
+    const draft = listeners.get('vclaw-suggestions:draft')!
+
+    draft(event, { text: 42 })
+    draft(event, 'raw string')
+    expect(suggestions.setDraft).not.toHaveBeenCalled()
+
+    draft(event, { text: '一元二次方程', locale: 'zh-CN', cursor: 6, vizshowId: 'show-1' })
+    expect(suggestions.setDraft).toHaveBeenCalledWith({ text: '一元二次方程', locale: 'zh-CN', cursor: 6, vizshowId: 'show-1' })
+    registration.dispose()
+  })
+})

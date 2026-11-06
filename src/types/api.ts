@@ -32,6 +32,62 @@ export interface VclawInboxMessage {
   read?: boolean
 }
 
+/**
+ * A teacher's pushed suggestion, as it arrives over
+ * `tenant.<segment>.prompts.suggest.<selfSubHmac>` (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8).
+ * The desktop renders `from` as a CLAIM: for an agent teacher the NKey assertion and the owner
+ * binding are verified by the service, not here.
+ */
+export interface PromptSuggestion {
+  suggestionId: string
+  roomId: string
+  requestId: string
+  prompt: string
+  rationale?: string
+  locale?: string
+  from: { kind: 'human' | 'agent'; nkey: string; ownerHandle?: string; display?: string }
+  confidence?: number
+  expiresAt?: string
+}
+
+/** The lifecycle the service records for a suggestion (§3 rule 6). */
+export type PromptSuggestionOutcome = 'accepted' | 'rejected' | 'superseded'
+
+/**
+ * Result of a NATS request made on the renderer's behalf. Failures are VALUES, never
+ * thrown: a refusal (`not_mutual`, `room_closed`, …) is a typed code the UI can branch on,
+ * and the transport's own failures collapse to `timeout` / `unavailable`.
+ */
+export type PromptSuggestionInvokeResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string }
+
+/**
+ * The consent session (§8): `room.open` is how a student grants a mutually-followed peer — and
+ * that peer's agent — the right to see drafts. Nothing is published before it opens.
+ */
+export interface PromptSuggestionSession {
+  roomId: string
+  peer: string
+  expiresAt: string
+}
+
+/**
+ * The renderer's consent verb. `open` carries the PEER (the teacher's nkey); `close` carries the
+ * room to close, defaulting to the open session so a revocation cannot be talked out of.
+ */
+export type PromptSuggestionConsentRequest =
+  | { action: 'open'; peer: string; conversationId: string; ttlS?: number }
+  | { action: 'close'; roomId?: string }
+
+/** One live draft view, published only while a consent session is open. */
+export interface PromptDraftInput {
+  text: string
+  locale?: string
+  cursor?: number
+  vizshowId?: string
+}
+
 export interface VclawInboxSnapshot {
   state: VclawInboxState
   /** Absolute spool path, or '' when no identity is on this host. */
@@ -934,6 +990,28 @@ export interface PrimeWorkApi {
   inbox: {
     read(): Promise<VclawInboxSnapshot>
     onChanged(callback: (snapshot: VclawInboxSnapshot) => void): () => void
+  }
+  /**
+   * Shared prompt auto-complete (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8). The renderer never
+   * holds a NATS client: pushes arrive from the main process's agent-sdk connection, and every
+   * outbound call is a named operation the main process maps to a Micro subject.
+   */
+  suggestions: {
+    /** Teacher/agent pushes, already validated by the main process. */
+    subscribe(callback: (suggestion: PromptSuggestion) => void): () => void
+    /**
+     * The live draft view. Fire-and-forget by design: the main process throttles it and drops it
+     * entirely unless a consent session is open, so a keystroke never waits on IPC.
+     */
+    draft(input: PromptDraftInput): void
+    /** `room.open` / `room.close` — the consent switch. */
+    consent(request: PromptSuggestionConsentRequest): Promise<PromptSuggestionInvokeResult>
+    /** `room.open` for `peer` (the teacher's nkey): starts publishing this draft. */
+    openSession(peer: string, conversationId: string, ttlS?: number): Promise<PromptSuggestionInvokeResult>
+    /** `room.close`: stops publishing immediately, whatever the service answers. */
+    closeSession(roomId?: string): Promise<PromptSuggestionInvokeResult>
+    /** `feedback` — record the suggestion's lifecycle transition (§3 rule 6). */
+    feedback(suggestionId: string, outcome: PromptSuggestionOutcome, ms?: number): Promise<PromptSuggestionInvokeResult>
   }
 }
 

@@ -51,6 +51,14 @@ const englishCatalog = {
   'appearance.motion.title': 'Motion',
   'appearance.motion.reduce': 'Reduce interface motion',
   'appearance.motion.description': 'Minimize panel transitions and animated status indicators.',
+  'composer.suggest.badge': { one: '{count} suggestion from {source}', other: '{count} suggestions from {source}' },
+  'composer.suggest.badgeLabel': 'Open the suggested prompt',
+  'composer.suggest.list': 'Suggested prompts',
+  'composer.suggest.source.human': 'human @{handle}',
+  'composer.suggest.source.agent': 'agent',
+  'composer.suggest.source.agentOf': 'agent · @{handle}',
+  'composer.suggest.accept': 'Accept suggestion',
+  'composer.suggest.inserted': 'new text',
 } as const satisfies Record<string, Message>
 
 export type MessageKey = keyof typeof englishCatalog
@@ -102,6 +110,14 @@ const simplifiedChineseCatalog: Partial<Record<MessageKey, Message>> = {
   'appearance.motion.title': '动效',
   'appearance.motion.reduce': '减少界面动效',
   'appearance.motion.description': '尽量减少面板过渡和动态状态指示。',
+  'composer.suggest.badge': { one: '{source} 提供了 {count} 条建议', other: '{source} 提供了 {count} 条建议' },
+  'composer.suggest.badgeLabel': '查看建议的提示',
+  'composer.suggest.list': '建议的提示',
+  'composer.suggest.source.human': '用户 @{handle}',
+  'composer.suggest.source.agent': '智能体',
+  'composer.suggest.source.agentOf': '智能体 · @{handle}',
+  'composer.suggest.accept': '采用建议',
+  'composer.suggest.inserted': '新增文本',
 }
 
 function browserLanguages(): readonly string[] {
