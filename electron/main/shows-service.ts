@@ -56,19 +56,14 @@ function parseBuildList(value: unknown): string[] {
 // the id must match the directory, and name/slug must be present — because a copied show dir is
 // not that show. One definition of the shape, one place for the stricter policy.
 export function parseShowManifest(raw: unknown, fallbackId: string): VizshowShow | null {
-  // An EXPLICIT but invalid id is a refusal, never a fallback rescue: '../escape' as an id is
-  // a traversal attempt even when the directory happens to carry the same name.
-  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
-    const rawId = (raw as Record<string, unknown>).id
-    if (rawId !== undefined && !isBuildId(rawId)) return null
-    // The contract substitutes name||slug; the desktop requires name to be PRESENT and non-empty.
-    const rawName = (raw as Record<string, unknown>).name
-    if (typeof rawName !== 'string' || rawName.trim() === '') return null
-  }
+  // vizmaster (2026-11-07): BOTH stricter rules are now the CONTRACT's (ec493ed) — the
+  // explicit-but-invalid id is refused (no fallback rescue), an invalid fallback is refused,
+  // and a blank name is unparseable. The desktop's duplicates are deleted; what remains is
+  // the dirname rule (a copied show dir is not that show) — a listing policy, not a record rule.
   const parsed = parseShowRecord(raw, fallbackId)
   if (parsed === null) return null
   if (parsed.id !== fallbackId) return null
-  if (!parsed.name.trim() || !parsed.slug.trim()) return null
+  if (!parsed.slug.trim()) return null
   return {
     id: parsed.id,
     name: parsed.name,
