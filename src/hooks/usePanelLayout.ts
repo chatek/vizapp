@@ -7,8 +7,9 @@ export const CHAT_MIN = 360
 export const TERMINAL_MIN = 170
 export const TERMINAL_DEFAULT = 310
 export const WORKSPACE_ROW_MIN = 220
-// vizmaster (2026-11-05, operator): the middle/right vertical separator defaults to a
-// 50/50 split of the workspace row and follows window resizes until the user drags it.
+// vizmaster (2026-11-06, operator): the agent chat column defaults to 1/3 of the
+// workspace row and the right (inspector/Browser) panel to 2/3; the split follows
+// window resizes until the user drags it.
 const INSPECTOR_WIDTH_KEY = 'prime-work.inspector-width-v2'
 export const SMALLEST_LAYOUT_BREAKPOINT = 720
 
@@ -104,7 +105,7 @@ export function usePanelLayout({
       if (!window.matchMedia('(max-width: 980px)').matches) {
         setInspectorMax(Math.max(INSPECTOR_MIN, row.clientWidth - CHAT_MIN))
         setWorkspaceRowWidth(row.clientWidth)
-        if (inspectorAuto) setInspectorWidth(Math.max(INSPECTOR_MIN, Math.round(row.clientWidth / 2)))
+        if (inspectorAuto) setInspectorWidth(Math.max(INSPECTOR_MIN, Math.round((row.clientWidth * 2) / 3)))
       }
       setTerminalMax(Math.max(TERMINAL_MIN, workspace.clientHeight - WORKSPACE_ROW_MIN))
     }
@@ -118,7 +119,7 @@ export function usePanelLayout({
   useEffect(() => { if (!inspectorAuto) window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(inspectorWidth)) }, [inspectorAuto, inspectorWidth])
   useEffect(() => { window.localStorage.setItem('prime-work.terminal-height', String(terminalHeight)) }, [terminalHeight])
 
-  // A manual drag pins the width; before that the split stays an auto 50/50 that tracks resizes.
+  // A manual drag pins the width; before that the split stays an auto 1/3-2/3 that tracks resizes.
   const updateInspectorWidth = (value: number) => {
     setInspectorAuto(false)
     setInspectorWidth(value)
@@ -132,7 +133,7 @@ export function usePanelLayout({
     compactRestoreRef,
     inspectorWidth,
     inspectorAuto,
-    inspectorAutoWidth: Math.max(INSPECTOR_MIN, Math.round(workspaceRowWidth / 2)),
+    inspectorAutoWidth: Math.max(INSPECTOR_MIN, Math.round((workspaceRowWidth * 2) / 3)),
     setInspectorWidth: updateInspectorWidth,
     terminalHeight,
     setTerminalHeight,
