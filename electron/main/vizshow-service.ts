@@ -24,7 +24,9 @@ import type { VizshowBuild, VizshowSnapshot } from '../../src/types/api'
 /** Preferred port. Not the project preview's 5174: the two surfaces must not collide. */
 export const DEFAULT_VIZSHOW_PORT = 47_361
 
-export const BUILD_STATUS_DONE = 'done'
+// vizmaster (2026-11-07): the status literal comes from the CANONICAL package — a local
+// 'done' literal is exactly what let 'built' sit unnoticed (the drift test keys on this export).
+export { BUILD_STATUS_DONE } from '@vizmaster/vizshow-contract'
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -80,7 +82,7 @@ export function vizmasterProjectRoot(env: NodeJS.ProcessEnv = process.env): stri
 // keep working; the definitions are no longer duplicated here — the 'defined twice' hole
 // (which produced the built/done drift) is closed at the source.
 export { isBuildId, parseBuildManifest } from '@vizmaster/vizshow-contract'
-import { isBuildId, parseBuildManifest } from '@vizmaster/vizshow-contract'
+import { BUILD_STATUS_DONE, entryResolvesInside, isBuildId, manifestIdMatchesDir, parseBuildManifest } from '@vizmaster/vizshow-contract'
 
 export interface VizshowServiceOptions {
   root?: string
@@ -194,8 +196,14 @@ export class VizshowService {
       } catch {
         manifest = null
       }
+      // vizmaster (2026-11-07): rules 3+4 come from the CANONICAL package — manifestIdMatchesDir
+      // and entryResolvesInside — consumed directly rather than re-derived, so the listing rules
+      // cannot drift from the producer's smoke (the drift test keys on these exports).
+      // The status gate stays explicit and FIRST: a running build is not servable even when its
+      // id and entry are well-formed (the contract's isServableBuild bundles this, but keeping
+      // the gate visible here documents the listing order: status, then id, then entry).
       if (!manifest || manifest.status !== BUILD_STATUS_DONE) continue
-      if (manifest.id !== name) continue
+      if (!manifestIdMatchesDir(manifest, name) || !entryResolvesInside(directory, manifest.entry)) continue
       builds.push(manifest)
     }
     const sorted = builds.sort((left, right) => (right.createdAt ?? '').localeCompare(left.createdAt ?? '') || right.id.localeCompare(left.id))

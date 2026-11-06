@@ -52,7 +52,7 @@
     "prime-agent-ai": "file:vendor/prime-agent-ai-0.7.0-gooeypi.1.tgz",
     "rrule": "^2.8.1",
     "zeromq": "^6.1.2",
-    "@vizmaster/vizshow-contract": "file:vendor/vizmaster-vizshow-contract-0.1.0.tgz"
+    "@vizmaster/vizshow-contract": "file:vendor/vizmaster-vizshow-contract-0.1.1.tgz"
   },
   "overrides": {
     "@earendil-works/pi-agent-core": "file:vendor/prime-agent-core-0.7.0.tgz",
