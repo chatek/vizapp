@@ -250,6 +250,10 @@
         "to": "product/payload"
       },
       {
+        "from": "product/handoff.json",
+        "to": "product/handoff.json"
+      },
+      {
         "from": "product/profile.active.json",
         "to": "product.json"
       }
