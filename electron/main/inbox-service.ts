@@ -14,6 +14,7 @@ import {
   type VclawInboxMessage,
   type VclawInboxSnapshot,
 } from './inbox-spool'
+import { inboxSpoolDirectory } from './vclaw-sdk-root'
 
 /**
  * Watches the vclaw inbox directory and serves the pane's snapshot.
@@ -75,7 +76,7 @@ export class VclawInboxService {
     this.started = true
     this.refresh(true)
     try {
-      this.watcher = watch(join(this.home, '.vclaw', 'inbox'), { persistent: false }, () => this.schedule())
+      this.watcher = watch(inboxSpoolDirectory(this.home), { persistent: false }, () => this.schedule())
       this.watcher.on('error', () => this.schedule())
     } catch {
       // No inbox directory yet (no identity, or no message ever received). The pane

@@ -18,15 +18,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   petEnabled: true,
   petId: 'orb',
   petSize: 75,
-  sidebarOpen: true,
+  sidebarOpen: false, // vizmaster: app opens with the project browser folded — lockstep with electron/main/store.ts
   inspectorOpen: true,
   showFileChangesPopup: true,
   checkoutStrategy: 'worktree',
   keepRunningInBackground: false,
   launchAtLogin: false,
   terminalOpen: false,
-  defaultInspectorTab: 'summary',
-  browserHome: 'http://localhost:3000',
+  defaultInspectorTab: 'browser', // vizmaster: the right panel opens on Browser (operator 2026-11-05)
+  browserHome: 'https://vizmaster.app/', // vizmaster: keep in lockstep with electron/main/store.ts (two defaults, one intent)
   browserAskForDownloads: true,
   terminalShell: '/bin/zsh',
   reduceMotion: false,

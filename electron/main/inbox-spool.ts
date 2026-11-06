@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { VclawInboxMessage, VclawInboxSnapshot, VclawInboxState } from '../../src/types/api'
 import { describeInboxState, INBOX_STATE_LABEL } from '../../src/lib/inbox-state'
+import { inboxSpoolDirectory, vclawCredentialsPath } from './vclaw-sdk-root'
 
 export type { VclawInboxMessage, VclawInboxSnapshot, VclawInboxState }
 export { describeInboxState, INBOX_STATE_LABEL }
@@ -28,12 +29,13 @@ export function selfPrefix(nkey: string): string {
 }
 
 /**
- * Reads the nkey out of `~/.config/vclaw/credentials.json` without trusting anything
+ * Reads the nkey out of the agent-sdk credentials file without trusting anything
  * else in the file. Returns null when the file is absent or carries no nkey.
+ * Generic profile: ~/.config/vclaw/credentials.json; member: <root>/config/credentials.json.
  */
 export function readOwnNkey(readFile: (path: string) => string, home: string): string | null {
   try {
-    const raw = readFile(join(home, '.config', 'vclaw', 'credentials.json'))
+    const raw = readFile(vclawCredentialsPath(home))
     const parsed = JSON.parse(raw) as Record<string, unknown>
     const candidate = parsed.nkey ?? parsed.nKey ?? parsed.NKey
     return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null
@@ -47,9 +49,10 @@ export function readOwnNkey(readFile: (path: string) => string, home: string): s
  * the filename carries a tenant token we would otherwise have to decode from a JWT, and
  * a directory scan is rename-tolerant by construction. Multiple matches are a defect
  * elsewhere; the newest wins deterministically so the pane never flaps.
+ * Generic profile: ~/.vclaw/inbox; member: <root>/inbox.
  */
 export function findSpoolPath(listDirectory: (path: string) => string[], home: string, self8: string): string | null {
-  const directory = join(home, '.vclaw', 'inbox')
+  const directory = inboxSpoolDirectory(home)
   let entries: string[]
   try {
     entries = listDirectory(directory)
