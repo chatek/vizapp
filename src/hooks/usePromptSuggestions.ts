@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PromptSuggestion } from '@/types/api'
+import type { PromptDraftOutcome, PromptSuggestion } from '@/types/api'
 
 /** A teacher can push faster than a student reads; the oldest pending rows fall off the top. */
 const MAX_PENDING = 5
@@ -10,6 +10,8 @@ const PRUNE_INTERVAL_MS = 10_000
 export interface UsePromptSuggestions {
   /** Pending suggestions, oldest first. */
   suggestions: PromptSuggestion[]
+  /** The last draft flush outcome: the only feedback a fire-and-forget send has. */
+  draftOutcome: PromptDraftOutcome | null
   /** Records `accepted` and drops the row (the Composer inserts the text). */
   accept(suggestion: PromptSuggestion): void
   /** Records `rejected` and drops the row. */
@@ -23,6 +25,7 @@ export interface UsePromptSuggestions {
  */
 export function usePromptSuggestions(): UsePromptSuggestions {
   const [suggestions, setSuggestions] = useState<PromptSuggestion[]>([])
+  const [draftOutcome, setDraftOutcome] = useState<PromptDraftOutcome | null>(null)
   const reportedRef = useRef(new Set<string>())
 
   useEffect(() => {
@@ -35,6 +38,9 @@ export function usePromptSuggestions(): UsePromptSuggestions {
         ? current
         : [...current, suggestion].slice(-MAX_PENDING))
     })
+    // A refused draft (`rate_limited`, `too_large`) must reach the student: the send itself is
+    // fire-and-forget, so this event is the only place it can surface.
+    const unsubscribeDraft = api.onDraftOutcome?.(setDraftOutcome)
     const prune = window.setInterval(() => {
       const now = Date.now()
       setSuggestions((current) => current.filter((item) => {
@@ -42,7 +48,7 @@ export function usePromptSuggestions(): UsePromptSuggestions {
         return !Number.isFinite(expiresAt) || expiresAt > now
       }))
     }, PRUNE_INTERVAL_MS)
-    return () => { unsubscribe(); window.clearInterval(prune) }
+    return () => { unsubscribe(); unsubscribeDraft?.(); window.clearInterval(prune) }
   }, [])
 
   // One outcome per suggestion: a double-click or a raced Esc must not record two transitions.
@@ -56,5 +62,5 @@ export function usePromptSuggestions(): UsePromptSuggestions {
 
   const accept = useCallback((suggestion: PromptSuggestion) => report(suggestion, 'accepted'), [report])
   const dismiss = useCallback((suggestion: PromptSuggestion) => report(suggestion, 'rejected'), [report])
-  return useMemo(() => ({ suggestions, accept, dismiss }), [accept, dismiss, suggestions])
+  return useMemo(() => ({ suggestions, draftOutcome, accept, dismiss }), [accept, dismiss, draftOutcome, suggestions])
 }

@@ -5,6 +5,7 @@ import { buildNkeyAssertion, linkIdentity } from './prompt-assertion'
 import { isRecord } from './validation'
 import type {
   PromptDraftInput,
+  PromptDraftOutcome,
   PromptSuggestion,
   PromptSuggestionConsentRequest,
   PromptSuggestionInvokeResult,
@@ -91,9 +92,9 @@ export interface PromptConfig {
 }
 
 export interface PromptSubjects {
-  /** Push in: teacher/agent suggestions for this identity. */
+  /** Push in: teacher/agent suggestions for this identity (the only delivery subject). */
   suggest: string
-  /** Push out: live draft views while a consent session is open. */
+  /** The `draft` Micro ENDPOINT — the service owns fan-out to the consenting teachers. */
   draft: string
   roomOpen: string
   roomClose: string
@@ -104,10 +105,11 @@ export type PromptConfigResolution = { ok: true; config: PromptConfig } | { ok: 
 
 /**
  * Subject tree for one segment. Two namespaces, on purpose:
- *   - DELIVERY subjects are per-identity and segment-scoped, keyed by the **NKEY**: vgate can
+ *   - the DELIVERY subject is per-identity and segment-scoped, keyed by the **NKEY**: vgate can
  *     scope a nkey, and it cannot compute a `subHmac` (which is why the client plane was
  *     un-grantable). `subHmac` is a SERVER-side authorization concept and never appears in a
- *     subject this client builds.
+ *     subject this client builds. Suggestions are the ONLY delivery plane the desktop has:
+ *     drafts go out as a Micro request and the service fans them out itself.
  *   - the Micro ENDPOINTS are one service shared by every segment and keep §3's names
  *     (`vizregistry.prompts.room.open|room.close|feedback`).
  * Exported so the tests, the startup log, and the E2E harness share one truth.
@@ -117,7 +119,7 @@ export function promptSubjects(segment: string, nkey: string): PromptSubjects {
   const micro = 'vizregistry.prompts'
   return {
     suggest: `${push}.suggest.${nkey}`,
-    draft: `${push}.draft.${nkey}`,
+    draft: `${micro}.draft`,
     roomOpen: `${micro}.room.open`,
     roomClose: `${micro}.room.close`,
     feedback: `${micro}.feedback`,
@@ -217,7 +219,12 @@ export interface SuggestionsRequestOptions {
 /** Minimal surface the service consumes, so tests drive it with a fake and no SDK import. */
 export interface SuggestionsNatsLike {
   subscribe(subject: string, handler: (data: Uint8Array) => void): Promise<() => void>
-  publish(subject: string, data: Uint8Array): void
+  /**
+   * No `publish`: every outbound message the desktop sends is a REQUEST the service answers.
+   * A raw publish has no owner — nobody subscribes to the delivery subject from this side, and
+   * vgate grants PUB only on `vizregistry.prompts.>`, so a fire-and-forget would be denied
+   * silently while looking successful.
+   */
   request(subject: string, data: Uint8Array, options: SuggestionsRequestOptions): Promise<Uint8Array>
   /** The identity's bearer token, minted from vgate by agent-sdk; cached until it nears expiry. */
   authToken(): Promise<string | null>
@@ -393,7 +400,6 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
       })
       return () => { try { sub.unsubscribe() } catch { /* already closed */ } }
     },
-    publish: (subject, data) => nc.publish(subject, data),
     request: async (subject, data, options) => {
       const frame = options.headers ? natsHeaders() : null
       if (frame) for (const [name, value] of Object.entries(options.headers ?? {})) frame.set(name, value)
@@ -473,6 +479,10 @@ export class SuggestionsService {
   #connecting: Promise<SuggestionsNatsLike | null> | null = null
   #unsubscribe: (() => void) | null = null
   #listeners = new Set<(suggestion: PromptSuggestion) => void>()
+  #draftListeners = new Set<(outcome: PromptDraftOutcome) => void>()
+  #draftInFlight = false
+  #draftQueued: { session: PromptSuggestionSession; input: PromptDraftInput; at: number } | null = null
+  #lastDraft: PromptDraftOutcome | null = null
   #session: PromptSuggestionSession | null = null
   #pending: { input: PromptDraftInput; at: number } | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
@@ -564,6 +574,7 @@ export class SuggestionsService {
     const target = roomId ?? this.#session?.roomId
     this.#session = null
     this.#pending = null
+    this.#draftQueued = null
     this.#clearTimer()
     if (!target) return { ok: false, error: 'no_session' }
     const connection = await this.#ensureConnection()
@@ -615,7 +626,8 @@ export class SuggestionsService {
     if (this.#stopped) return
     if (!this.session) { this.#pending = null; return }
     if (!input.text.trim()) { this.#pending = null; return }
-    if (encoder.encode(input.text).byteLength > DRAFT_MAX_BYTES) { this.#pending = null; return }
+    // Oversized text still goes through the throttle so the refusal is REPORTED (`too_large`)
+    // instead of vanishing: a silent drop is exactly the failure this plane cannot afford.
     this.#pending = { input, at: this.#now() }
     this.#scheduleFlush()
   }
@@ -635,26 +647,77 @@ export class SuggestionsService {
     this.#timer.unref?.()
   }
 
+  /**
+   * Sends the pending draft view. It is a Micro REQUEST to `vizregistry.prompts.draft`: the
+   * service owns fan-out to each consenting teacher's nkey subject, and this identity is not
+   * granted PUB on any `draft.*` subject — a raw publish would be denied silently.
+   *
+   * Single-flight: the server takes seconds per call while the throttle fires every 300 ms, so
+   * an in-flight request keeps only the LATEST pending view (a queue of stale snapshots would be
+   * `rate_limited` noise). The dispatch itself is fire-and-forget for the typing path.
+   */
   async #flush(): Promise<void> {
     const session = this.session
     const pending = this.#pending
     if (!session || !pending) return
-    const connection = this.#connection ?? await this.#ensureConnection()
-    if (!connection) return
-    const body = JSON.stringify({
+    this.#pending = null
+    if (this.#draftInFlight) {
+      this.#draftQueued = { session, input: pending.input, at: pending.at }
+      return
+    }
+    await this.#sendDraft(session, pending)
+  }
+
+  async #sendDraft(session: PromptSuggestionSession, pending: { input: PromptDraftInput; at: number }): Promise<void> {
+    this.#draftInFlight = true
+    try {
+      await this.#dispatchDraft(session, pending)
+    } finally {
+      this.#draftInFlight = false
+      const next = this.#draftQueued
+      this.#draftQueued = null
+      // The queued view is only worth sending while the session is still open.
+      if (next && this.session) void this.#sendDraft(next.session, { input: next.input, at: next.at })
+    }
+  }
+
+  async #dispatchDraft(session: PromptSuggestionSession, pending: { input: PromptDraftInput; at: number }): Promise<void> {
+    const body = {
       roomId: session.roomId,
       draft: pending.input.text,
       ...(pending.input.locale ? { locale: pending.input.locale } : {}),
       ...(pending.input.cursor === undefined ? {} : { cursor: pending.input.cursor }),
       ...(pending.input.vizshowId ? { vizshowId: pending.input.vizshowId } : {}),
-      at: new Date(pending.at).toISOString(),
-    })
-    if (encoder.encode(body).byteLength > DRAFT_MAX_BYTES) return
-    try {
-      connection.publish(this.config.subjects.draft, encoder.encode(body))
-    } catch (error) {
-      console.warn('[vclaw-prompts] draft publish failed:', error instanceof Error ? error.message : error)
     }
+    // The 4 KiB contract cap is enforced here too: a truncated teaching input is worse than none.
+    if (encoder.encode(JSON.stringify(body)).byteLength > DRAFT_MAX_BYTES) {
+      this.#emitDraft({ state: 'refused', error: 'too_large', at: new Date(pending.at).toISOString() })
+      return
+    }
+    const connection = this.#connection ?? await this.#ensureConnection()
+    if (!connection) {
+      this.#emitDraft({ state: 'refused', error: 'unavailable', at: new Date(pending.at).toISOString() })
+      return
+    }
+    const result = await this.#request(connection, this.config.subjects.draft, body)
+    this.#emitDraft(result.ok
+      ? { state: 'sent', at: new Date(pending.at).toISOString() }
+      : { state: 'refused', error: result.error, at: new Date(pending.at).toISOString() })
+  }
+
+  #emitDraft(outcome: PromptDraftOutcome): void {
+    this.#lastDraft = outcome
+    for (const listener of this.#draftListeners) listener(outcome)
+  }
+
+  /** The last flush outcome, so a renderer that mounts late still sees a standing refusal. */
+  get lastDraftOutcome(): PromptDraftOutcome | null {
+    return this.#lastDraft
+  }
+
+  onDraftOutcome(listener: (outcome: PromptDraftOutcome) => void): () => void {
+    this.#draftListeners.add(listener)
+    return () => { this.#draftListeners.delete(listener) }
   }
 
   /**
@@ -713,6 +776,7 @@ export class SuggestionsService {
     this.#stopped = true
     this.#session = null
     this.#pending = null
+    this.#draftQueued = null
     this.#clearTimer()
     this.#unsubscribe?.()
     this.#unsubscribe = null

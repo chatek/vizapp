@@ -467,6 +467,12 @@ export const Composer = memo(function Composer({
     setMenu(null)
     textarea?.focus()
   }
+  /** A refusal code the student can act on, else the raw code (never a silent drop). */
+  const draftRefusalReason = (error: string | undefined): string => error === 'rate_limited'
+    ? t('composer.suggest.reason.rate_limited')
+    : error === 'too_large'
+      ? t('composer.suggest.reason.too_large')
+      : error ?? ''
   const suggestionSource = (suggestion: PromptSuggestion) => suggestion.from.kind === 'agent'
     ? (suggestion.from.ownerHandle
       ? t('composer.suggest.source.agentOf', { handle: suggestion.from.ownerHandle })
@@ -696,6 +702,11 @@ export const Composer = memo(function Composer({
               source: suggestionSource(promptSuggestions.suggestions[promptSuggestions.suggestions.length - 1]),
             })}
           </button>
+        ) : null}
+        {promptSuggestions.draftOutcome?.state === 'refused' ? (
+          <p className="composer-suggest-notice" role="status">
+            {t('composer.suggest.draftBlocked', { reason: draftRefusalReason(promptSuggestions.draftOutcome.error) })}
+          </p>
         ) : null}
         {menu && suggestions.length ? (
           <div ref={menuRef} id={menuId} className="composer-menu" role="listbox" aria-label={menu === 'command' ? 'Commands' : menu === 'mention' ? 'Sessions and skills' : menu === 'suggest' ? t('composer.suggest.list') : 'Add context'}>

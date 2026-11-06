@@ -80,7 +80,18 @@ export type PromptSuggestionConsentRequest =
   | { action: 'open'; peer: string; conversationId: string; ttlS?: number }
   | { action: 'close'; roomId?: string }
 
-/** One live draft view, published only while a consent session is open. */
+/**
+ * What the renderer learns about the last draft flush. The send is fire-and-forget, so this
+ * event is the ONLY feedback: `rate_limited` and `too_large` are the refusals a student hits.
+ */
+export interface PromptDraftOutcome {
+  state: 'sent' | 'refused'
+  /** Typed code when refused (`rate_limited`, `too_large`, `room_closed`, `timeout`, …). */
+  error?: string
+  at: string
+}
+
+/** One live draft view, sent only while a consent session is open. */
 export interface PromptDraftInput {
   text: string
   locale?: string
@@ -1004,6 +1015,8 @@ export interface PrimeWorkApi {
      * entirely unless a consent session is open, so a keystroke never waits on IPC.
      */
     draft(input: PromptDraftInput): void
+    /** The last draft flush outcome (`sent` / `refused` with a typed code). */
+    onDraftOutcome(callback: (outcome: PromptDraftOutcome) => void): () => void
     /** `room.open` / `room.close` — the consent switch. */
     consent(request: PromptSuggestionConsentRequest): Promise<PromptSuggestionInvokeResult>
     /** `room.open` for `peer` (the teacher's nkey): starts publishing this draft. */

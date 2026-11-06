@@ -507,6 +507,17 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       ...(typeof input.vizshowId === 'string' && input.vizshowId ? { vizshowId: input.vizshowId } : {}),
     })
   })
+  // A refused draft is a state the student must be able to see: the send is fire-and-forget,
+  // so this event is its only voice. Same gate as every other main->renderer push.
+  const unsubscribeDraftOutcomes = services.suggestions
+    ? services.suggestions.onDraftOutcome((outcome) => {
+      for (const [id, contents] of authorized) {
+        if (contents.isDestroyed()) { authorized.delete(id); continue }
+        if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+          && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-suggestions:draft-state', outcome)
+      }
+    })
+    : () => undefined
   const unsubscribeSuggestions = services.suggestions
     ? services.suggestions.onSuggestion((suggestion) => {
       for (const [id, contents] of authorized) {
@@ -574,6 +585,7 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       unsubscribePiSessionChanges()
       unsubscribeInbox()
       unsubscribeSuggestions()
+      unsubscribeDraftOutcomes()
       if (typeof unsubscribeScheduleChanges === 'function') unsubscribeScheduleChanges()
       if (typeof unsubscribeBrowserChanges === 'function') unsubscribeBrowserChanges()
       if (typeof unsubscribeBrowserPointer === 'function') unsubscribeBrowserPointer()

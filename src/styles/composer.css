@@ -171,6 +171,8 @@
 .composer-suggest-badge { align-self: flex-start; max-width: 100%; display: inline-flex; align-items: center; gap: 5px; margin: 2px 7px 3px; padding: 3px 8px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--focus) 34%, var(--border)); border-radius: 999px; color: var(--text-secondary); background: color-mix(in srgb, var(--focus) 8%, transparent); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
 .composer-suggest-badge:hover { color: var(--text); background: color-mix(in srgb, var(--focus) 14%, transparent); }
 .composer-suggest-badge svg { flex: 0 0 auto; color: var(--focus); }
+/* The only voice a fire-and-forget draft send has when the service refuses it. */
+.composer-suggest-notice { margin: 1px 7px 3px; color: var(--danger); font-size: 10.5px; line-height: 1.35; }
 
 /* Fluid running-state ring: a layered conic flow orbits the composer while the agent works.
    The .composer--busy hook is applied by Composer.tsx whenever the session is busy or submitting. */

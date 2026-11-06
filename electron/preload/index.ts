@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, PrimeEventEnvelope, PrimeWorkApi, PromptDraftInput, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot } from '../../src/types/api'
+import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, PrimeEventEnvelope, PrimeWorkApi, PromptDraftInput, PromptDraftOutcome, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot } from '../../src/types/api'
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
   if (typeof callback !== 'function') throw new TypeError('callback must be a function')
@@ -171,6 +171,7 @@ const api: PrimeWorkApi = {
     // `send`, not `invoke`: the main process drops this unless a consent session is open and
     // throttles what survives, so nothing is gained by making the keystroke wait for a reply.
     draft: (input: PromptDraftInput) => { ipcRenderer.send('vclaw-suggestions:draft', input) },
+    onDraftOutcome: (callback) => subscribe<PromptDraftOutcome>('vclaw-suggestions:draft-state', callback),
     consent: (request: PromptSuggestionConsentRequest) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:consent', request),
     openSession: (peer: string, conversationId: string, ttlS?: number) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:consent', { action: 'open', peer, conversationId, ...(ttlS === undefined ? {} : { ttlS }) }),
     closeSession: (roomId?: string) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:consent', roomId === undefined ? { action: 'close' } : { action: 'close', roomId }),

@@ -402,14 +402,20 @@ describe('IPC registration lifecycle', () => {
 describe('prompt suggestion IPC', () => {
   const expectedUrl = 'prime-work://app/'
   type Suggestion = Parameters<Parameters<NonNullable<Parameters<typeof registerIpc>[0]['suggestions']>['onSuggestion']>[0]>[0]
+  type DraftOutcome = { state: 'sent' | 'refused'; error?: string; at: string }
 
   function suggestionsStub() {
     let notify: ((suggestion: Suggestion) => void) | null = null
+    let notifyDraft: ((outcome: DraftOutcome) => void) | null = null
     const unsubscribe = vi.fn()
+    const unsubscribeDraft = vi.fn()
     return {
       push: (suggestion: Suggestion) => notify?.(suggestion),
       unsubscribe,
       onSuggestion: vi.fn((listener: (suggestion: Suggestion) => void) => { notify = listener; return unsubscribe }),
+      pushDraft: (outcome: DraftOutcome) => notifyDraft?.(outcome),
+      unsubscribeDraft,
+      onDraftOutcome: vi.fn((listener: (outcome: DraftOutcome) => void) => { notifyDraft = listener; return unsubscribeDraft }),
       setDraft: vi.fn(),
       openSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER' } })),
       closeSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { closed: true } })),
@@ -479,6 +485,19 @@ describe('prompt suggestion IPC', () => {
 
     registration.dispose()
     expect(suggestions.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('forwards a refused draft to trusted renderers and unsubscribes on dispose', () => {
+    const suggestions = suggestionsStub()
+    const { registration, trusted, navigated } = register(suggestions)
+    expect(suggestions.onDraftOutcome).toHaveBeenCalledTimes(1)
+
+    suggestions.pushDraft({ state: 'refused', error: 'rate_limited', at: '2026-11-06T00:00:00.000Z' })
+    expect(trusted.send).toHaveBeenCalledWith('vclaw-suggestions:draft-state', { state: 'refused', error: 'rate_limited', at: '2026-11-06T00:00:00.000Z' })
+    expect(navigated.send).not.toHaveBeenCalled()
+
+    registration.dispose()
+    expect(suggestions.unsubscribeDraft).toHaveBeenCalledTimes(1)
   })
 
   it('answers disabled for every verb when the flag kept the service off', async () => {

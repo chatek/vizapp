@@ -29,6 +29,9 @@ describe('i18n', () => {
       'composer.suggest.source.agentOf',
       'composer.suggest.accept',
       'composer.suggest.inserted',
+      'composer.suggest.draftBlocked',
+      'composer.suggest.reason.rate_limited',
+      'composer.suggest.reason.too_large',
     ] as const
     for (const key of keys) {
       const english = translate('en', key, { count: 1, source: 'agent', handle: 'teacher' })

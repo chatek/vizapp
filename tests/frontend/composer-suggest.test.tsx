@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../../src/components/Composer'
-import type { PrimeWorkApi, PromptSuggestion } from '../../src/types/api'
+import type { PrimeWorkApi, PromptDraftOutcome, PromptSuggestion } from '../../src/types/api'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -29,11 +29,13 @@ const stubWindow = window as unknown as { prime?: PrimeWorkApi }
 let container: HTMLDivElement
 let root: Root
 let push: ((value: PromptSuggestion) => void) | null
+let pushDraft: ((value: PromptDraftOutcome) => void) | null
 let feedback: ReturnType<typeof vi.fn>
 let draft: ReturnType<typeof vi.fn>
 
 function stubPreload(): void {
   push = null
+  pushDraft = null
   feedback = vi.fn(async () => ({ ok: true, data: { ok: true } }))
   draft = vi.fn()
   const suggestions = {
@@ -42,6 +44,10 @@ function stubPreload(): void {
       return () => { push = null }
     },
     draft,
+    onDraftOutcome: (callback: (value: PromptDraftOutcome) => void) => {
+      pushDraft = callback
+      return () => { pushDraft = null }
+    },
     consent: vi.fn(),
     openSession: vi.fn(),
     closeSession: vi.fn(),
@@ -193,6 +199,18 @@ describe('composer suggestion list', () => {
     await act(async () => badge.click())
     expect(container.querySelector('.composer-menu')).not.toBeNull()
     expect(container.querySelectorAll('[role="option"]')).toHaveLength(1)
+  })
+
+  it('shows a refused draft as a notice and clears it on the next successful send', async () => {
+    renderComposer()
+    await act(async () => pushDraft?.({ state: 'refused', error: 'rate_limited', at: '2026-11-06T00:00:00.000Z' }))
+    expect(container.querySelector('.composer-suggest-notice')?.textContent).toBe('Draft not shared: sending too fast')
+
+    await act(async () => pushDraft?.({ state: 'refused', error: 'too_large', at: '2026-11-06T00:00:01.000Z' }))
+    expect(container.querySelector('.composer-suggest-notice')?.textContent).toBe('Draft not shared: the draft is too long')
+
+    await act(async () => pushDraft?.({ state: 'sent', at: '2026-11-06T00:00:02.000Z' }))
+    expect(container.querySelector('.composer-suggest-notice')).toBeNull()
   })
 
   it('publishes the draft to the main process without waiting for a reply', async () => {

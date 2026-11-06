@@ -59,6 +59,9 @@ const englishCatalog = {
   'composer.suggest.source.agentOf': 'agent · @{handle}',
   'composer.suggest.accept': 'Accept suggestion',
   'composer.suggest.inserted': 'new text',
+  'composer.suggest.draftBlocked': 'Draft not shared: {reason}',
+  'composer.suggest.reason.rate_limited': 'sending too fast',
+  'composer.suggest.reason.too_large': 'the draft is too long',
 } as const satisfies Record<string, Message>
 
 export type MessageKey = keyof typeof englishCatalog
@@ -118,6 +121,9 @@ const simplifiedChineseCatalog: Partial<Record<MessageKey, Message>> = {
   'composer.suggest.source.agentOf': '智能体 · @{handle}',
   'composer.suggest.accept': '采用建议',
   'composer.suggest.inserted': '新增文本',
+  'composer.suggest.draftBlocked': '草稿未共享：{reason}',
+  'composer.suggest.reason.rate_limited': '发送过快',
+  'composer.suggest.reason.too_large': '草稿过长',
 }
 
 function browserLanguages(): readonly string[] {

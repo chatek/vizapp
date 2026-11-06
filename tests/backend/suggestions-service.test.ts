@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { nkeys } from '@nats-io/nats-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -40,7 +41,6 @@ function config(overrides: Partial<PromptConfig> = {}): PromptConfig {
 
 interface FakeConnection {
   connection: SuggestionsNatsLike
-  published: Array<{ subject: string; body: Record<string, unknown> }>
   requests: Array<{ subject: string; body: Record<string, unknown>; timeoutMs: number; headers?: Record<string, string> }>
   subscribed: string[]
   /** How many times the service asked for a re-minted token. */
@@ -58,7 +58,6 @@ interface FakeConnection {
 function fakeConnection(tokens: string[] = ['token-1', 'token-2']): FakeConnection {
   const state: FakeConnection = {
     connection: null as unknown as SuggestionsNatsLike,
-    published: [],
     requests: [],
     subscribed: [],
     refreshes: 0,
@@ -79,7 +78,6 @@ function fakeConnection(tokens: string[] = ['token-1', 'token-2']): FakeConnecti
       handler = next
       return () => { handler = null }
     },
-    publish: (subject, data) => { state.published.push({ subject, body: JSON.parse(decoder.decode(data)) as Record<string, unknown> }) },
     request: async (subject, data, options) => {
       const body = JSON.parse(decoder.decode(data)) as Record<string, unknown>
       state.requests.push({ subject, body, timeoutMs: options.timeoutMs, ...(options.headers ? { headers: options.headers } : {}) })
@@ -102,12 +100,19 @@ function fakeConnection(tokens: string[] = ['token-1', 'token-2']): FakeConnecti
 const decodeToken = (token: string): Record<string, unknown> =>
   JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>
 
-function serviceWith(connection: FakeConnection): SuggestionsService {
+function serviceWith(connection: FakeConnection, throttleMs = 300): SuggestionsService {
   return new SuggestionsService({
     connector: async () => connection.connection,
     config: config(),
-    throttleMs: 300,
+    throttleMs,
   })
+}
+
+/** The flush is fire-and-forget by design, so a test waits for its observable outcome. */
+const draftOutcomes = (service: SuggestionsService) => {
+  const seen: Array<{ state: string; error?: string }> = []
+  service.onDraftOutcome((outcome) => seen.push(outcome))
+  return seen
 }
 
 const suggestion = {
@@ -149,8 +154,8 @@ describe('prompt suggestion pushes', () => {
   })
 })
 
-describe('consent-gated draft publishing', () => {
-  it('publishes nothing at all while no consent session is open', async () => {
+describe('consent-gated draft requests', () => {
+  it('sends nothing at all while no consent session is open', async () => {
     vi.useFakeTimers()
     const fake = fakeConnection()
     const service = serviceWith(fake)
@@ -159,68 +164,149 @@ describe('consent-gated draft publishing', () => {
     service.setDraft({ text: '一元二次方程', locale: 'zh-CN' })
     vi.advanceTimersByTime(1_000)
 
-    expect(fake.published).toEqual([])
+    expect(fake.requests).toEqual([])
+    expect(service.lastDraftOutcome).toBeNull()
     await service.stop()
   })
 
-  it('publishes one throttled draft view, tagged with the room, once the session opens', async () => {
-    vi.useFakeTimers()
+  it('sends the draft as a Micro REQUEST to the contract endpoint, never as a publish', async () => {
     const fake = fakeConnection()
     fake.reply('vizregistry.prompts.room.open', () => ({ roomId: 'room-1', peer: 'UTEACHER', mutual: true, expiresAt: '2099-01-01T00:00:00.000Z' }))
-    const service = serviceWith(fake)
+    fake.reply('vizregistry.prompts.draft', () => ({ accepted: true, requestId: 'req-1', teachersOnline: 1 }))
+    const service = serviceWith(fake, 1)
+    const outcomes = draftOutcomes(service)
     await service.start()
+    await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
+    fake.requests.length = 0
 
-    const opened = await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
-    expect(opened).toEqual({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER', mutual: true, expiresAt: '2099-01-01T00:00:00.000Z' } })
-    expect(fake.requests[0]).toMatchObject({ subject: 'vizregistry.prompts.room.open', body: { peer: 'UTEACHER', conversationId: 'conv-1' }, timeoutMs: 10_000 })
-
-    service.setDraft({ text: '一元二次方程', locale: 'zh-CN' })
+    service.setDraft({ text: '一元二次方程', locale: 'zh-CN', cursor: 6 })
     service.setDraft({ text: '一元二次方程 求解', locale: 'zh-CN' })
-    vi.advanceTimersByTime(299)
-    expect(fake.published).toHaveLength(0)
-    vi.advanceTimersByTime(1)
 
-    expect(fake.published).toHaveLength(1)
-    expect(fake.published[0].subject).toBe(`tenant.vcc.prompts.draft.${NKEY}`)
-    expect(fake.published[0].body).toMatchObject({ roomId: 'room-1', draft: '一元二次方程 求解', locale: 'zh-CN' })
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.requests[0]).toMatchObject({
+      subject: 'vizregistry.prompts.draft',
+      body: { roomId: 'room-1', draft: '一元二次方程 求解', locale: 'zh-CN' },
+      timeoutMs: 10_000,
+    })
+    expect(fake.requests[0].headers?.Authorization).toMatch(/^Bearer /)
+    expect(outcomes).toEqual([{ state: 'sent', error: undefined, at: expect.any(String) }].map(({ state }) => expect.objectContaining({ state })))
     await service.stop()
   })
 
-  it('stops publishing the moment the session closes, before the service answers', async () => {
-    vi.useFakeTimers()
+  it('stops sending the moment the session closes, before the service answers', async () => {
     const fake = fakeConnection()
     fake.reply('vizregistry.prompts.room.open', () => ({ roomId: 'room-1', peer: 'UTEACHER', expiresAt: '2099-01-01T00:00:00.000Z' }))
+    fake.reply('vizregistry.prompts.draft', () => ({ accepted: true }))
     fake.reply('vizregistry.prompts.room.close', () => { throw new Error('request timeout') })
-    const service = serviceWith(fake)
+    const service = serviceWith(fake, 1)
+    const outcomes = draftOutcomes(service)
     await service.start()
     await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
     service.setDraft({ text: 'first' })
-    vi.advanceTimersByTime(300)
-    expect(fake.published).toHaveLength(1)
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
 
     const closed = await service.closeSession()
     expect(closed).toEqual({ ok: false, error: 'timeout' })
     service.setDraft({ text: 'after revocation' })
-    vi.advanceTimersByTime(1_000)
+    await new Promise((resolve) => setTimeout(resolve, 20))
 
-    expect(fake.published).toHaveLength(1)
+    expect(outcomes).toHaveLength(1)
+    expect(fake.requests.filter((request) => request.subject === 'vizregistry.prompts.draft')).toHaveLength(1)
     expect(service.session).toBeNull()
     await service.stop()
   })
 
-  it('never publishes a draft past the 4 KiB payload cap', async () => {
-    vi.useFakeTimers()
+  it('refuses a draft past the 4 KiB cap as a typed state instead of dropping it', async () => {
     const fake = fakeConnection()
     fake.reply('vizregistry.prompts.room.open', () => ({ roomId: 'room-1', peer: 'UTEACHER', expiresAt: '2099-01-01T00:00:00.000Z' }))
-    const service = serviceWith(fake)
+    const service = serviceWith(fake, 1)
+    const outcomes = draftOutcomes(service)
+    await service.start()
+    await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
+    fake.requests.length = 0
+
+    service.setDraft({ text: 'x'.repeat(DRAFT_MAX_BYTES + 1) })
+
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    expect(outcomes[0]).toMatchObject({ state: 'refused', error: 'too_large' })
+    expect(fake.requests).toEqual([])
+    await service.stop()
+  })
+
+  it('surfaces rate_limited from the service instead of swallowing it', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.room.open', () => ({ roomId: 'room-1', peer: 'UTEACHER', expiresAt: '2099-01-01T00:00:00.000Z' }))
+    fake.reply('vizregistry.prompts.draft', () => ({ ok: false, code: 'rate_limited', message: 'draft budget exhausted' }))
+    const service = serviceWith(fake, 1)
+    const outcomes = draftOutcomes(service)
     await service.start()
     await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
 
-    service.setDraft({ text: 'x'.repeat(DRAFT_MAX_BYTES + 1) })
-    vi.advanceTimersByTime(1_000)
+    service.setDraft({ text: '一元二次方程' })
 
-    expect(fake.published).toEqual([])
+    await vi.waitFor(() => expect(outcomes).toHaveLength(1))
+    expect(outcomes[0]).toMatchObject({ state: 'refused', error: 'rate_limited' })
+    expect(service.lastDraftOutcome).toMatchObject({ state: 'refused', error: 'rate_limited' })
     await service.stop()
+  })
+
+  it('keeps one draft request in flight and only the latest view waiting', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.room.open', () => ({ roomId: 'room-1', peer: 'UTEACHER', expiresAt: '2099-01-01T00:00:00.000Z' }))
+    fake.reply('vizregistry.prompts.draft', () => ({ accepted: true }))
+    const slow = fake.connection.request
+    const sent: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let held = false
+    fake.connection.request = async (subject, data, options) => {
+      if (subject === 'vizregistry.prompts.draft') {
+        const body = JSON.parse(decoder.decode(data)) as { draft?: string }
+        sent.push(String(body.draft))
+        if (!held) { held = true; await gate }
+      }
+      return slow(subject, data, options)
+    }
+    const service = serviceWith(fake, 1)
+    const outcomes = draftOutcomes(service)
+    await service.start()
+    await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
+
+    service.setDraft({ text: 'v1' })
+    await vi.waitFor(() => expect(sent).toEqual(['v1']))
+    service.setDraft({ text: 'v2' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    service.setDraft({ text: 'v3' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sent).toEqual(['v1'])
+    release()
+
+    await vi.waitFor(() => expect(sent).toEqual(['v1', 'v3']))
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2))
+    await service.stop()
+  })
+})
+
+describe('no publish plane', () => {
+  it('never publishes a draft: no publish call and no draft.* delivery subject in main', () => {
+    const source = readFileSync('electron/main/suggestions-service.ts', 'utf8')
+    // A raw publish has no owner (nobody subscribes from this side) and vgate grants PUB only on
+    // `vizregistry.prompts.>`, so it would be denied silently while looking successful.
+    expect(source).not.toMatch(/\.publish\(/)
+    expect(source).not.toMatch(/prompts\.draft\./)
+    const resolved = resolvePromptConfig(
+      { [PROMPTS_FLAG]: '1' },
+      {
+        readFile: (path: string) => path.endsWith('credentials.json')
+          ? JSON.stringify({ public_key: NKEY, seed: 'SUAA277DNC5JEXAMPLE' })
+          : '{}',
+        home: '/home/student',
+      },
+    )
+    if (!resolved.ok) throw new Error('expected a resolved config')
+    for (const subject of Object.values(resolved.config.subjects)) expect(subject).not.toMatch(/\.draft\./)
+    expect(resolved.config.subjects.draft).toBe('vizregistry.prompts.draft')
   })
 })
 
@@ -267,7 +353,7 @@ describe('request mapping', () => {
     const configured = resolvePromptConfig({ [PROMPTS_FLAG]: '1' }, { readFile, home: '/home/student' })
     expect(configured.ok && configured.config.subjects).toEqual({
       suggest: `tenant.vcc.prompts.suggest.${NKEY}`,
-      draft: `tenant.vcc.prompts.draft.${NKEY}`,
+      draft: 'vizregistry.prompts.draft',
       roomOpen: 'vizregistry.prompts.room.open',
       roomClose: 'vizregistry.prompts.room.close',
       feedback: 'vizregistry.prompts.feedback',

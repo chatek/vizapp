@@ -140,7 +140,6 @@ function microRequest(nc, subject, payload, bearer) {
 }
 
 const suggestSubject = (nkey) => `tenant.${SEGMENT}.prompts.suggest.${nkey}`
-const draftSubject = (nkey) => `tenant.${SEGMENT}.prompts.draft.${nkey}`
 
 // ── the legs ────────────────────────────────────────────────────────────────
 
@@ -201,17 +200,22 @@ async function runLegs() {
     log('C room-open', decoded.mutual === true, `mutual=${decoded.mutual} roomId=${roomId ?? 'none'}`)
   }
 
-  // D. draft publish — NKEY-keyed subject (the re-key: vgate can only grant what it can name)
+  // D. draft — a Micro REQUEST to the service, exactly like the desktop's flush. The service
+  // owns fan-out to each consenting teacher's nkey subject; a raw publish here would be a message
+  // into the void (nobody subscribes) and a DENIED publish (vgate grants PUB only on
+  // `vizregistry.prompts.>`), so this leg must go through the endpoint.
   {
-    nc.publish(draftSubject(TEACHER_NKEY), new TextEncoder().encode(JSON.stringify({
-      roomId,
-      draft: DRAFT_TEXT,
-      locale: 'zh-CN',
-      conversationId,
-      at: new Date().toISOString(),
-    })))
-    await nc.flush()
-    log('D draft-publish', true, `published "${DRAFT_TEXT}" to ${draftSubject(TEACHER_NKEY)}`)
+    try {
+      const reply = await microRequest(nc, 'vizregistry.prompts.draft', {
+        roomId,
+        draft: DRAFT_TEXT,
+        locale: 'zh-CN',
+      }, studentBearer())
+      const decoded = JSON.parse(new TextDecoder().decode(reply.data))
+      log('D draft-request', decoded.accepted === true, `accepted=${decoded.accepted} teachersOnline=${decoded.teachersOnline ?? '?'}`)
+    } catch (error) {
+      log('D draft-request', false, `no reply on vizregistry.prompts.draft: ${error instanceof Error ? error.message : error}`)
+    }
   }
 
   // E. the teacher's AGENT suggests
