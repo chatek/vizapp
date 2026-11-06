@@ -19,6 +19,37 @@ describe('i18n', () => {
     expect(resolveLocale('zh-CN', ['en-US'])).toBe('zh-CN')
   })
 
+  it('ships every composer suggestion string in both catalogs', () => {
+    const keys = [
+      'composer.suggest.badge',
+      'composer.suggest.badgeLabel',
+      'composer.suggest.list',
+      'composer.suggest.source.human',
+      'composer.suggest.source.agent',
+      'composer.suggest.source.agentOf',
+      'composer.suggest.renders',
+      'composer.suggest.accept',
+      'composer.suggest.inserted',
+      'composer.suggest.draftBlocked',
+      'composer.suggest.reason.rate_limited',
+      'composer.suggest.reason.too_large',
+    ] as const
+    const values = { count: 1, source: 'agent', handle: 'teacher', tutorial: 'quadratic-functions', params: 'a=1 b=-3 c=2' }
+    for (const key of keys) {
+      const english = translate('en', key, values)
+      const chinese = translate('zh-CN', key, values)
+      expect(english, key).not.toBe(key)
+      expect(chinese, key).not.toBe(key)
+      expect(chinese, key).not.toBe(english)
+    }
+    // The capability chip interpolates the tutorial and its formatted params, in both locales.
+    expect(translate('en', 'composer.suggest.renders', values)).toBe('quadratic-functions · a=1 b=-3 c=2')
+    expect(translate('zh-CN', 'composer.suggest.renders', values)).toBe('quadratic-functions · 参数 a=1 b=-3 c=2')
+    // The badge's singular/plural selection is wired to the count, not to the locale.
+    expect(translate('en', 'composer.suggest.badge', { count: 1, source: 'agent' })).toBe('1 suggestion from agent')
+    expect(translate('en', 'composer.suggest.badge', { count: 2, source: 'agent' })).toBe('2 suggestions from agent')
+  })
+
   it('interpolates values, selects plural forms, and falls back to English', () => {
     expect(translate('en', 'appearance.language.available', { count: 1 })).toBe('1 language available')
     expect(translate('en', 'appearance.language.available', { count: 2 })).toBe('2 languages available')

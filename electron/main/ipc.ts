@@ -19,7 +19,8 @@ import type { TerminalService } from './terminal'
 import type { VoiceService } from './voice'
 import type { UpdateService } from './updates'
 import type { AgentBrowserService } from './browser/agent-service'
-import { requireExistingPath, requireRecord, requireString, requireWebUrl } from './validation'
+import { isRecord, requireExistingPath, requireRecord, requireString, requireWebUrl } from './validation'
+import type { SuggestionsService } from './suggestions-service'
 
 interface Services {
   meta: AppMeta
@@ -52,6 +53,12 @@ interface Services {
   applyInterfaceZoom?(scale: number): void
   /** vclaw inbox: reads the frozen spool and pushes state changes. */
   inbox: VclawInboxService
+  /**
+   * Shared prompt auto-complete: NATS subscriber + invoke bridge (contract §4). ABSENT while
+   * `VCLAW_PROMPTS` is off — that absence is how the flag reaches the IPC layer, where every
+   * call then answers `{ok:false,error:'disabled'}`.
+   */
+  suggestions?: SuggestionsService
 }
 
 interface HarnessServices {
@@ -479,6 +486,78 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
         && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-inbox:changed', snapshot)
     }
   })
+  // The renderer names an OPERATION, never a subject. Both verbs answer typed values: a refusal
+  // (`not_mutual`, `room_closed`, …) is something the UI renders, and `disabled` is the only
+  // trace the `VCLAW_PROMPTS` flag leaves.
+  handle('vclaw-suggestions:consent', (_event, request) => {
+    const service = services.suggestions
+    if (!service) return { ok: false, error: 'disabled' }
+    if (!isRecord(request)) return { ok: false, error: 'invalid_payload' }
+    if (request.action === 'open') {
+      const peer = typeof request.peer === 'string' ? request.peer.trim() : ''
+      const conversationId = typeof request.conversationId === 'string' ? request.conversationId.trim() : ''
+      if (!peer || !conversationId) return { ok: false, error: 'invalid_payload' }
+      const ttlS = typeof request.ttlS === 'number' && Number.isFinite(request.ttlS) && request.ttlS > 0 ? request.ttlS : undefined
+      return service.openSession({ action: 'open', peer, conversationId, ...(ttlS === undefined ? {} : { ttlS }) })
+    }
+    if (request.action === 'close') {
+      const roomId = typeof request.roomId === 'string' && request.roomId.trim() ? request.roomId.trim() : undefined
+      return service.closeSession(roomId)
+    }
+    return { ok: false, error: 'unknown_action' }
+  })
+  // One-time enrolment: the owner's OIDC token authorises the call, the assertion proves this
+  // host holds the seed. Idempotent server-side; every failure is a typed code.
+  handle('vclaw-suggestions:link', () => {
+    const service = services.suggestions
+    if (!service) return { ok: false, error: 'disabled' }
+    return service.link()
+  })
+  // Cached in main for the process lifetime: the endpoint costs ~2 s, and the renderer may ask
+  // on every mount. A failure is a typed value, never a throw.
+  handle('vclaw-suggestions:catalogue', () => services.suggestions
+    ? services.suggestions.catalogue()
+    : { entries: [], error: 'disabled' })
+  handle('vclaw-suggestions:feedback', (_event, suggestionId, outcome, ms) => {
+    const service = services.suggestions
+    if (!service) return { ok: false, error: 'disabled' }
+    if (typeof suggestionId !== 'string' || !suggestionId.trim()) return { ok: false, error: 'invalid_payload' }
+    if (outcome !== 'accepted' && outcome !== 'rejected' && outcome !== 'superseded') return { ok: false, error: 'invalid_payload' }
+    const elapsed = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : undefined
+    return service.feedback(suggestionId.trim(), outcome, elapsed)
+  })
+  // Fire-and-forget by design: the service both GATES (no open session ⇒ dropped) and throttles,
+  // so a keystroke never waits on IPC or on the fabric.
+  on('vclaw-suggestions:draft', (_event, input) => {
+    if (!services.suggestions || !isRecord(input) || typeof input.text !== 'string') return
+    const cursor = typeof input.cursor === 'number' && Number.isFinite(input.cursor) ? input.cursor : undefined
+    services.suggestions.setDraft({
+      text: input.text,
+      ...(typeof input.locale === 'string' && input.locale ? { locale: input.locale } : {}),
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(typeof input.vizshowId === 'string' && input.vizshowId ? { vizshowId: input.vizshowId } : {}),
+    })
+  })
+  // A refused draft is a state the student must be able to see: the send is fire-and-forget,
+  // so this event is its only voice. Same gate as every other main->renderer push.
+  const unsubscribeDraftOutcomes = services.suggestions
+    ? services.suggestions.onDraftOutcome((outcome) => {
+      for (const [id, contents] of authorized) {
+        if (contents.isDestroyed()) { authorized.delete(id); continue }
+        if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+          && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-suggestions:draft-state', outcome)
+      }
+    })
+    : () => undefined
+  const unsubscribeSuggestions = services.suggestions
+    ? services.suggestions.onSuggestion((suggestion) => {
+      for (const [id, contents] of authorized) {
+        if (contents.isDestroyed()) { authorized.delete(id); continue }
+        if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+          && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-suggestions:changed', suggestion)
+      }
+    })
+    : () => undefined
 
   const forwardSessionChange = (change: SessionChangeEvent): void => {
     for (const [id, contents] of authorized) {
@@ -536,6 +615,8 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       unsubscribeOmpSessionChanges()
       unsubscribePiSessionChanges()
       unsubscribeInbox()
+      unsubscribeSuggestions()
+      unsubscribeDraftOutcomes()
       if (typeof unsubscribeScheduleChanges === 'function') unsubscribeScheduleChanges()
       if (typeof unsubscribeBrowserChanges === 'function') unsubscribeBrowserChanges()
       if (typeof unsubscribeBrowserPointer === 'function') unsubscribeBrowserPointer()

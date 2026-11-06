@@ -39,6 +39,119 @@ export interface VclawInboxMessage {
   read?: boolean
 }
 
+/** Runtimes a capability-validated intent can name. */
+export type PromptSuggestionVizKind = 'elucim' | 'three' | 'vectorplay'
+
+export type PromptSuggestionVizParams = Record<string, number | boolean | string>
+
+/**
+ * What a suggestion would ACTUALLY render, when the service attached a capability-validated
+ * intent. Display-only by contract: the parser drops a malformed intent without dropping the
+ * suggestion, and nothing here is ever sent back or acted on.
+ */
+export interface PromptSuggestionViz {
+  tutorialId: string
+  kind: PromptSuggestionVizKind
+  params: PromptSuggestionVizParams
+}
+
+/** One parameter a catalogue manifest accepts. `values` lists the legal strings, when closed. */
+export interface PromptCatalogueParam {
+  key: string
+  type: 'number' | 'boolean' | 'string'
+  min?: number
+  max?: number
+  values?: string[]
+}
+
+/**
+ * One capability manifest from `vizregistry.prompts.catalogue`. The desktop caches these so a
+ * later UI can offer in-range intents without paying the ~2 s authenticated fetch again.
+ */
+export interface PromptCatalogueEntry {
+  tutorialId: string
+  kind: PromptSuggestionVizKind
+  params: PromptCatalogueParam[]
+}
+
+/**
+ * The catalogue as the renderer sees it. A failed fetch is a VALUE: an empty list plus a typed
+ * code (`timeout`, `unauthorized`, …), never a throw and never a stale lie.
+ */
+export interface PromptCatalogueResult {
+  entries: PromptCatalogueEntry[]
+  error?: string
+}
+
+/**
+ * A teacher's pushed suggestion, as it arrives over
+ * `tenant.<segment>.prompts.suggest.<selfSubHmac>` (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8).
+ * The desktop renders `from` as a CLAIM: for an agent teacher the NKey assertion and the owner
+ * binding are verified by the service, not here.
+ */
+export interface PromptSuggestion {
+  suggestionId: string
+  roomId: string
+  requestId: string
+  prompt: string
+  rationale?: string
+  locale?: string
+  from: { kind: 'human' | 'agent'; nkey: string; ownerHandle?: string; display?: string }
+  confidence?: number
+  expiresAt?: string
+  /** Optional capability-validated intent; absent for older/simple suggestions. */
+  vizshow?: PromptSuggestionViz
+}
+
+/** The lifecycle the service records for a suggestion (§3 rule 6). */
+export type PromptSuggestionOutcome = 'accepted' | 'rejected' | 'superseded'
+
+/**
+ * Result of a NATS request made on the renderer's behalf. Failures are VALUES, never
+ * thrown: a refusal (`not_mutual`, `room_closed`, …) is a typed code the UI can branch on,
+ * and the transport's own failures collapse to `timeout` / `unavailable`.
+ */
+export type PromptSuggestionInvokeResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string }
+
+/**
+ * The consent session (§8): `room.open` is how a student grants a mutually-followed peer — and
+ * that peer's agent — the right to see drafts. Nothing is published before it opens.
+ */
+export interface PromptSuggestionSession {
+  roomId: string
+  peer: string
+  expiresAt: string
+}
+
+/**
+ * The renderer's consent verb. `open` carries the PEER (the teacher's nkey); `close` carries the
+ * room to close, defaulting to the open session so a revocation cannot be talked out of.
+ */
+export type PromptSuggestionConsentRequest =
+  | { action: 'open'; peer: string; conversationId: string; ttlS?: number }
+  | { action: 'close'; roomId?: string }
+
+/**
+ * What the renderer learns about the last draft flush. The send is fire-and-forget, so this
+ * event is the ONLY feedback: `rate_limited` and `too_large` are the refusals a student hits.
+ */
+export interface PromptDraftOutcome {
+  state: 'sent' | 'refused'
+  /** Typed code when refused (`rate_limited`, `too_large`, `room_closed`, `timeout`, …). */
+  error?: string
+  at: string
+}
+
+/** One live draft view, sent only while a consent session is open. */
+export interface PromptDraftInput {
+  text: string
+  locale?: string
+  cursor?: number
+  vizshowId?: string
+}
+
 export interface VclawInboxSnapshot {
   state: VclawInboxState
   /** Absolute spool path, or '' when no identity is on this host. */
@@ -982,6 +1095,41 @@ export interface PrimeWorkApi {
   inbox: {
     read(): Promise<VclawInboxSnapshot>
     onChanged(callback: (snapshot: VclawInboxSnapshot) => void): () => void
+  }
+  /**
+   * Shared prompt auto-complete (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8). The renderer never
+   * holds a NATS client: pushes arrive from the main process's agent-sdk connection, and every
+   * outbound call is a named operation the main process maps to a Micro subject.
+   */
+  suggestions: {
+    /** Teacher/agent pushes, already validated by the main process. */
+    subscribe(callback: (suggestion: PromptSuggestion) => void): () => void
+    /**
+     * The live draft view. Fire-and-forget by design: the main process throttles it and drops it
+     * entirely unless a consent session is open, so a keystroke never waits on IPC.
+     */
+    draft(input: PromptDraftInput): void
+    /**
+     * The cached capability catalogue. Fetched once per process (the call costs ~2 s of auth
+     * pair); a failure answers an empty list plus a typed code and retries after a backoff.
+     */
+    catalogue(): Promise<PromptCatalogueResult>
+    /** The last draft flush outcome (`sent` / `refused` with a typed code). */
+    onDraftOutcome(callback: (outcome: PromptDraftOutcome) => void): () => void
+    /** `room.open` / `room.close` — the consent switch. */
+    consent(request: PromptSuggestionConsentRequest): Promise<PromptSuggestionInvokeResult>
+    /** `room.open` for `peer` (the teacher's nkey): starts publishing this draft. */
+    openSession(peer: string, conversationId: string, ttlS?: number): Promise<PromptSuggestionInvokeResult>
+    /** `room.close`: stops publishing immediately, whatever the service answers. */
+    closeSession(roomId?: string): Promise<PromptSuggestionInvokeResult>
+    /** `feedback` — record the suggestion's lifecycle transition (§3 rule 6). */
+    feedback(suggestionId: string, outcome: PromptSuggestionOutcome, ms?: number): Promise<PromptSuggestionInvokeResult>
+    /**
+     * One-time enrolment: binds this host's nkey to the owner's account
+     * (`PUT /api/me/agent-bindings/<nkey>`). Needs the owner's OIDC token; answers typed
+     * refusals (`unbound`, `forbidden_segment`, `no_access_token`, …).
+     */
+    link(): Promise<PromptSuggestionInvokeResult>
   }
 }
 

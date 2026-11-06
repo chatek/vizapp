@@ -13,6 +13,10 @@
       "resolved": "file:vendor/prime-agent-tui-0.7.0.tgz",
       "integrity": "sha512-mbypMOaUYrrQCBc59YZ34RQHWmsnzJNhd1ISF5E39L9qEKpVU5ZpctTqrA9Dhdo7IGDk0WfSnppNls/uyAcMjw=="
     },
+    "node_modules/@vclawhub/agent": {
+      "resolved": "file:vendor/vclawhub-agent-1.5.0.tgz",
+      "integrity": "sha512-W+wviKgOTicxtEnYNLsxLLjoz+Afwk7phNTn2S3oy/Gd+NTC8lFvTKZr5ZX0B52waWo9XypECN5OV92xBrdo+Q=="
+    },
     "node_modules/prime-agent": {
       "resolved": "file:vendor/prime-agent-0.7.0-gooeypi.1.tgz",
       "integrity": "sha512-WrsxPwAFfhuTnpL2q6x7wftoZJuzFJDVZ4YbmfkFLqqum05rE8GB8H6HGFAM9rCWa4mXBou4qoOpe7ryWU5j9Q=="

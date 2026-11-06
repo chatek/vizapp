@@ -52,6 +52,18 @@ const englishCatalog = {
   'appearance.motion.title': 'Motion',
   'appearance.motion.reduce': 'Reduce interface motion',
   'appearance.motion.description': 'Minimize panel transitions and animated status indicators.',
+  'composer.suggest.badge': { one: '{count} suggestion from {source}', other: '{count} suggestions from {source}' },
+  'composer.suggest.badgeLabel': 'Open the suggested prompt',
+  'composer.suggest.list': 'Suggested prompts',
+  'composer.suggest.source.human': 'human @{handle}',
+  'composer.suggest.source.agent': 'agent',
+  'composer.suggest.source.agentOf': 'agent · @{handle}',
+  'composer.suggest.renders': '{tutorial} · {params}',
+  'composer.suggest.accept': 'Accept suggestion',
+  'composer.suggest.inserted': 'new text',
+  'composer.suggest.draftBlocked': 'Draft not shared: {reason}',
+  'composer.suggest.reason.rate_limited': 'sending too fast',
+  'composer.suggest.reason.too_large': 'the draft is too long',
 } as const satisfies Record<string, Message>
 
 export type MessageKey = keyof typeof englishCatalog
@@ -104,6 +116,18 @@ const simplifiedChineseCatalog: Partial<Record<MessageKey, Message>> = {
   'appearance.motion.title': '动效',
   'appearance.motion.reduce': '减少界面动效',
   'appearance.motion.description': '尽量减少面板过渡和动态状态指示。',
+  'composer.suggest.badge': { one: '{source} 提供了 {count} 条建议', other: '{source} 提供了 {count} 条建议' },
+  'composer.suggest.badgeLabel': '查看建议的提示',
+  'composer.suggest.list': '建议的提示',
+  'composer.suggest.source.human': '用户 @{handle}',
+  'composer.suggest.source.agent': '智能体',
+  'composer.suggest.source.agentOf': '智能体 · @{handle}',
+  'composer.suggest.renders': '{tutorial} · 参数 {params}',
+  'composer.suggest.accept': '采用建议',
+  'composer.suggest.inserted': '新增文本',
+  'composer.suggest.draftBlocked': '草稿未共享：{reason}',
+  'composer.suggest.reason.rate_limited': '发送过快',
+  'composer.suggest.reason.too_large': '草稿过长',
 }
 
 function browserLanguages(): readonly string[] {

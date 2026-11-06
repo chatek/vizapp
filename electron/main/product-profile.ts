@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { isAbsolute, join, normalize, sep } from 'node:path'
+import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import type { HarnessId, ProductProfileSummary } from '../../src/types/api'
 
 /**
@@ -101,7 +101,9 @@ export const BUILT_IN_PROFILE: ProductProfile = Object.freeze({
 export function productProfilePath(context: ProductProfileContext): string {
   return context.isPackaged
     ? join(context.resourcesPath, 'product.json')
-    : join(context.appPath, 'product', 'profile.json')
+    : process.env.VCLAW_PROFILE
+      ? resolve(context.appPath, process.env.VCLAW_PROFILE)
+      : join(context.appPath, 'product', 'profile.json')
 }
 
 const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/

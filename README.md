@@ -129,6 +129,15 @@ Harness provider credentials stay with the harness. Optional voice keys are encr
   </picture>
 </a>
 
+## The `vizmaster` branch
+
+`vizmaster` is a long-running **member-vertical branch** of this repo, kept as its own world. It carries the same generic base as `main` plus member-facing work that `main` deliberately does not carry, because `main` is the generic product:
+
+- **Product features for the member experience** — a marketplace home, an OMP-only harness menu, the Catppuccin Mocha theme and its theming infrastructure, a `browserHome` migration, and member posture tests (`tests/frontend/vizmaster-posture.test.tsx`).
+- **Member build and publish flow** — a bundled OMP binary with an after-pack refusal of a drifted one, per-architecture unsigned `.dmg` + `.app` `.zip` artifacts from `scripts/release/build-remote.sh`, the member build path (`--member`: payload + profile, pre-packaging assert, clean-state provenance), ruled `VClaw` / `com.vclaw.desktop` identity, and the Forgejo publish driver `scripts/release/release-forgejo.sh`.
+
+`main`'s build does not bundle OMP and does not produce member artifacts. The build-flow docs ([docs/BUILD.md](docs/BUILD.md), [docs/BUILD_REMOTE.md](docs/BUILD_REMOTE.md)) exist on both branches, but only the `vizmaster` versions describe the member flow. The branch relationship is described in [docs/MEMBER_BUILD.md](docs/MEMBER_BUILD.md), and lane ownership in `docs/BOUNDARIES.md` on the `vizmaster` branch. The parent repo records only `main` commits, so `main` is the sole integration point.
+
 ## Run from source
 
 You will need Node.js 24.15.0 or newer and npm 12.0.2 or newer. The repository pins Node.js 24.15.0 in `.nvmrc`; with [nvm](https://github.com/nvm-sh/nvm), you can select it with:

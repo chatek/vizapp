@@ -17,7 +17,12 @@ import { ProvidersSettings } from './settings/ProviderSettings'
 import { TerminalSettings } from './settings/TerminalSettings'
 import { VoiceSettings } from './settings/VoiceSettings'
 
-const sections: Array<{ id: SettingsSection; label: MessageKey; icon: ComponentType<{ size?: number }> }> = [
+// vizmaster (2026-11-07, operator): 'Harness' (agent) and 'Voice' sections are HIDDEN — the member
+// product does not surface harness switching or voice configuration. The section bodies remain
+// reachable programmatically (initialSection) and all their settings keep applying; only the
+// entries are removed from the visible nav.
+const HIDDEN_SECTIONS: ReadonlySet<SettingsSection> = new Set(['agent', 'voice'])
+const allSections: Array<{ id: SettingsSection; label: MessageKey; icon: ComponentType<{ size?: number }> }> = [
   { id: 'general', label: 'settings.general', icon: Settings2 },
   { id: 'appearance', label: 'settings.appearance', icon: Sun },
   { id: 'agent', label: 'settings.harness', icon: Bot },
@@ -29,6 +34,7 @@ const sections: Array<{ id: SettingsSection; label: MessageKey; icon: ComponentT
   { id: 'privacy', label: 'settings.privacy', icon: LockKeyhole },
   { id: 'about', label: 'settings.about', icon: Info },
 ]
+const sections = allSections.filter((entry) => !HIDDEN_SECTIONS.has(entry.id))
 
 interface SettingsPageProps {
   settings: AppSettings
