@@ -45,6 +45,40 @@ function verifyBundledOmp(context) {
   console.log(`  after-pack: bundled omp verified (sha256 ${actual.slice(0, 12)}…, ${arch})`)
 }
 
+// vizmaster (2026-11-07, packaging review §8 gap 1, P0): the DASHBOARD payload is
+// integrator-written build state, deliberately untracked (.gitignore whitelist), so
+// nothing in git can prove it exists — and a build without it ships a product whose
+// prompt→VizShow loop silently cannot work. This is the enforcement the review found
+// missing: the pack FAILS unless the integrated payload is present and complete.
+// The three markers are the minimum the loop needs: an installable project, the OMP
+// tool discovery shim, and the release identity the upgrader keys off.
+function verifyDashboardPayload(context) {
+  const { appOutDir, packager } = context
+  const productName = packager.appInfo.productFilename
+  const candidates = [
+    context.electronPlatformName === 'darwin'
+      ? join(appOutDir, `${productName}.app`, 'Contents', 'Resources', 'product', 'payload')
+      : join(appOutDir, productName, 'resources', 'product', 'payload'),
+    join(appOutDir, 'resources', 'product', 'payload'),
+  ]
+  const payload = candidates.find((dir) => fs.existsSync(join(dir, 'BUILD.json')))
+  if (!payload) {
+    throw new Error([
+      'vizshow payload: product/payload is missing its BUILD.json — the dashboard bytes are absent.',
+      '  The payload is integrator-written build state (untracked by design): before building, run',
+      '  VizMaster/scripts/bundle-vizmaster.mjs then integrate-vcclaw.mjs, or this build ships a product',
+      '  whose prompt→VizShow loop silently cannot work. (packaging review §8 gap 1 — P0)',
+    ].join('\n'))
+  }
+  const markers = ['package.json', join('.omp', 'tools', 'math-renderer.ts'), 'src']
+  for (const marker of markers) {
+    if (!fs.existsSync(join(payload, marker))) {
+      throw new Error(`vizshow payload: ${marker} missing under ${payload} — the integration is incomplete (P0)`)
+    }
+  }
+  console.log(`  after-pack: vizshow payload verified (${payload})`)
+}
+
 function executablePath(context, platform = process.platform) {
   const { appOutDir, packager } = context
   const { productFilename } = packager.appInfo
@@ -57,6 +91,7 @@ function executablePath(context, platform = process.platform) {
 exports.executablePath = executablePath
 
 exports.default = async function hardenElectron(context) {
+  verifyDashboardPayload(context)
   verifyBundledOmp(context)
   await flipFuses(executablePath(context), {
     version: FuseVersion.V1,
