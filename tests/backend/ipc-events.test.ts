@@ -421,6 +421,7 @@ describe('prompt suggestion IPC', () => {
       closeSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { closed: true } })),
       feedback: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { ok: true } })),
       link: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { ok: true, bound: true } })),
+      catalogue: vi.fn(async () => ({ entries: [{ tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }] }] })),
     }
   }
 
@@ -460,8 +461,9 @@ describe('prompt suggestion IPC', () => {
     const event = { sender: trusted, senderFrame: trusted.mainFrame }
     const consent = (request: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:consent')!(event, request))
     const link = () => Promise.resolve(handlers.get('vclaw-suggestions:link')!(event))
+    const catalogue = () => Promise.resolve(handlers.get('vclaw-suggestions:catalogue')!(event))
     const feedback = (suggestionId: unknown, outcome: unknown, ms?: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:feedback')!(event, suggestionId, outcome, ms))
-    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback, link }
+    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback, link, catalogue }
   }
 
   const pushed = {
@@ -534,6 +536,21 @@ describe('prompt suggestion IPC', () => {
     await expect(feedback('', 'rejected')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
     expect(suggestions.feedback).toHaveBeenCalledTimes(1)
     registration.dispose()
+  })
+
+  it('serves the cached catalogue and answers disabled without the service', async () => {
+    const off = register()
+    expect(off.handlers.has('vclaw-suggestions:catalogue')).toBe(true)
+    await expect(off.catalogue()).resolves.toEqual({ entries: [], error: 'disabled' })
+    off.registration.dispose()
+
+    const suggestions = suggestionsStub()
+    const on = register(suggestions)
+    await expect(on.catalogue()).resolves.toEqual({
+      entries: [{ tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }] }],
+    })
+    expect(suggestions.catalogue).toHaveBeenCalledTimes(1)
+    on.registration.dispose()
   })
 
   it('exposes the one-time enrolment and answers disabled without the service', async () => {

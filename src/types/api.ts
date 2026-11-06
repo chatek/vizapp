@@ -48,6 +48,34 @@ export interface PromptSuggestionViz {
   params: PromptSuggestionVizParams
 }
 
+/** One parameter a catalogue manifest accepts. `values` lists the legal strings, when closed. */
+export interface PromptCatalogueParam {
+  key: string
+  type: 'number' | 'boolean' | 'string'
+  min?: number
+  max?: number
+  values?: string[]
+}
+
+/**
+ * One capability manifest from `vizregistry.prompts.catalogue`. The desktop caches these so a
+ * later UI can offer in-range intents without paying the ~2 s authenticated fetch again.
+ */
+export interface PromptCatalogueEntry {
+  tutorialId: string
+  kind: PromptSuggestionVizKind
+  params: PromptCatalogueParam[]
+}
+
+/**
+ * The catalogue as the renderer sees it. A failed fetch is a VALUE: an empty list plus a typed
+ * code (`timeout`, `unauthorized`, …), never a throw and never a stale lie.
+ */
+export interface PromptCatalogueResult {
+  entries: PromptCatalogueEntry[]
+  error?: string
+}
+
 /**
  * A teacher's pushed suggestion, as it arrives over
  * `tenant.<segment>.prompts.suggest.<selfSubHmac>` (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8).
@@ -1033,6 +1061,11 @@ export interface PrimeWorkApi {
      * entirely unless a consent session is open, so a keystroke never waits on IPC.
      */
     draft(input: PromptDraftInput): void
+    /**
+     * The cached capability catalogue. Fetched once per process (the call costs ~2 s of auth
+     * pair); a failure answers an empty list plus a typed code and retries after a backoff.
+     */
+    catalogue(): Promise<PromptCatalogueResult>
     /** The last draft flush outcome (`sent` / `refused` with a typed code). */
     onDraftOutcome(callback: (outcome: PromptDraftOutcome) => void): () => void
     /** `room.open` / `room.close` — the consent switch. */

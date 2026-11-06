@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { buildNkeyAssertion, linkIdentity } from './prompt-assertion'
 import { isRecord } from './validation'
 import type {
+  PromptCatalogueEntry,
+  PromptCatalogueParam,
+  PromptCatalogueResult,
   PromptDraftInput,
   PromptDraftOutcome,
   PromptSuggestion,
@@ -102,6 +105,8 @@ export interface PromptSubjects {
   roomOpen: string
   roomClose: string
   feedback: string
+  /** The manifest catalogue: request/reply, authenticated, no room or consent required. */
+  catalogue: string
 }
 
 export type PromptConfigResolution = { ok: true; config: PromptConfig } | { ok: false; error: string }
@@ -126,6 +131,7 @@ export function promptSubjects(segment: string, nkey: string): PromptSubjects {
     roomOpen: `${micro}.room.open`,
     roomClose: `${micro}.room.close`,
     feedback: `${micro}.feedback`,
+    catalogue: `${micro}.catalogue`,
   }
 }
 
@@ -426,6 +432,49 @@ const textDecoder = new TextDecoder()
 
 const VIZ_KINDS: readonly PromptSuggestionVizKind[] = ['elucim', 'three', 'vectorplay']
 
+/** How long a failed catalogue fetch is left alone: the call costs ~2 s, a hot loop costs more. */
+export const CATALOGUE_RETRY_MS = 60_000
+
+const CATALOGUE_PARAM_TYPES: readonly PromptCatalogueParam['type'][] = ['number', 'boolean', 'string']
+
+function parseCatalogueParam(value: unknown): PromptCatalogueParam | null {
+  if (!isRecord(value)) return null
+  const key = typeof value.key === 'string' ? value.key.trim() : ''
+  if (!key || key.length > 64) return null
+  if (!CATALOGUE_PARAM_TYPES.includes(value.type as PromptCatalogueParam['type'])) return null
+  const param: PromptCatalogueParam = { key, type: value.type as PromptCatalogueParam['type'] }
+  if (typeof value.min === 'number' && Number.isFinite(value.min)) param.min = value.min
+  if (typeof value.max === 'number' && Number.isFinite(value.max)) param.max = value.max
+  if (Array.isArray(value.values)) {
+    const values = value.values.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    if (values.length) param.values = values
+  }
+  return param
+}
+
+/**
+ * The catalogue reply is untrusted input like every push: a manifest that cannot be trusted is
+ * DROPPED (never repaired, never fatal), and a malformed param is dropped from a manifest that
+ * is otherwise usable — a typo in one schema must not cost five tutorials.
+ */
+export function parseCatalogue(payload: unknown): PromptCatalogueEntry[] {
+  if (!isRecord(payload)) return []
+  const manifests = Array.isArray(payload.manifests) ? payload.manifests : []
+  const entries: PromptCatalogueEntry[] = []
+  for (const manifest of manifests) {
+    if (!isRecord(manifest)) continue
+    const tutorialId = typeof manifest.tutorialId === 'string' ? manifest.tutorialId.trim() : ''
+    if (!tutorialId || tutorialId.length > 64) continue
+    if (!VIZ_KINDS.includes(manifest.kind as PromptSuggestionVizKind)) continue
+    if (!Array.isArray(manifest.params)) continue
+    const params = manifest.params
+      .map(parseCatalogueParam)
+      .filter((param): param is PromptCatalogueParam => param !== null)
+    entries.push({ tutorialId, kind: manifest.kind as PromptSuggestionVizKind, params })
+  }
+  return entries
+}
+
 /**
  * `vizshow` is display-only intent, so it is validated like any other untrusted input: every
  * field must prove its shape or the FIELD is dropped. A malformed intent never costs the
@@ -513,6 +562,10 @@ export class SuggestionsService {
   #draftInFlight = false
   #draftQueued: { session: PromptSuggestionSession; input: PromptDraftInput; at: number } | null = null
   #lastDraft: PromptDraftOutcome | null = null
+  #catalogue: PromptCatalogueEntry[] | null = null
+  #catalogueInFlight: Promise<PromptCatalogueResult> | null = null
+  #catalogueRetryAt = 0
+  #catalogueError: string | null = null
   #session: PromptSuggestionSession | null = null
   #pending: { input: PromptDraftInput; at: number } | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
@@ -543,7 +596,10 @@ export class SuggestionsService {
    */
   async start(): Promise<void> {
     const connection = await this.#ensureConnection()
-    if (connection) console.info(`[vclaw-prompts] listening on ${this.config.subjects.suggest} (segment ${this.config.segment})`)
+    if (!connection) return
+    console.info(`[vclaw-prompts] listening on ${this.config.subjects.suggest} (segment ${this.config.segment})`)
+    // A token source exists and the service is up: warm the catalogue off the critical path.
+    this.#warmCatalogue()
   }
 
   #ensureConnection(): Promise<SuggestionsNatsLike | null> {
@@ -593,6 +649,8 @@ export class SuggestionsService {
     const expiresAt = typeof result.data.expiresAt === 'string' ? result.data.expiresAt : new Date(this.#now() + 30 * 60 * 1_000).toISOString()
     this.#session = { roomId, peer, expiresAt }
     this.#scheduleFlush()
+    // "First successful session" is also a warming point, for a start() that raced a dead broker.
+    this.#warmCatalogue()
     return result
   }
 
@@ -605,11 +663,49 @@ export class SuggestionsService {
     this.#session = null
     this.#pending = null
     this.#draftQueued = null
+    this.#catalogueInFlight = null
     this.#clearTimer()
     if (!target) return { ok: false, error: 'no_session' }
     const connection = await this.#ensureConnection()
     if (!connection) return { ok: false, error: 'unavailable' }
     return this.#request(connection, this.config.subjects.roomClose, { roomId: target })
+  }
+
+  /**
+   * The capability catalogue, fetched ONCE per process and cached for its lifetime: the call
+   * costs ~2 s (auth pair + RTT), so a UI that asks twice must not pay twice. A failure answers
+   * `{entries: [], error}` and is left alone for `CATALOGUE_RETRY_MS` — the next call after the
+   * backoff retries, and nothing polls in between.
+   */
+  async catalogue(): Promise<PromptCatalogueResult> {
+    if (this.#catalogue) return { entries: this.#catalogue }
+    if (this.#catalogueInFlight) return this.#catalogueInFlight
+    if (this.#now() < this.#catalogueRetryAt) return { entries: [], error: this.#catalogueError ?? 'unavailable' }
+    this.#catalogueInFlight = this.#fetchCatalogue().finally(() => { this.#catalogueInFlight = null })
+    return this.#catalogueInFlight
+  }
+
+  async #fetchCatalogue(): Promise<PromptCatalogueResult> {
+    const connection = await this.#ensureConnection()
+    if (!connection) return this.#failCatalogue('unavailable')
+    const result = await this.#request(connection, this.config.subjects.catalogue, {})
+    if (!result.ok) return this.#failCatalogue(result.error)
+    // The reply body is untrusted: `parseCatalogue` drops what it cannot prove.
+    const entries = parseCatalogue(result.data)
+    this.#catalogue = entries
+    this.#catalogueError = null
+    return { entries }
+  }
+
+  #failCatalogue(error: string): PromptCatalogueResult {
+    this.#catalogueError = error
+    this.#catalogueRetryAt = this.#now() + CATALOGUE_RETRY_MS
+    return { entries: [], error }
+  }
+
+  /** Warms the cache without making anyone wait; failures leave the backoff in place. */
+  #warmCatalogue(): void {
+    void this.catalogue().catch(() => undefined)
   }
 
   /**
@@ -807,6 +903,7 @@ export class SuggestionsService {
     this.#session = null
     this.#pending = null
     this.#draftQueued = null
+    this.#catalogueInFlight = null
     this.#clearTimer()
     this.#unsubscribe?.()
     this.#unsubscribe = null

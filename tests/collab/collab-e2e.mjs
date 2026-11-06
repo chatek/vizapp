@@ -200,6 +200,23 @@ async function runLegs() {
     log('C room-open', decoded.mutual === true, `mutual=${decoded.mutual} roomId=${roomId ?? 'none'}`)
   }
 
+  // C2. catalogue — the desktop caches this once per process (~2 s auth pair), so the harness
+  // proves the endpoint answers the same authenticated caller and carries manifest schemas.
+  let catalogueTutorialId = null
+  {
+    try {
+      const reply = await microRequest(nc, 'vizregistry.prompts.catalogue', {}, studentBearer())
+      const decoded = JSON.parse(new TextDecoder().decode(reply.data))
+      const manifests = Array.isArray(decoded.manifests) ? decoded.manifests : []
+      const entry = manifests.find((manifest) => manifest?.kind === 'elucim' && typeof manifest?.tutorialId === 'string')
+      catalogueTutorialId = entry?.tutorialId ?? null
+      const schemaOk = Array.isArray(entry?.params) && entry.params.every((param) => typeof param?.key === 'string' && ['number', 'boolean', 'string'].includes(param?.type))
+      log('C2 catalogue', decoded.ok === true && manifests.length > 0 && schemaOk, `manifests=${manifests.length} elucim=${catalogueTutorialId ?? 'none'} schema=${schemaOk}`)
+    } catch (error) {
+      log('C2 catalogue', false, `no reply on vizregistry.prompts.catalogue: ${error instanceof Error ? error.message : error}`)
+    }
+  }
+
   // D. draft — a Micro REQUEST to the service, exactly like the desktop's flush. The service
   // owns fan-out to each consenting teacher's nkey subject; a raw publish here would be a message
   // into the void (nobody subscribes) and a DENIED publish (vgate grants PUB only on
@@ -220,6 +237,12 @@ async function runLegs() {
 
   // E. the teacher's AGENT suggests
   let suggestionId = null
+  // The exact intent the service validated in §26 of the lane doc: in the [-10,10] manifest range.
+  const vizshowIntent = {
+    tutorialId: catalogueTutorialId ?? 'quadratic-functions',
+    kind: 'elucim',
+    params: { a: 2, b: -3, c: 1 },
+  }
   {
     const suggest = await microRequest(nc, 'vizregistry.prompts.suggest', {
       roomId,
@@ -228,6 +251,7 @@ async function runLegs() {
       rationale: 'The student typed the Chinese term for this exact topic',
       locale: 'zh-CN',
       confidence: 0.9,
+      vizshow: vizshowIntent,
     }, teacherBearer())
     const decoded = JSON.parse(new TextDecoder().decode(suggest.data))
     suggestionId = decoded.suggestionId ?? null
@@ -253,6 +277,12 @@ async function runLegs() {
         && typeof received.from.nkey === 'string'
       log('F push-arrives', shapeOk,
         `suggestionId=${received.suggestionId?.slice(0, 12)}… from.kind=${received.from?.kind} prompt="${received.prompt?.slice(0, 40)}…"`)
+
+      // Round-trip identity: the client must not mangle the intent the service validated —
+      // the composer's capability chip renders exactly these values.
+      const roundTrip = deepEqual(received.vizshow, vizshowIntent)
+      log('F2 vizshow-round-trip', roundTrip,
+        `sent=${JSON.stringify(vizshowIntent)} received=${JSON.stringify(received.vizshow ?? null)}`)
     }
   }
 

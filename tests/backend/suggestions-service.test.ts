@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { nkeys } from '@nats-io/nats-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  CATALOGUE_RETRY_MS,
   DRAFT_MAX_BYTES,
   PROMPT_AUDIENCE,
   PROMPT_BIND_AUDIENCE,
@@ -108,6 +109,9 @@ function serviceWith(connection: FakeConnection, throttleMs = 300): SuggestionsS
   })
 }
 
+/** Requests a test cares about: the service also warms the catalogue on start. */
+const requestsFor = (fake: FakeConnection, subject: string) => fake.requests.filter((request) => request.subject === subject)
+
 /** The flush is fire-and-forget by design, so a test waits for its observable outcome. */
 const draftOutcomes = (service: SuggestionsService) => {
   const seen: Array<{ state: string; error?: string }> = []
@@ -205,7 +209,7 @@ describe('consent-gated draft requests', () => {
     service.setDraft({ text: '一元二次方程', locale: 'zh-CN' })
     vi.advanceTimersByTime(1_000)
 
-    expect(fake.requests).toEqual([])
+    expect(requestsFor(fake, 'vizregistry.prompts.draft')).toEqual([])
     expect(service.lastDraftOutcome).toBeNull()
     await service.stop()
   })
@@ -224,13 +228,14 @@ describe('consent-gated draft requests', () => {
     service.setDraft({ text: '一元二次方程 求解', locale: 'zh-CN' })
 
     await vi.waitFor(() => expect(outcomes).toHaveLength(1))
-    expect(fake.requests).toHaveLength(1)
-    expect(fake.requests[0]).toMatchObject({
+    const drafts = requestsFor(fake, 'vizregistry.prompts.draft')
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({
       subject: 'vizregistry.prompts.draft',
       body: { roomId: 'room-1', draft: '一元二次方程 求解', locale: 'zh-CN' },
       timeoutMs: 10_000,
     })
-    expect(fake.requests[0].headers?.Authorization).toMatch(/^Bearer /)
+    expect(drafts[0].headers?.Authorization).toMatch(/^Bearer /)
     expect(outcomes).toEqual([{ state: 'sent', error: undefined, at: expect.any(String) }].map(({ state }) => expect.objectContaining({ state })))
     await service.stop()
   })
@@ -271,7 +276,7 @@ describe('consent-gated draft requests', () => {
 
     await vi.waitFor(() => expect(outcomes).toHaveLength(1))
     expect(outcomes[0]).toMatchObject({ state: 'refused', error: 'too_large' })
-    expect(fake.requests).toEqual([])
+    expect(requestsFor(fake, 'vizregistry.prompts.draft')).toEqual([])
     await service.stop()
   })
 
@@ -329,6 +334,100 @@ describe('consent-gated draft requests', () => {
   })
 })
 
+describe('capability catalogue', () => {
+  const manifests = [
+    { tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }, { key: 'crisp', type: 'boolean' }] },
+    { tutorialId: 'vectors-3d', kind: 'three', params: [{ key: 'scale', type: 'number', min: 0.1, max: 4 }, { key: 'mode', type: 'string', values: ['iso', 'top'] }] },
+  ]
+
+  it('fetches once and serves every later call from the cache', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.catalogue', () => ({ ok: true, manifests }))
+    const service = serviceWith(fake)
+
+    const first = await service.catalogue()
+    const second = await service.catalogue()
+
+    expect(first).toEqual({
+      entries: [
+        { tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }, { key: 'crisp', type: 'boolean' }] },
+        { tutorialId: 'vectors-3d', kind: 'three', params: [{ key: 'scale', type: 'number', min: 0.1, max: 4 }, { key: 'mode', type: 'string', values: ['iso', 'top'] }] },
+      ],
+    })
+    expect(second).toEqual(first)
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(1)
+    await service.stop()
+  })
+
+  it('shares one in-flight fetch between concurrent callers', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.catalogue', () => ({ ok: true, manifests }))
+    const service = serviceWith(fake)
+
+    const [a, b] = await Promise.all([service.catalogue(), service.catalogue()])
+
+    expect(a).toEqual(b)
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(1)
+    await service.stop()
+  })
+
+  it('drops malformed manifests and malformed params instead of failing the fetch', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.catalogue', () => ({
+      ok: true,
+      manifests: [
+        manifests[0],
+        { tutorialId: 'no-kind', params: [] },
+        { tutorialId: 'bad-kind', kind: 'hologram', params: [] },
+        { kind: 'elucim', params: [] },
+        { tutorialId: 'params-not-array', kind: 'elucim', params: 'nope' },
+        'not a manifest',
+        { tutorialId: 'partial-params', kind: 'vectorplay', params: [null, 42, { key: '', type: 'number' }, { key: 'ok', type: 'number', min: Number.NaN }, { key: 'flag', type: 'boolean', values: ['x', 3] }] },
+      ],
+    }))
+    const service = serviceWith(fake)
+
+    await expect(service.catalogue()).resolves.toEqual({
+      entries: [
+        { tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }, { key: 'crisp', type: 'boolean' }] },
+        { tutorialId: 'partial-params', kind: 'vectorplay', params: [{ key: 'ok', type: 'number' }, { key: 'flag', type: 'boolean', values: ['x'] }] },
+      ],
+    })
+    await service.stop()
+  })
+
+  it('answers an empty list with a typed error and retries only after the backoff', async () => {
+    let clock = 1_000_000
+    const fake = fakeConnection()
+    const service = new SuggestionsService({ connector: async () => fake.connection, config: config(), now: () => clock })
+
+    await expect(service.catalogue()).resolves.toEqual({ entries: [], error: 'timeout' })
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(1)
+
+    // Still inside the backoff: the answer repeats without touching the fabric.
+    await expect(service.catalogue()).resolves.toEqual({ entries: [], error: 'timeout' })
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(1)
+
+    clock += CATALOGUE_RETRY_MS
+    fake.reply('vizregistry.prompts.catalogue', () => ({ ok: true, manifests }))
+    await expect(service.catalogue()).resolves.toEqual({ entries: expect.arrayContaining([expect.objectContaining({ tutorialId: 'quadratic-functions' })]) })
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(2)
+    await service.stop()
+  })
+
+  it('warms the cache once the service is up', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.catalogue', () => ({ ok: true, manifests }))
+    const service = serviceWith(fake)
+    await service.start()
+
+    await vi.waitFor(() => expect(service).toBeDefined())
+    await vi.waitFor(async () => expect(await service.catalogue()).toEqual({ entries: expect.arrayContaining([expect.objectContaining({ tutorialId: 'quadratic-functions' })]) }))
+    expect(requestsFor(fake, 'vizregistry.prompts.catalogue')).toHaveLength(1)
+    await service.stop()
+  })
+})
+
 describe('no publish plane', () => {
   it('never publishes a draft: no publish call and no draft.* delivery subject in main', () => {
     const source = readFileSync('electron/main/suggestions-service.ts', 'utf8')
@@ -359,7 +458,7 @@ describe('request mapping', () => {
     await service.start()
 
     await expect(service.feedback('sug-1', 'accepted', 900)).resolves.toEqual({ ok: false, error: 'not_mutual' })
-    expect(fake.requests.at(-1)).toMatchObject({
+    expect(requestsFor(fake, 'vizregistry.prompts.feedback').at(-1)).toMatchObject({
       subject: 'vizregistry.prompts.feedback',
       body: { suggestionId: 'sug-1', outcome: 'accepted', ms: 900 },
       timeoutMs: 10_000,
@@ -398,6 +497,7 @@ describe('request mapping', () => {
       roomOpen: 'vizregistry.prompts.room.open',
       roomClose: 'vizregistry.prompts.room.close',
       feedback: 'vizregistry.prompts.feedback',
+      catalogue: 'vizregistry.prompts.catalogue',
     })
     expect(configured.ok && configured.config.natsUrl).toBe('nats://fabric.test:4223')
     expect(configured.ok && configured.config.accessToken).toBeUndefined()
@@ -431,7 +531,9 @@ describe('micro authorization', () => {
     await service.closeSession()
     await service.feedback('sug-1', 'accepted')
 
-    expect(fake.requests.map((request) => request.headers)).toEqual([
+    expect(['vizregistry.prompts.room.open', 'vizregistry.prompts.room.close', 'vizregistry.prompts.feedback']
+      .flatMap((subject) => requestsFor(fake, subject))
+      .map((request) => request.headers)).toEqual([
       { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
       { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
       { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
@@ -451,7 +553,7 @@ describe('micro authorization', () => {
     await service.start()
 
     await expect(service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })).resolves.toEqual({ ok: false, error: 'forbidden_segment' })
-    expect(fake.requests).toHaveLength(1)
+    expect(requestsFor(fake, 'vizregistry.prompts.room.open')).toHaveLength(1)
     expect(fake.refreshes).toBe(0)
     expect(service.session).toBeNull()
     await service.stop()
@@ -469,11 +571,12 @@ describe('micro authorization', () => {
 
     await expect(service.feedback('sug-1', 'rejected')).resolves.toEqual({ ok: true, data: { ok: true } })
     expect(fake.refreshes).toBe(1)
-    expect(fake.requests.map((request) => request.headers?.Authorization)).toEqual([
+    const feedback = requestsFor(fake, 'vizregistry.prompts.feedback')
+    expect(feedback.map((request) => request.headers?.Authorization)).toEqual([
       'Bearer stale-token',
       'Bearer fresh-token',
     ])
-    expect(fake.requests[1]?.headers?.['X-Vizmaster-Token']).toBe('fresh-token')
+    expect(feedback[1]?.headers?.['X-Vizmaster-Token']).toBe('fresh-token')
     await service.stop()
   })
 
@@ -484,7 +587,7 @@ describe('micro authorization', () => {
     await service.start()
 
     await expect(service.feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'unauthorized' })
-    expect(fake.requests).toHaveLength(2)
+    expect(requestsFor(fake, 'vizregistry.prompts.feedback')).toHaveLength(2)
     expect(fake.refreshes).toBe(1)
     await service.stop()
   })
@@ -501,7 +604,7 @@ describe('micro authorization', () => {
     await service.start()
 
     await expect(service.feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'unauthorized' })
-    expect(fake.requests[0]?.headers).toBeUndefined()
+    expect(requestsFor(fake, 'vizregistry.prompts.feedback')[0]?.headers).toBeUndefined()
     await service.stop()
   })
 
@@ -512,7 +615,7 @@ describe('micro authorization', () => {
     await service.start()
 
     await expect(service.closeSession('room-9')).resolves.toEqual({ ok: false, error: 'room_closed' })
-    expect(fake.requests).toHaveLength(1)
+    expect(requestsFor(fake, 'vizregistry.prompts.room.close')).toHaveLength(1)
     expect(fake.refreshes).toBe(0)
     await service.stop()
   })
@@ -621,7 +724,7 @@ describe('request credential', () => {
     await service.start()
 
     await expect(service.feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'unbound' })
-    expect(fake.requests).toHaveLength(1)
+    expect(requestsFor(fake, 'vizregistry.prompts.feedback')).toHaveLength(1)
     expect(fake.refreshes).toBe(0)
     await service.stop()
   })

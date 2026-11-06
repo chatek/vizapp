@@ -487,6 +487,11 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
     if (!service) return { ok: false, error: 'disabled' }
     return service.link()
   })
+  // Cached in main for the process lifetime: the endpoint costs ~2 s, and the renderer may ask
+  // on every mount. A failure is a typed value, never a throw.
+  handle('vclaw-suggestions:catalogue', () => services.suggestions
+    ? services.suggestions.catalogue()
+    : { entries: [], error: 'disabled' })
   handle('vclaw-suggestions:feedback', (_event, suggestionId, outcome, ms) => {
     const service = services.suggestions
     if (!service) return { ok: false, error: 'disabled' }
