@@ -16,7 +16,7 @@ import { CuaDriverService } from './cua-driver'
 import { GitService } from './git'
 import { CheckoutService } from './checkouts'
 import { isTrustedRendererUrl, registerIpc, type IpcRegistration } from './ipc'
-import { HarnessDiscoveryService, reconcileActiveHarness } from './harness-discovery'
+import { HarnessDiscoveryService } from './harness-discovery'
 import { offeredHarnesses } from './harness-offering'
 import { ompStateDirectory, setOmpStateDirectory } from './harness'
 import { setVclawSdkRootDirectory, vclawSdkRootDirectory } from './vclaw-sdk-root'
@@ -46,6 +46,8 @@ import { VizshowService } from './vizshow-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
+import { startVizShare } from './vizshare'
+import { ensureDefaultProject, ensureHarness } from './defaultProject'
 import { TerminalService } from './terminal'
 import { RepositoryUseGate } from './repository-use-gate'
 import { VoiceService, voiceSecretStorageStatus } from './voice'
@@ -652,6 +654,10 @@ async function bootstrap(): Promise<void> {
   const userDataPath = app.getPath('userData')
   configureVClawAgentMessageSigning(loadOrCreateVClawAgentMessageKey(join(userDataPath, 'agent-message-signing.key')))
   const stateStore = await openDesktopStateStore(userDataPath)
+  // VizMaster@VClaw: local share broker for the dashboard (127.0.0.1)
+  await startVizShare({ app, session, shell, safeStorage })
+  // VizMaster@VClaw: register the bundled tutorial project on first launch
+  await ensureDefaultProject(stateStore, app.getPath('home'), process.resourcesPath)
   store = stateStore
   backgroundMode = new MacBackgroundController({
     iconPath: appIconPath(),
@@ -667,7 +673,7 @@ async function bootstrap(): Promise<void> {
   // Discovery says what is installed; the product says what it offers. Nulling the rest here is
   // what makes an OMP-only product show one harness without touching the selector.
   const initialHarnesses = offeredHarnesses(await discovery.refresh(), productProfile.harnesses)
-  await reconcileActiveHarness(stateStore, initialHarnesses, productProfile.harnesses)
+  await ensureHarness(stateStore, initialHarnesses, productProfile.harnesses)
   if (shutdownStarted) return
   const primeExecutable = () => discovery.executable('prime')
   const ompExecutable = () => discovery.executable('omp')
@@ -1157,7 +1163,7 @@ async function bootstrap(): Promise<void> {
   updateService = updates
   const refreshHarnesses = async () => {
     const harnesses = offeredHarnesses(await discovery.refresh(), productProfile.harnesses)
-    const currentSettings = await reconcileActiveHarness(stateStore, harnesses, productProfile.harnesses)
+    const currentSettings = await ensureHarness(stateStore, harnesses, productProfile.harnesses)
     meta.harnesses = harnesses
     return { meta: structuredClone(meta), settings: currentSettings }
   }

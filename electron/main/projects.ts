@@ -10,6 +10,7 @@ import { listGitWorktrees } from './git'
 import { HARNESSES } from './harness'
 import { mapLimit } from './lib/async'
 import type { FolderIdentity, JsonStateStore, PersistedProject } from './store'
+import { singleProjectFilter } from './defaultProject'
 import { isPathWithin, rejectUnknownKeys, requireBoolean, requireExistingDirectory, requireExistingPath, requireId, requireInteger, requireRecord, requireString } from './validation'
 
 const MAX_CONCURRENT_BRANCH_LOOKUPS = 4
@@ -535,7 +536,7 @@ export class ProjectService {
       }
       return target
     })
-    const sorted = sortProjects(records, 'recent')
+    const sorted = singleProjectFilter(sortProjects(records, 'recent'))
     if (this.restrictedToPaths === null) return sorted
     const allowed = this.restrictedToPaths
     return sorted.filter((record) => allowed.has(resolve(record.path)))
