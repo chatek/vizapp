@@ -171,6 +171,19 @@ jobs:
           key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - run: npm run release:preflight:toolchain
+      # Same omp-binary gap as the member job: the carrier checkout has no
+      # ../vendors tree, and build.mac.extraResources needs it.
+      - name: Fetch the pinned omp binary for this arch
+        run: |
+          set -euo pipefail
+          mkdir -p ../vendors/oh-my-pi/releases/v18.16.0
+          cd ../vendors/oh-my-pi/releases/v18.16.0
+          gh release download v18.16.0 -R can1357/oh-my-pi \
+            -p "omp-darwin-${{ matrix.arch }}" -p "SHA256SUMS.txt" --clobber
+          grep "omp-darwin-${{ matrix.arch }}$" SHA256SUMS.txt | shasum -a 256 -c -
+          chmod +x "omp-darwin-${{ matrix.arch }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Fail closed unless every release credential is configured
         run: npm run release:preflight
         env:
@@ -271,6 +284,23 @@ jobs:
       - run: npm run toolchain:bootstrap
       - run: npm ci
       - run: npm run release:preflight:toolchain
+      # The carrier checkout has no ../vendors tree (that submodule belongs to
+      # vchat.email), but build.mac.extraResources maps the omp binary from it.
+      # Fetch the pinned upstream release assets into the path electron-builder
+      # reads, and verify against the upstream SHA256SUMS — the after-pack gate
+      # re-checks the sha and the Mach-O slice, so a tampered asset cannot ship.
+      - name: Fetch the pinned omp binary for this arch
+        run: |
+          set -euo pipefail
+          mkdir -p ../vendors/oh-my-pi/releases/v18.16.0
+          cd ../vendors/oh-my-pi/releases/v18.16.0
+          gh release download v18.16.0 -R can1357/oh-my-pi \
+            -p "omp-darwin-${{ matrix.arch }}" -p "SHA256SUMS.txt" --clobber
+          grep "omp-darwin-${{ matrix.arch }}$" SHA256SUMS.txt | shasum -a 256 -c -
+          chmod +x "omp-darwin-${{ matrix.arch }}"
+          ls -la
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Install member dependencies
         run: npm ci
         working-directory: member
