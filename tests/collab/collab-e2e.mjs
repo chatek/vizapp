@@ -37,7 +37,6 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { connect as natsConnect, headers as natsHeaders } from 'nats'
-import nkeys from 'nkeys.js'
 
 // ── configuration ───────────────────────────────────────────────────────────
 
@@ -46,45 +45,14 @@ const NATS_URL = process.env.NATS_URL ?? 'nats://127.0.0.1:4222'
 const STUDENT_SUB_HMAC = process.env.STUDENT_SUB_HMAC ?? 'e2e-student-sub-hmac-0001'
 const TEACHER_SUB_HMAC = process.env.TEACHER_SUB_HMAC ?? 'e2e-teacher-sub-hmac-0001'
 const STRANGER_SUB_HMAC = process.env.STRANGER_SUB_HMAC ?? 'e2e-stranger-sub-hmac-01'
-const SEGMENT = process.env.VIZREG_SEGMENT ?? 'vcc'
+// Delivery subjects are keyed by the NKEY since the service re-key (vgate can scope a nkey; a
+// subHmac is authorization only and never appears in a subject). REST identifiers below still
+// use the subHmac spelling because those routes are the service's own vocabulary.
+const STUDENT_NKEY = process.env.STUDENT_NKEY ?? 'UCZSAWGLDU7FKU4A5Z3N6VB2XQ7M9RTC1YD8KJHN4PLEWXZ'
+const SEGMENT = process.env.VIZREG_SEGMENT ?? 'vclaw'
 const STUDENT_BEARER = process.env.STUDENT_BEARER ?? 'e2e-student-bearer'
 const TEACHER_BEARER = process.env.TEACHER_BEARER ?? 'e2e-teacher-bearer'
 const STRANGER_BEARER = process.env.STRANGER_BEARER ?? 'e2e-stranger-bearer'
-// Fixture agent identities (nkey + seed) for minting ed25519-nkey assertions — the
-// service's agent path (src/auth/agent.ts): iss=sub=<U-nkey>, aud:"vizmaster-registry-vcc",
-// tool required (1-64 chars), iat/exp <= 300s, fresh jti, signed with the seed.
-const STUDENT_NKEY = process.env.STUDENT_NKEY
-const STUDENT_SEED = process.env.STUDENT_SEED
-const TEACHER_NKEY = process.env.TEACHER_NKEY
-const TEACHER_SEED = process.env.TEACHER_SEED
-const STRANGER_NKEY = process.env.STRANGER_NKEY ?? TEACHER_NKEY
-const STRANGER_SEED = process.env.STRANGER_SEED ?? TEACHER_SEED
-
-function b64url(input) { return Buffer.from(input).toString('base64url') }
-
-function mintAssertion(nkey, seedInput, tool = 'harness') {
-  // Accepts both the comma-separated byte form and the SU… encoded string.
-  const seed = seedInput.startsWith('SU')
-    ? new TextEncoder().encode(seedInput)
-    : new Uint8Array(seedInput.split(',').map(Number))
-  const kp = nkeys.fromSeed(seed)
-  const now = Math.floor(Date.now() / 1000)
-  const signingInput = `${b64url(JSON.stringify({ alg: 'ed25519-nkey', typ: 'JWT' }))}.${b64url(JSON.stringify({ iss: nkey, sub: nkey, aud: 'vizmaster-registry-vcc', tool, iat: now, exp: now + 300, jti: randomUUID() }))}`
-  const signature = kp.sign(new TextEncoder().encode(signingInput))
-  return `${signingInput}.${Buffer.from(signature).toString('base64url')}`
-}
-
-/** A fresh assertion when nkey+seed are configured; else the static env value (which the
- * service refuses — that IS the leg's failure mode, visible rather than guessed). */
-function bearerFor(principal) {
-  if (principal === 'student' && STUDENT_NKEY && STUDENT_SEED) return mintAssertion(STUDENT_NKEY, STUDENT_SEED)
-  if (principal === 'teacher' && TEACHER_NKEY && TEACHER_SEED) return mintAssertion(TEACHER_NKEY, TEACHER_SEED)
-  if (principal === 'stranger' && STRANGER_NKEY && STRANGER_SEED) return mintAssertion(STRANGER_NKEY, STRANGER_SEED)
-  if (principal === 'student') return STUDENT_BEARER
-  if (principal === 'teacher') return TEACHER_BEARER
-  return STRANGER_BEARER
-}
-
 const DRAFT_TEXT = '一元二次方程'
 
 const results = []
@@ -113,16 +81,16 @@ async function checkPrerequisites() {
   // does not have it (measured 2026-11-06). An unauthenticated GET should
   // still answer (401/403), not 404, when the route exists.
   try {
-    const follow = await fetch(`${VIZREG_URL}/api/me/follows`, { signal: AbortSignal.timeout(5_000) })
+    const follow = await fetch(`${VIZREG_URL}/api/follows`, { signal: AbortSignal.timeout(5_000) })
     if (follow.status === 404) {
       failures.push(
-        `VizRegistry at ${VIZREG_URL} has no /api/me/follows route (404). ` +
+        `VizRegistry at ${VIZREG_URL} has no /api/follows route (404). ` +
         'The deployed vizshow-api.service predates the prompt-collab backend — ' +
         'run a local build with the follow + prompts routes and PROMPTS_MICRO=1.',
       )
     }
   } catch (error) {
-    failures.push(`VizRegistry /api/me/follows probe failed: ${error.message}`)
+    failures.push(`VizRegistry /api/follows probe failed: ${error.message}`)
   }
 
   // 2. NATS reachable
@@ -153,7 +121,7 @@ async function rest(method, path, body, token) {
       'content-type': 'application/json',
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(body ?? {}),
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   })
   let data = null
@@ -165,12 +133,12 @@ async function rest(method, path, body, token) {
   return { status: response.status, data }
 }
 
-function suggestSubject(subHmac) {
-  return `tenant.${SEGMENT}.prompts.suggest.${subHmac}`
+function suggestSubject(nkey) {
+  return `tenant.${SEGMENT}.prompts.suggest.${nkey}`
 }
 
-function draftSubject(subHmac) {
-  return `tenant.${SEGMENT}.prompts.draft.${subHmac}`
+function draftSubject(nkey) {
+  return `tenant.${SEGMENT}.prompts.draft.${nkey}`
 }
 
 /** Micro requests carry the bearer in NATS headers (measured live E2E). */
@@ -191,7 +159,7 @@ async function runLegs() {
   // core NATS is at-most-once (a push to nobody is lost, and that is the transport's
   // contract, not a failure).
   const suggestions = []
-  const sub = nc.subscribe(suggestSubject(STUDENT_SUB_HMAC))
+  const sub = nc.subscribe(suggestSubject(STUDENT_NKEY))
   const drain = (async () => {
     for await (const message of sub) {
       const decoded = JSON.parse(new TextDecoder().decode(message.data))
@@ -203,9 +171,9 @@ async function runLegs() {
   // The mutual preflight is GET /api/me/follows/:handle?mutual=true — the list
   // route ignores the flag, so the preflight is the only reliable check.
   {
-    const forward = await rest('PUT', `/api/me/follows/${TEACHER_NKEY}`, undefined, bearerFor('student'))
-    const backward = await rest('PUT', `/api/me/follows/${STUDENT_NKEY}`, undefined, bearerFor('teacher'))
-    const preflight = await rest('GET', `/api/me/follows/${TEACHER_NKEY}?mutual=true`, undefined, bearerFor('student'))
+    const forward = await rest('PUT', `/api/me/follows/${TEACHER_SUB_HMAC}`, undefined, STUDENT_BEARER)
+    const backward = await rest('PUT', `/api/me/follows/${STUDENT_SUB_HMAC}`, undefined, TEACHER_BEARER)
+    const preflight = await rest('GET', `/api/me/follows/${TEACHER_SUB_HMAC}?mutual=true`, undefined, STUDENT_BEARER)
     const forwardOk = forward.status === 200 || forward.status === 201 || forward.status === 204
     const backwardOk = backward.status === 200 || backward.status === 201 || backward.status === 204
     const mutualOk = preflight.status === 200
@@ -216,9 +184,9 @@ async function runLegs() {
   // B. consent grant (REST: PUT /api/me/collab-consent/:handle, per the measured live E2E;
   // NOT POST /api/consent — that route does not exist. KV key consent.<student>.<teacher>.)
   {
-    const consent = await rest('PUT', `/api/me/collab-consent/${TEACHER_NKEY}`, undefined, bearerFor('student'))
+    const consent = await rest('PUT', `/api/me/collab-consent/${TEACHER_SUB_HMAC}`, undefined, STUDENT_BEARER)
     const ok = consent.status === 200 || consent.status === 201 || consent.status === 204
-    log('B consent-grant', ok, `PUT /api/me/collab-consent/${TEACHER_NKEY} → ${consent.status}`)
+    log('B consent-grant', ok, `PUT /api/me/collab-consent/${TEACHER_SUB_HMAC} → ${consent.status}`)
   }
 
   // C. room.open — NATS Micro (v3: NATS for ALL principals; no REST collab surface).
@@ -226,9 +194,9 @@ async function runLegs() {
   let roomId = null
   {
     const reply = await microRequest(nc, 'vizregistry.prompts.room.open', {
-      peer: TEACHER_NKEY,
+      peer: TEACHER_SUB_HMAC,
       conversationId,
-    }, bearerFor('student'))
+    }, STUDENT_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(reply.data))
     roomId = decoded.roomId ?? null
     const ok = decoded.mutual === true
@@ -237,7 +205,7 @@ async function runLegs() {
 
   // D. draft publish (the student's typed phrase, published while consent holds)
   {
-    nc.publish(draftSubject(STUDENT_SUB_HMAC), new TextEncoder().encode(JSON.stringify({
+    nc.publish(draftSubject(STUDENT_NKEY), new TextEncoder().encode(JSON.stringify({
       roomId,
       draft: DRAFT_TEXT,
       locale: 'zh-CN',
@@ -245,7 +213,7 @@ async function runLegs() {
       at: new Date().toISOString(),
     })))
     await nc.flush()
-    log('D draft-publish', true, `published "${DRAFT_TEXT}" to ${draftSubject(STUDENT_SUB_HMAC)}`)
+    log('D draft-publish', true, `published "${DRAFT_TEXT}" to ${draftSubject(STUDENT_NKEY)}`)
   }
 
   // E. the teacher's AGENT submits a suggestion through the Micro endpoint
@@ -258,7 +226,7 @@ async function runLegs() {
       rationale: 'The student typed the Chinese term for this exact topic',
       locale: 'zh-CN',
       confidence: 0.9,
-    }, bearerFor('teacher'))
+    }, TEACHER_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(suggest.data))
     suggestionId = decoded.suggestionId ?? null
     const ok = decoded.delivery === 'pushed' || decoded.delivery === 'queued'
@@ -273,7 +241,7 @@ async function runLegs() {
     }
     const received = suggestions[0]
     if (!received) {
-      log('F push-arrives', false, `no push on ${suggestSubject(STUDENT_SUB_HMAC)} within 5s`)
+      log('F push-arrives', false, `no push on ${suggestSubject(STUDENT_NKEY)} within 5s`)
     } else {
       const shapeOk =
         typeof received.suggestionId === 'string' && received.suggestionId.length > 0
@@ -297,26 +265,25 @@ async function runLegs() {
       requestId: randomUUID(),
       prompt: 'should be refused with wrong_role',
       locale: 'en',
-    }, bearerFor('stranger'))
+    }, STRANGER_BEARER)
     const stranger = JSON.parse(new TextDecoder().decode(strangerReply.data))
     const strangerRefused = stranger.ok === false && stranger.code === 'wrong_role'
     log('G1 wrong-role-refused', strangerRefused, `ok=${stranger.ok} code=${stranger.code ?? 'none'}`)
 
     // G2. not_mutual: delete the teacher→student follow edge, then suggest from the
     // (now non-mutual) teacher. The room's own teacher, so the refusal is not_mutual.
-    const unfollow = await rest('DELETE', `/api/me/follows/${STUDENT_NKEY}`, undefined, bearerFor('teacher'))
-    const mutualAfterDelete = await rest('GET', `/api/me/follows/${STUDENT_NKEY}?mutual=true`, undefined, bearerFor('teacher'))
+    const unfollow = await rest('DELETE', `/api/me/follows/${STUDENT_SUB_HMAC}`, undefined, TEACHER_BEARER)
+    const mutualAfterDelete = await rest('GET', `/api/me/follows/${STUDENT_SUB_HMAC}?mutual=true`, undefined, TEACHER_BEARER)
     const teacherReply = await microRequest(nc, 'vizregistry.prompts.suggest', {
       roomId,
       requestId: randomUUID(),
       prompt: 'should be refused with not_mutual',
       locale: 'en',
-    }, bearerFor('teacher'))
+    }, TEACHER_BEARER)
     const teacher = JSON.parse(new TextDecoder().decode(teacherReply.data))
     const teacherRefused = teacher.ok === false && teacher.code === 'not_mutual'
     const followDeleted = unfollow.status === 200 || unfollow.status === 204
-    // The preflight answers 200 with {mutual:boolean} — the refusal is in the body, not the status.
-    const noLongerMutual = mutualAfterDelete.status === 200 && mutualAfterDelete.data?.mutual === false
+    const noLongerMutual = mutualAfterDelete.status !== 200
     log('G2 not-mutual-refused', teacherRefused && followDeleted && noLongerMutual,
       `unfollow=${unfollow.status} preflight-after=${mutualAfterDelete.status} code=${teacher.code ?? 'none'}`)
 
@@ -330,7 +297,7 @@ async function runLegs() {
     const feedback = await microRequest(nc, 'vizregistry.prompts.feedback', {
       suggestionId,
       outcome: 'accepted',
-    }, bearerFor('student'))
+    }, STUDENT_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(feedback.data))
     log('H feedback-accepted', decoded.ok === true, `ok=${decoded.ok}`)
   } else {

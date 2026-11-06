@@ -1158,16 +1158,14 @@ async function bootstrap(): Promise<void> {
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
   // Shared prompt auto-complete (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8). Two conditions, both
-  // explicit: the flag is on AND this identity's `<subHmac>` is configured, because the service
-  // derives it server-side and a client-invented one would subscribe to nobody's subject.
-  // Anything missing keeps the whole feature dark — no connection, handlers answer `disabled`.
+  // explicit: the flag is on AND this host has a vclaw identity with a seed. Delivery subjects are
+  // keyed by that identity's NKEY, so nothing has to be configured that the service would have to
+  // derive. Anything missing keeps the whole feature dark — no connection, handlers `disabled`.
   const promptSuggestions = ((): SuggestionsService | null => {
     if (!suggestionsEnabled()) return null
     const resolved = resolvePromptConfig()
     if (!resolved.ok) {
-      console.warn(`Prompt suggestions: ${PROMPTS_FLAG}=1 but ${resolved.error === 'missing_sub_hmac'
-        ? 'this identity has no subHmac (set VCLAW_PROMPTS_SUB_HMAC or claim the identity)'
-        : 'no vclaw credentials were found'}; staying off.`)
+      console.warn(`Prompt suggestions: ${PROMPTS_FLAG}=1 but no vclaw identity (nkey + seed) was found in the credentials file; staying off.`)
       return null
     }
     try {

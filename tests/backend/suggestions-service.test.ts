@@ -21,18 +21,19 @@ import { buildNkeyAssertion } from '../../electron/main/prompt-assertion'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** A U-form nkey fixture: delivery subjects are keyed by it now, never by a subHmac. */
+const NKEY = 'UCZSAWGLDU7FKU4A5Z3N6VB2XQ7M9RTC1YD8KJHN4PLEWXZ'
+
 function config(overrides: Partial<PromptConfig> = {}): PromptConfig {
   const segment = 'vcc'
-  const subHmac = 'hmac-student'
   return {
     segment,
-    subHmac,
-    identity: { nkey: 'UCZSAWGLDU7FKU4EXAMPLE', seed: 'SUAA277DNC5JEXAMPLE', subHmac },
+    identity: { nkey: NKEY, seed: 'SUAA277DNC5JEXAMPLE' },
     natsUrl: 'nats://fabric.test:4223',
     vgateUrl: 'https://vgate.test',
     name: 'vclaw-desktop-prompts:EXAMPLE',
     tool: 'prompt-collab',
-    subjects: promptSubjects(segment, subHmac),
+    subjects: promptSubjects(segment, NKEY),
     ...overrides,
   }
 }
@@ -131,7 +132,7 @@ describe('prompt suggestion pushes', () => {
     service.onSuggestion((received) => seen.push(received.suggestionId))
     await service.start()
 
-    expect(fake.subscribed).toEqual(['tenant.vcc.prompts.suggest.hmac-student'])
+    expect(fake.subscribed).toEqual([`tenant.vcc.prompts.suggest.${NKEY}`])
     fake.push(suggestion)
     fake.push({ ...suggestion, suggestionId: 'sug-bad', prompt: '   ' })
     fake.push({ ...suggestion, suggestionId: 'sug-bad2', from: { kind: 'robot', nkey: 'X' } })
@@ -171,7 +172,7 @@ describe('consent-gated draft publishing', () => {
 
     const opened = await service.openSession({ action: 'open', peer: 'UTEACHER', conversationId: 'conv-1' })
     expect(opened).toEqual({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER', mutual: true, expiresAt: '2099-01-01T00:00:00.000Z' } })
-    expect(fake.requests[0]).toMatchObject({ subject: 'vizregistry.prompts.room.open', body: { peer: 'UTEACHER', conversationId: 'conv-1' }, timeoutMs: 5_000 })
+    expect(fake.requests[0]).toMatchObject({ subject: 'vizregistry.prompts.room.open', body: { peer: 'UTEACHER', conversationId: 'conv-1' }, timeoutMs: 10_000 })
 
     service.setDraft({ text: '一元二次方程', locale: 'zh-CN' })
     service.setDraft({ text: '一元二次方程 求解', locale: 'zh-CN' })
@@ -180,7 +181,7 @@ describe('consent-gated draft publishing', () => {
     vi.advanceTimersByTime(1)
 
     expect(fake.published).toHaveLength(1)
-    expect(fake.published[0].subject).toBe('tenant.vcc.prompts.draft.hmac-student')
+    expect(fake.published[0].subject).toBe(`tenant.vcc.prompts.draft.${NKEY}`)
     expect(fake.published[0].body).toMatchObject({ roomId: 'room-1', draft: '一元二次方程 求解', locale: 'zh-CN' })
     await service.stop()
   })
@@ -234,7 +235,7 @@ describe('request mapping', () => {
     expect(fake.requests.at(-1)).toMatchObject({
       subject: 'vizregistry.prompts.feedback',
       body: { suggestionId: 'sug-1', outcome: 'accepted', ms: 900 },
-      timeoutMs: 5_000,
+      timeoutMs: 10_000,
     })
     await service.stop()
   })
@@ -253,27 +254,37 @@ describe('request mapping', () => {
     await expect(offline.feedback('sug-3', 'rejected')).resolves.toEqual({ ok: false, error: 'unavailable' })
   })
 
-  it('reports an unconfigured identity without inventing a subject', async () => {
+  it('keys every delivery subject by the nkey from the credentials file, never by a subHmac', () => {
     const readFile = vi.fn((path: string) => {
-      if (path.endsWith('credentials.json')) return JSON.stringify({ nkey: 'UCZSAWGLDU7FEXAMPLE', seed: 'SUAA277DNC5JEXAMPLE' })
+      if (path.endsWith('credentials.json')) {
+        // A sub_hmac may still be present in the file: it is a SERVER-side authorization
+        // concept and must not leak into any subject this client subscribes or publishes to.
+        return JSON.stringify({ public_key: NKEY, seed: 'SUAA277DNC5JEXAMPLE', sub_hmac: 'hmac-student' })
+      }
       return JSON.stringify({ server: 'nats://fabric.test:4223' })
     })
-    const resolved = resolvePromptConfig({ [PROMPTS_FLAG]: '1' }, { readFile, home: '/home/student' })
-    expect(resolved).toEqual({ ok: false, error: 'missing_sub_hmac' })
+
+    const configured = resolvePromptConfig({ [PROMPTS_FLAG]: '1' }, { readFile, home: '/home/student' })
+    expect(configured.ok && configured.config.subjects).toEqual({
+      suggest: `tenant.vcc.prompts.suggest.${NKEY}`,
+      draft: `tenant.vcc.prompts.draft.${NKEY}`,
+      roomOpen: 'vizregistry.prompts.room.open',
+      roomClose: 'vizregistry.prompts.room.close',
+      feedback: 'vizregistry.prompts.feedback',
+    })
+    expect(configured.ok && configured.config.natsUrl).toBe('nats://fabric.test:4223')
+    expect(configured.ok && configured.config.accessToken).toBeUndefined()
+    if (!configured.ok) throw new Error('expected a resolved config')
+    for (const subject of Object.values(configured.config.subjects)) expect(subject).not.toMatch(/hmac/i)
 
     const disabled = resolvePromptConfig({}, { readFile, home: '/home/student' })
     expect(disabled).toEqual({ ok: false, error: 'disabled' })
 
-    const configured = resolvePromptConfig(
-      { [PROMPTS_FLAG]: '1', VCLAW_PROMPTS_SUB_HMAC: 'hmac-student' },
-      { readFile, home: '/home/student' },
-    )
-    expect(configured.ok && configured.config.subjects.suggest).toBe('tenant.vcc.prompts.suggest.hmac-student')
-    expect(configured.ok && configured.config.natsUrl).toBe('nats://fabric.test:4223')
-    expect(configured.ok && configured.config.accessToken).toBeUndefined()
+    const withoutIdentity = resolvePromptConfig({ [PROMPTS_FLAG]: '1' }, { readFile: () => { throw new Error('missing') }, home: '/home/student' })
+    expect(withoutIdentity).toEqual({ ok: false, error: 'missing_identity' })
 
     const withToken = resolvePromptConfig(
-      { [PROMPTS_FLAG]: '1', VCLAW_PROMPTS_SUB_HMAC: 'hmac-student', VCLAW_PROMPTS_ACCESS_TOKEN: 'oidc-access-token' },
+      { [PROMPTS_FLAG]: '1', VCLAW_PROMPTS_ACCESS_TOKEN: 'oidc-access-token' },
       { readFile, home: '/home/student' },
     )
     expect(withToken.ok && withToken.config.accessToken).toBe('oidc-access-token')
