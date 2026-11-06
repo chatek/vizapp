@@ -371,7 +371,10 @@ export class OidcClient {
       if (jwk.kty !== 'RSA' || typeof jwk.n !== 'string' || typeof jwk.e !== 'string') continue
       if (jwk.use !== undefined && jwk.use !== 'sig') continue
       try {
-        const key = createPublicKey({ key: jwk as unknown as import('node:crypto').JsonWebKey, format: 'jwk' })
+        // `JsonWebKey` is exported from node:crypto in @types/node 24 (the carrier's
+        // toolchain) and gone in 26 (this repo's), so the cast goes through the
+        // function's own parameter type instead of the version-specific name.
+        const key = createPublicKey({ key: jwk, format: 'jwk' } as unknown as Parameters<typeof createPublicKey>[0])
         entries.push({ ...(typeof jwk.kid === 'string' ? { kid: jwk.kid } : {}), key })
       } catch {
         // A malformed key cannot verify anything; keep the rest.

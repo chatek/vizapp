@@ -1,0 +1,55 @@
+{
+  "$comment": "The carrier handoff, declared once. Subject: WHICH payload we ship (paths, markers, entry points, version tuple). NOT the carrier's own integration state (member-seams.mjs) and NOT vendored byte integrity (dependency-pins.json) — three subjects, three files. The bundler derives its merge roots from bindPaths; the carrier's payload whitelist should mirror this list rather than keep its own.",
+  "carrierContract": "member-seams/v2",
+  "entrypoints": {
+    "$comment": "npm script names are public API: the carrier's release.yml member job defaults MEMBER_BUNDLE_SCRIPT=bundle:vcclaw and MEMBER_INTEGRATE_SCRIPT=integrate:vcclaw. Renaming either without updating those vars fails the member job on script-not-found.",
+    "bundle": "bundle:vcclaw",
+    "integrate": "integrate:vcclaw",
+    "payload": "release:payload"
+  },
+  "paths": {
+    "$comment": "Repo-side paths are private to this repo: the carrier only ever sees the bundle OUTPUT directory.",
+    "app": "dashboard",
+    "content": "project",
+    "bundleOutput": "payload/vizmaster",
+    "artifactDir": "app/build"
+  },
+  "bindPaths": [
+    "README.md",
+    "AGENTS.md",
+    "templates",
+    "skills",
+    "code"
+  ],
+  "markers": [
+    "package.json",
+    "src",
+    "index.html",
+    ".omp/tools/math-renderer.ts",
+    ".omp/tools/build-vizshow.ts"
+  ],
+  "overlay": {
+    "$comment": "Electron-main code we own. It imports nothing from electron — host objects (app, session, shell, safeStorage) and the capture callback are injected — so it compiles and tests IN THIS REPO (typecheck:overlay, test:overlay). That is the carrier owner's required alternative to moving it into the carrier.",
+    "inRepo": [
+      "packaging/vcclaw/vizshare: api.ts, broker.ts, oidc.ts, index.ts (+2 test files, 5 tests)"
+    ],
+    "inCarrier": [
+      "host wiring that constructs the Electron objects and calls startVizShare"
+    ],
+    "notCompiledHere": [
+      "packaging/vcclaw/defaultProject.ts: the v1 rollback seeder imports carrier types (src/types/api) and is copied only when CARRIER === 'v1'"
+    ]
+  },
+  "contractPackage": {
+    "name": "@vizmaster/vizshow-contract",
+    "version": "0.1.1",
+    "sha256": "721248e4b6ec4b603804ec06b63788e34cb8cfdf1bb99d61c84e0ea7e12b0a79",
+    "commit": "ec493ed",
+    "carrierDependencyRow": "\"@vizmaster/vizshow-contract\": \"file:vendor/vizmaster-vizshow-contract-0.1.1.tgz\""
+  },
+  "versionTuple": {
+    "$comment": "Shared BY REFERENCE with the carrier's pin file, never merged into it: these two ids must not disagree.",
+    "contract": "0.1.1",
+    "payloadRelease": "<stamped by scripts/build-info.mjs at bundle time>"
+  }
+}
