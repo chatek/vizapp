@@ -86,17 +86,29 @@ if (invokedAsScript()) {
     process.exit(2)
   }
   // A tag that does not exist remotely yet is a CREATE, not a move: always fine.
-  let exists = true
-  try {
-    execFileSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], { encoding: 'utf8', timeout: GH_TIMEOUT_MS })
-  } catch {
-    exists = false
+  // 'Absent' means ABSENT EVERYWHERE: this carrier keeps tags on the github mirror
+  // while origin is the forgejo canonical, so a probe scoped to one remote greens
+  // a tag it never looked at (measured: v1.1.18 exists on github, not on origin).
+  // Both remotes are probed; the sites that carry the tag are named in the output.
+  const sites = []
+  for (const remoteName of ['origin', 'github']) {
+    try {
+      const line = execFileSync('git', ['ls-remote', '--tags', remoteName, `refs/tags/${tag}`], { encoding: 'utf8', timeout: GH_TIMEOUT_MS }).trim()
+      if (line !== '') {
+        const sha = line.split(/\s+/)[0]
+        sites.push(`${remoteName}@${sha.slice(0, 12)}`)
+      }
+    } catch (error) {
+      console.error(`assert-tag-move: warning: could not probe remote ${remoteName} — ${error.message.split('\n')[0]}`)
+      // An unprobed remote is not an absent one: fail closed rather than green a
+      // tag a dead remote might carry (the loud-skip lesson).
+      process.exit(2)
+    }
   }
-  const remote = execFileSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], { encoding: 'utf8', timeout: GH_TIMEOUT_MS }).trim()
-  if (remote === '') {
-    console.log(`assert-tag-move: ${tag} does not exist on the remote — creating, not moving. OK.`)
+  if (sites.length === 0) {
+    console.log(`assert-tag-move: ${tag} does not exist on any remote — creating, not moving. OK.`)
     process.exit(0)
   }
   assertTagMove(tag)
-  console.log(`assert-tag-move: ${tag} may move (no runs in flight, no published assets).`)
+  console.log(`assert-tag-move: ${tag} exists (${sites.join(', ')}); may move (no runs in flight, no published assets).`)
 }
