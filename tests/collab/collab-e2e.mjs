@@ -173,20 +173,28 @@ async function runLegs() {
     log('B consent-grant', ok, `POST /api/consent → ${consent.status}`)
   }
 
-  // C. room.open (the consent-session open, contract §8: agent-initiated)
+  // C. room.open — NATS Micro (v3: NATS for ALL principals; no REST collab surface).
+  // The reply is {roomId, peer, expiresAt, mutual}.
+  let roomId = null
   {
-    const room = await rest('POST', '/api/collab/room.open', {
-      peer: TEACHER_SUB_HMAC,
-      conversationId,
-    })
-    const ok = room.status === 200 && room.data?.mutual === true
-    log('C room-open', ok, `mutual=${room.data?.mutual} roomId=${room.data?.roomId ?? 'none'}`)
+    const reply = await nc.request(
+      'vizregistry.prompts.room.open',
+      new TextEncoder().encode(JSON.stringify({
+        peer: TEACHER_SUB_HMAC,
+        conversationId,
+      })),
+      { timeout: 10_000 },
+    )
+    const decoded = JSON.parse(new TextDecoder().decode(reply.data))
+    roomId = decoded.roomId ?? null
+    const ok = decoded.mutual === true
+    log('C room-open', ok, `mutual=${decoded.mutual} roomId=${roomId ?? 'none'}`)
   }
 
   // D. draft publish (the student's typed phrase, published while consent holds)
   {
     nc.publish(draftSubject(STUDENT_SUB_HMAC), new TextEncoder().encode(JSON.stringify({
-      roomId: 'e2e-room', // the room opened above; the service supplies the real id
+      roomId,
       draft: DRAFT_TEXT,
       locale: 'zh-CN',
       conversationId,
@@ -202,7 +210,7 @@ async function runLegs() {
     const suggest = await nc.request(
       'vizregistry.prompts.suggest',
       new TextEncoder().encode(JSON.stringify({
-        roomId: 'e2e-room',
+        roomId,
         requestId: randomUUID(),
         prompt: 'Solve the quadratic equation in one variable using the discriminant method',
         rationale: 'The student typed the Chinese term for this exact topic',
@@ -243,7 +251,7 @@ async function runLegs() {
     const refusal = await nc.request(
       'vizregistry.prompts.suggest',
       new TextEncoder().encode(JSON.stringify({
-        roomId: 'e2e-room',
+        roomId,
         requestId: randomUUID(),
         prompt: 'should be refused',
         locale: 'en',
