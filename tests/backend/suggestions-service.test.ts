@@ -511,8 +511,9 @@ describe('identity enrolment', () => {
     expect(url).toBe(`https://registry.test/api/me/agent-bindings/${publicKey}`)
     expect(init.method).toBe('PUT')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer owner-oidc-token')
-    const body = JSON.parse(String(init.body)) as { client_assertion: string }
-    const claims = JSON.parse(Buffer.from(body.client_assertion.split('.')[1], 'base64url').toString('utf8')) as Record<string, unknown>
+    const body = JSON.parse(String(init.body)) as { assertion: string }
+    // the bind route's field name, not the token endpoint's client_assertion (measured)
+    const claims = JSON.parse(Buffer.from(body.assertion.split('.')[1], 'base64url').toString('utf8')) as Record<string, unknown>
     expect(claims.aud).toBe(PROMPT_BIND_AUDIENCE)
     expect(claims.iss).toBe(publicKey)
   })

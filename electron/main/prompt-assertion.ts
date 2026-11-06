@@ -102,8 +102,9 @@ export async function linkIdentity(input: LinkIdentityInput): Promise<PromptSugg
     response = await send(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.accessToken}` },
-      // `client_assertion` is this estate's name for the field (the token endpoint's own body).
-      body: JSON.stringify({ client_assertion: input.assertion }),
+      // The bind route reads `assertion` (services/vizregistry/src/routes/me.ts:57), NOT the token
+      // endpoint's `client_assertion` — sending the wrong name is a 422 invalid_assertion, measured.
+      body: JSON.stringify({ assertion: input.assertion }),
       signal: AbortSignal.timeout(input.timeoutMs ?? LINK_TIMEOUT_MS),
     })
   } catch (error) {
