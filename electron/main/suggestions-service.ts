@@ -21,8 +21,8 @@ import type {
  *
  * Three rules decide whether a byte leaves the machine:
  *   1. `VCLAW_PROMPTS=1`, else the service is not constructed at all (handlers answer `disabled`).
- *   2. The push subject needs this identity's own `<subHmac>` — server-derived, so it is
- *      CONFIGURED (`VCLAW_PROMPTS_SUB_HMAC` or the credentials file), never guessed here.
+ *   2. Delivery subjects are keyed by this identity's own NKEY (`public_key`), the only form
+ *      vgate can scope; a `subHmac` never appears in a subject this client builds.
  *   3. Drafts are published only while a consent session (a `room.open` reply) is live.
  */
 
@@ -38,7 +38,13 @@ export const DRAFT_THROTTLE_MS = 300
 /** §8 payload cap. Oversized drafts are NOT truncated: a truncated teaching input is a lie. */
 export const DRAFT_MAX_BYTES = 4 * 1024
 
-export const REQUEST_TIMEOUT_MS = 5_000
+/**
+ * Micro request ceiling. Measured on the real fabric (service re-key 4ce6e7b): room_open 5.0 s,
+ * draft 2.8 s, suggest 3.6 s, feedback 3.0 s, close 3.0 s — the mutual check builds an ephemeral
+ * pull consumer per `kv.keys()` across hosts. 10 s is the safety margin until the service's direct
+ * edge-key index is measured lower; a genuine stall still answers the typed `timeout`.
+ */
+export const REQUEST_TIMEOUT_MS = 10_000
 
 /** Audience the registry verifies a REQUEST credential against (domain-separated from bind). */
 export const PROMPT_AUDIENCE = 'vizmaster-registry-vcc'
@@ -59,18 +65,14 @@ export function suggestionsEnabled(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 export interface PromptIdentity {
-  /** Public NKey (`U…`) the JWT is minted for. */
+  /** Public NKey (`U…`) — the JWT is minted for it AND every delivery subject is keyed by it. */
   nkey: string
   /** Encoded seed (`SU…`) — nkeys.fromSeed takes the encoded string, not raw bytes. */
   seed: string
-  /** `sub_hmac` from the credentials file, when vgate wrote one. */
-  subHmac?: string
 }
 
 export interface PromptConfig {
   segment: string
-  /** `<studentSubHmac>` for every subject this desktop uses: it is the same identity. */
-  subHmac: string
   identity: PromptIdentity
   natsUrl: string
   vgateUrl: string
@@ -102,19 +104,20 @@ export type PromptConfigResolution = { ok: true; config: PromptConfig } | { ok: 
 
 /**
  * Subject tree for one segment. Two namespaces, on purpose:
- *   - PUSH subjects are per-student and therefore segment-scoped (§8):
- *     `tenant.<seg>.prompts.suggest|draft.<subHmac>`;
- *   - the Micro ENDPOINTS are one service shared by every segment and keep the names in §3's
- *     table (`vizregistry.prompts.room.open|room.close|feedback`) — §8 moved the push subjects,
- *     not the endpoints.
+ *   - DELIVERY subjects are per-identity and segment-scoped, keyed by the **NKEY**: vgate can
+ *     scope a nkey, and it cannot compute a `subHmac` (which is why the client plane was
+ *     un-grantable). `subHmac` is a SERVER-side authorization concept and never appears in a
+ *     subject this client builds.
+ *   - the Micro ENDPOINTS are one service shared by every segment and keep §3's names
+ *     (`vizregistry.prompts.room.open|room.close|feedback`).
  * Exported so the tests, the startup log, and the E2E harness share one truth.
  */
-export function promptSubjects(segment: string, subHmac: string): PromptSubjects {
+export function promptSubjects(segment: string, nkey: string): PromptSubjects {
   const push = `tenant.${segment}.prompts`
   const micro = 'vizregistry.prompts'
   return {
-    suggest: `${push}.suggest.${subHmac}`,
-    draft: `${push}.draft.${subHmac}`,
+    suggest: `${push}.suggest.${nkey}`,
+    draft: `${push}.draft.${nkey}`,
     roomOpen: `${micro}.room.open`,
     roomClose: `${micro}.room.close`,
     feedback: `${micro}.feedback`,
@@ -154,14 +157,13 @@ export function readPromptIdentity(read: (path: string) => string, home: string)
   const nkey = nonEmpty(parsed.nkey) ?? nonEmpty(parsed.public_key)
   const seed = nonEmpty(parsed.seed)
   if (!nkey || !seed) return null
-  const subHmac = nonEmpty(parsed.sub_hmac) ?? nonEmpty(parsed.subHmac)
-  return subHmac ? { nkey, seed, subHmac } : { nkey, seed }
+  return { nkey, seed }
 }
 
 /**
  * Resolves everything the service needs, or names what is missing. There is deliberately no
- * identity-derived `<subHmac>` branch: the service derives it from the OIDC subject, so a client
- * computing one would subscribe to a subject nobody publishes to.
+ * identity-derived `<subHmac>` branch: a `subHmac` is a server-side authorization concept, so a
+ * client computing one would subscribe to a subject nobody publishes to.
  */
 export function resolvePromptConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -172,8 +174,6 @@ export function resolvePromptConfig(
   const read = deps.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
   const identity = readPromptIdentity(read, home)
   if (!identity) return { ok: false, error: 'missing_identity' }
-  const subHmac = nonEmpty(env.VCLAW_PROMPTS_SUB_HMAC) ?? identity.subHmac
-  if (!subHmac) return { ok: false, error: 'missing_sub_hmac' }
   const config = readJsonFile(read, join(home, '.config', 'vclaw', 'config.json'))
   const server = nonEmpty(env.VCLAW_PROMPTS_NATS_URL) ?? nonEmpty(env.VCLAW_NATS_URL) ?? nonEmpty(config?.server) ?? 'nats://vchat3:4223'
   const vgateUrl = nonEmpty(env.VCLAW_PROMPTS_VGATE_URL) ?? nonEmpty(env.VCLAW_API_URL) ?? nonEmpty(env.VCLAW_VGATE_URL) ?? nonEmpty(config?.vgateUrl) ?? 'https://api.vclawhub.com'
@@ -185,7 +185,6 @@ export function resolvePromptConfig(
     ok: true,
     config: {
       segment,
-      subHmac,
       identity,
       natsUrl: server,
       vgateUrl: vgateUrl.replace(/\/+$/, ''),
@@ -193,7 +192,7 @@ export function resolvePromptConfig(
       ...(accessToken ? { accessToken } : {}),
       ...(registryUrl ? { registryUrl } : {}),
       tool,
-      subjects: promptSubjects(segment, subHmac),
+      subjects: promptSubjects(segment, identity.nkey),
     },
   }
 }

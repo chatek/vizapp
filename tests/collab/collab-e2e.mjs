@@ -45,6 +45,10 @@ const NATS_URL = process.env.NATS_URL ?? 'nats://127.0.0.1:4222'
 const STUDENT_SUB_HMAC = process.env.STUDENT_SUB_HMAC ?? 'e2e-student-sub-hmac-0001'
 const TEACHER_SUB_HMAC = process.env.TEACHER_SUB_HMAC ?? 'e2e-teacher-sub-hmac-0001'
 const STRANGER_SUB_HMAC = process.env.STRANGER_SUB_HMAC ?? 'e2e-stranger-sub-hmac-01'
+// Delivery subjects are keyed by the NKEY since the service re-key (vgate can scope a nkey; a
+// subHmac is authorization only and never appears in a subject). REST identifiers below still
+// use the subHmac spelling because those routes are the service's own vocabulary.
+const STUDENT_NKEY = process.env.STUDENT_NKEY ?? 'UCZSAWGLDU7FKU4A5Z3N6VB2XQ7M9RTC1YD8KJHN4PLEWXZ'
 const SEGMENT = process.env.VIZREG_SEGMENT ?? 'vclaw'
 const STUDENT_BEARER = process.env.STUDENT_BEARER ?? 'e2e-student-bearer'
 const TEACHER_BEARER = process.env.TEACHER_BEARER ?? 'e2e-teacher-bearer'
@@ -129,12 +133,12 @@ async function rest(method, path, body, token) {
   return { status: response.status, data }
 }
 
-function suggestSubject(subHmac) {
-  return `tenant.${SEGMENT}.prompts.suggest.${subHmac}`
+function suggestSubject(nkey) {
+  return `tenant.${SEGMENT}.prompts.suggest.${nkey}`
 }
 
-function draftSubject(subHmac) {
-  return `tenant.${SEGMENT}.prompts.draft.${subHmac}`
+function draftSubject(nkey) {
+  return `tenant.${SEGMENT}.prompts.draft.${nkey}`
 }
 
 /** Micro requests carry the bearer in NATS headers (measured live E2E). */
@@ -155,7 +159,7 @@ async function runLegs() {
   // core NATS is at-most-once (a push to nobody is lost, and that is the transport's
   // contract, not a failure).
   const suggestions = []
-  const sub = nc.subscribe(suggestSubject(STUDENT_SUB_HMAC))
+  const sub = nc.subscribe(suggestSubject(STUDENT_NKEY))
   const drain = (async () => {
     for await (const message of sub) {
       const decoded = JSON.parse(new TextDecoder().decode(message.data))
@@ -201,7 +205,7 @@ async function runLegs() {
 
   // D. draft publish (the student's typed phrase, published while consent holds)
   {
-    nc.publish(draftSubject(STUDENT_SUB_HMAC), new TextEncoder().encode(JSON.stringify({
+    nc.publish(draftSubject(STUDENT_NKEY), new TextEncoder().encode(JSON.stringify({
       roomId,
       draft: DRAFT_TEXT,
       locale: 'zh-CN',
@@ -209,7 +213,7 @@ async function runLegs() {
       at: new Date().toISOString(),
     })))
     await nc.flush()
-    log('D draft-publish', true, `published "${DRAFT_TEXT}" to ${draftSubject(STUDENT_SUB_HMAC)}`)
+    log('D draft-publish', true, `published "${DRAFT_TEXT}" to ${draftSubject(STUDENT_NKEY)}`)
   }
 
   // E. the teacher's AGENT submits a suggestion through the Micro endpoint
@@ -237,7 +241,7 @@ async function runLegs() {
     }
     const received = suggestions[0]
     if (!received) {
-      log('F push-arrives', false, `no push on ${suggestSubject(STUDENT_SUB_HMAC)} within 5s`)
+      log('F push-arrives', false, `no push on ${suggestSubject(STUDENT_NKEY)} within 5s`)
     } else {
       const shapeOk =
         typeof received.suggestionId === 'string' && received.suggestionId.length > 0
