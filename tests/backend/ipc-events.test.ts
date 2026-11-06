@@ -414,6 +414,7 @@ describe('prompt suggestion IPC', () => {
       openSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { roomId: 'room-1', peer: 'UTEACHER' } })),
       closeSession: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { closed: true } })),
       feedback: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { ok: true } })),
+      link: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: true, data: { ok: true, bound: true } })),
     }
   }
 
@@ -452,8 +453,9 @@ describe('prompt suggestion IPC', () => {
     navigatedUrl = 'https://example.com/'
     const event = { sender: trusted, senderFrame: trusted.mainFrame }
     const consent = (request: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:consent')!(event, request))
+    const link = () => Promise.resolve(handlers.get('vclaw-suggestions:link')!(event))
     const feedback = (suggestionId: unknown, outcome: unknown, ms?: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:feedback')!(event, suggestionId, outcome, ms))
-    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback }
+    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback, link }
   }
 
   const pushed = {
@@ -513,6 +515,23 @@ describe('prompt suggestion IPC', () => {
     await expect(feedback('', 'rejected')).resolves.toEqual({ ok: false, error: 'invalid_payload' })
     expect(suggestions.feedback).toHaveBeenCalledTimes(1)
     registration.dispose()
+  })
+
+  it('exposes the one-time enrolment and answers disabled without the service', async () => {
+    const off = register()
+    expect(off.handlers.has('vclaw-suggestions:link')).toBe(true)
+    await expect(off.link()).resolves.toEqual({ ok: false, error: 'disabled' })
+    off.registration.dispose()
+
+    const suggestions = suggestionsStub()
+    const on = register(suggestions)
+    await expect(on.link()).resolves.toEqual({ ok: true, data: { ok: true, bound: true } })
+    expect(suggestions.link).toHaveBeenCalledTimes(1)
+    on.registration.dispose()
+
+    const refused = register({ ...suggestionsStub(), link: vi.fn(async (): Promise<PromptSuggestionInvokeResult> => ({ ok: false, error: 'unbound' })) })
+    await expect(refused.link()).resolves.toEqual({ ok: false, error: 'unbound' })
+    refused.registration.dispose()
   })
 
   it('passes a typed unauthorized refusal straight through to the renderer', async () => {

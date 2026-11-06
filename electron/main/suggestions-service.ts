@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { buildNkeyAssertion, linkIdentity } from './prompt-assertion'
 import { isRecord } from './validation'
 import type {
   PromptDraftInput,
@@ -39,6 +40,15 @@ export const DRAFT_MAX_BYTES = 4 * 1024
 
 export const REQUEST_TIMEOUT_MS = 5_000
 
+/** Audience the registry verifies a REQUEST credential against (domain-separated from bind). */
+export const PROMPT_AUDIENCE = 'vizmaster-registry-vcc'
+
+/** Audience of the one-time bind proof the OWNER uploads for this host's nkey. */
+export const PROMPT_BIND_AUDIENCE = 'vizmaster-registry-agent-bind'
+
+/** The `tool` claim, so the registry can tell this client from every other nkey holder. */
+export const DEFAULT_PROMPT_TOOL = 'prompt-collab'
+
 /** The SDK refreshes 10 minutes before the 1h JWT expiry; reconnects read the latest value. */
 const JWT_REFRESH_MS = 50 * 60 * 1_000
 
@@ -66,12 +76,15 @@ export interface PromptConfig {
   vgateUrl: string
   name: string
   /**
-   * The OIDC access token (`aud vizmaster-vcc`) the service authenticates a HUMAN with. The
-   * desktop does not run an OIDC client, so this is a CONFIGURED credential: when it is absent
-   * the vclaw identity JWT from `fetchNatsUserJWT` is presented instead and a refusal surfaces
-   * as a typed `unauthorized` rather than a guess.
+   * The OWNER's OIDC access token (`aud vizmaster-vcc`). Two jobs: it authorises the one-time
+   * `agent-bindings` enrolment, and it is the FALLBACK request credential when this host cannot
+   * sign an assertion. The primary credential is always the self-signed assertion below.
    */
   accessToken?: string
+  /** Registry origin for the enrolment route; absent ⇒ `link()` answers `unconfigured`. */
+  registryUrl?: string
+  /** The `tool` claim this client presents (`VCLAW_PROMPTS_TOOL`, default `prompt-collab`). */
+  tool: string
   subjects: PromptSubjects
 }
 
@@ -166,6 +179,8 @@ export function resolvePromptConfig(
   const vgateUrl = nonEmpty(env.VCLAW_PROMPTS_VGATE_URL) ?? nonEmpty(env.VCLAW_API_URL) ?? nonEmpty(env.VCLAW_VGATE_URL) ?? nonEmpty(config?.vgateUrl) ?? 'https://api.vclawhub.com'
   const segment = segmentFor(env)
   const accessToken = nonEmpty(env.VCLAW_PROMPTS_ACCESS_TOKEN) ?? nonEmpty(config?.vizmasterAccessToken)
+  const registryUrl = nonEmpty(env.VCLAW_PROMPTS_REGISTRY_URL) ?? nonEmpty(config?.vizmasterRegistryUrl)
+  const tool = nonEmpty(env.VCLAW_PROMPTS_TOOL) ?? DEFAULT_PROMPT_TOOL
   return {
     ok: true,
     config: {
@@ -176,6 +191,8 @@ export function resolvePromptConfig(
       vgateUrl: vgateUrl.replace(/\/+$/, ''),
       name: `vclaw-desktop-prompts:${identity.nkey.slice(-8)}`,
       ...(accessToken ? { accessToken } : {}),
+      ...(registryUrl ? { registryUrl } : {}),
+      tool,
       subjects: promptSubjects(segment, subHmac),
     },
   }
@@ -266,6 +283,35 @@ export function createBearerTokenSource(
 }
 
 /**
+ * The credential this desktop PRESENTS on every Micro call.
+ *
+ * Primary: an assertion signed with the host's own seed, so the service can verify it with the
+ * nkey alone and resolve the owner from the binding store. Fallback: the owner's OIDC access
+ * token, for a host that cannot sign (no seed, or a key form the signer refuses). Neither is
+ * cached beyond its own short validity — `createBearerTokenSource` re-mints inside the 60 s skew.
+ */
+export function promptBearerTokenSource(config: PromptConfig): BearerTokenSource {
+  const fallback = config.accessToken
+  if (config.identity.seed && config.identity.nkey) {
+    return createBearerTokenSource(async () => {
+      try {
+        return await buildNkeyAssertion({
+          seed: config.identity.seed,
+          publicKey: config.identity.nkey,
+          audience: PROMPT_AUDIENCE,
+          tool: config.tool,
+        })
+      } catch (error) {
+        if (fallback) return fallback
+        throw error
+      }
+    })
+  }
+  if (fallback) return createBearerTokenSource(async () => fallback)
+  return { token: async () => null, refresh: async () => null }
+}
+
+/**
  * agent-sdk's `connectViaJWT` ends the PROCESS when the fabric error-closes the connection
  * (the SDK assumes an agent supervisor that restarts it). A desktop has no supervisor, so that
  * guard would take the user's running agents down with the window. It is contained here, once:
@@ -307,9 +353,8 @@ const encoder = new TextEncoder()
 
 /**
  * The real connection: agent-sdk mints a NATS user JWT from the vgate token endpoint and
- * connects with it. The same token authenticates the connection AND authorises each Micro
- * request (`Authorization: Bearer …`), so one cache feeds both — a reconnect and a retry after
- * `unauthorized` therefore present the same fresh token, never an expired one.
+ * connects with it. The REQUEST credential is separate — this host's own signed assertion —
+ * because VizRegistry verifies the caller, not the broker session.
  */
 export async function connectSuggestionsNats(config: PromptConfig): Promise<SuggestionsNatsLike> {
   installSdkExitGuard()
@@ -322,10 +367,13 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
     // a function` on the wire, which is exactly how the missing Authorization was invisible.
     import('@nats-io/nats-core'),
   ])
-  const tokens = createBearerTokenSource(() => config.accessToken
-    ? Promise.resolve(config.accessToken)
-    : fetchNatsUserJWT(config.vgateUrl, config.identity.nkey, config.identity.seed))
-  const minted = await tokens.token()
+  // TWO credentials, deliberately distinct:
+  //   · the NATS user JWT authenticates the CONNECTION (vgate mints it, the SDK refreshes it);
+  //   · the assertion authenticates each Micro REQUEST to VizRegistry (the service verifies it
+  //     with this host's nkey and resolves the owner from the binding store).
+  const connectionTokens = createBearerTokenSource(() => fetchNatsUserJWT(config.vgateUrl, config.identity.nkey, config.identity.seed))
+  const requestTokens = promptBearerTokenSource(config)
+  const minted = await connectionTokens.token()
   if (!minted) throw new Error('vgate returned no NATS token')
   // `jwtAuthenticator` takes a SYNCHRONOUS provider that it re-reads on every (re)connect; this
   // mirror is what a refresh updates, so a reconnect presents the token the cache just minted.
@@ -336,7 +384,7 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
     return token
   }
   const nc = await connectViaJWT(config.natsUrl, () => current, config.identity.seed, config.name)
-  const refresh = setInterval(() => { void adopt(tokens.refresh()) }, JWT_REFRESH_MS)
+  const refresh = setInterval(() => { void adopt(connectionTokens.refresh()) }, JWT_REFRESH_MS)
   refresh.unref?.()
   armSdkExitGuard()
   return {
@@ -356,8 +404,8 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
       })
       return message.data
     },
-    authToken: () => adopt(tokens.token()),
-    refreshAuthToken: () => adopt(tokens.refresh()),
+    authToken: () => requestTokens.token(),
+    refreshAuthToken: () => requestTokens.refresh(),
     close: async () => {
       clearInterval(refresh)
       disarmSdkExitGuard()
@@ -522,6 +570,31 @@ export class SuggestionsService {
     const connection = await this.#ensureConnection()
     if (!connection) return { ok: false, error: 'unavailable' }
     return this.#request(connection, this.config.subjects.roomClose, { roomId: target })
+  }
+
+  /**
+   * The ONE-TIME enrolment: this host signs a bind assertion with its own seed and the owner
+   * uploads it with their OIDC token. Idempotent server-side; a refusal is a typed code.
+   */
+  async link(): Promise<PromptSuggestionInvokeResult> {
+    if (!this.config.registryUrl) return { ok: false, error: 'unconfigured' }
+    if (!this.config.accessToken) return { ok: false, error: 'no_access_token' }
+    let assertion: string
+    try {
+      assertion = await buildNkeyAssertion({
+        seed: this.config.identity.seed,
+        publicKey: this.config.identity.nkey,
+        audience: PROMPT_BIND_AUDIENCE,
+      })
+    } catch {
+      return { ok: false, error: 'assertion_failed' }
+    }
+    return linkIdentity({
+      registryUrl: this.config.registryUrl,
+      accessToken: this.config.accessToken,
+      publicKey: this.config.identity.nkey,
+      assertion,
+    })
   }
 
   /** `feedback` (§3 rule 6): accepted / rejected / superseded, recorded by the service. */

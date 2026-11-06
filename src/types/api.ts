@@ -1012,6 +1012,12 @@ export interface PrimeWorkApi {
     closeSession(roomId?: string): Promise<PromptSuggestionInvokeResult>
     /** `feedback` — record the suggestion's lifecycle transition (§3 rule 6). */
     feedback(suggestionId: string, outcome: PromptSuggestionOutcome, ms?: number): Promise<PromptSuggestionInvokeResult>
+    /**
+     * One-time enrolment: binds this host's nkey to the owner's account
+     * (`PUT /api/me/agent-bindings/<nkey>`). Needs the owner's OIDC token; answers typed
+     * refusals (`unbound`, `forbidden_segment`, `no_access_token`, …).
+     */
+    link(): Promise<PromptSuggestionInvokeResult>
   }
 }
 

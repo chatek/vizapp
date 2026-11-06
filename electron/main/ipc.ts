@@ -480,6 +480,13 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
     }
     return { ok: false, error: 'unknown_action' }
   })
+  // One-time enrolment: the owner's OIDC token authorises the call, the assertion proves this
+  // host holds the seed. Idempotent server-side; every failure is a typed code.
+  handle('vclaw-suggestions:link', () => {
+    const service = services.suggestions
+    if (!service) return { ok: false, error: 'disabled' }
+    return service.link()
+  })
   handle('vclaw-suggestions:feedback', (_event, suggestionId, outcome, ms) => {
     const service = services.suggestions
     if (!service) return { ok: false, error: 'disabled' }

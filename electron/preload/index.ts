@@ -175,6 +175,7 @@ const api: PrimeWorkApi = {
     openSession: (peer: string, conversationId: string, ttlS?: number) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:consent', { action: 'open', peer, conversationId, ...(ttlS === undefined ? {} : { ttlS }) }),
     closeSession: (roomId?: string) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:consent', roomId === undefined ? { action: 'close' } : { action: 'close', roomId }),
     feedback: (suggestionId: string, outcome: PromptSuggestionOutcome, ms?: number) => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:feedback', suggestionId, outcome, ...(ms === undefined ? [] : [ms])),
+    link: () => invoke<PromptSuggestionInvokeResult>('vclaw-suggestions:link'),
   },
 }
 

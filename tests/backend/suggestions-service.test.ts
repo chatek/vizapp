@@ -1,17 +1,22 @@
+import { nkeys } from '@nats-io/nats-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DRAFT_MAX_BYTES,
+  PROMPT_AUDIENCE,
+  PROMPT_BIND_AUDIENCE,
   PROMPTS_FLAG,
   SuggestionsService,
   bearerHeaders,
   createBearerTokenSource,
   jwtExpiresAt,
   parseSuggestion,
+  promptBearerTokenSource,
   promptSubjects,
   resolvePromptConfig,
   type PromptConfig,
   type SuggestionsNatsLike,
 } from '../../electron/main/suggestions-service'
+import { buildNkeyAssertion } from '../../electron/main/prompt-assertion'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -26,6 +31,7 @@ function config(overrides: Partial<PromptConfig> = {}): PromptConfig {
     natsUrl: 'nats://fabric.test:4223',
     vgateUrl: 'https://vgate.test',
     name: 'vclaw-desktop-prompts:EXAMPLE',
+    tool: 'prompt-collab',
     subjects: promptSubjects(segment, subHmac),
     ...overrides,
   }
@@ -91,6 +97,9 @@ function fakeConnection(tokens: string[] = ['token-1', 'token-2']): FakeConnecti
   }
   return state
 }
+
+const decodeToken = (token: string): Record<string, unknown> =>
+  JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as Record<string, unknown>
 
 function serviceWith(connection: FakeConnection): SuggestionsService {
   return new SuggestionsService({
@@ -421,5 +430,109 @@ describe('bearer token cache', () => {
     fail = true
     expect(await source.refresh()).toBe(a)
     expect(mints).toBe(2)
+  })
+})
+
+describe('request credential', () => {
+  const keypair = () => {
+    const created = nkeys.createUser()
+    return { publicKey: created.getPublicKey(), seed: new TextDecoder().decode(created.getSeed()) }
+  }
+
+  it('mints an assertion with the claims the verifier reads and a signature it can check', async () => {
+    const { publicKey, seed } = keypair()
+    const assertion = await buildNkeyAssertion({ seed, publicKey, audience: PROMPT_AUDIENCE, tool: 'prompt-collab' })
+
+    const [header, payload] = assertion.split('.')
+    expect(JSON.parse(Buffer.from(header, 'base64url').toString('utf8'))).toEqual({ alg: 'ed25519-nkey', typ: 'JWT' })
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>
+    expect(claims.iss).toBe(publicKey)
+    expect(claims.sub).toBe(publicKey)
+    expect(claims.aud).toBe('vizmaster-registry-vcc')
+    expect(claims.tool).toBe('prompt-collab')
+    expect(Number(claims.exp) - Number(claims.iat)).toBeLessThanOrEqual(300)
+    expect(typeof claims.jti).toBe('string')
+
+    const signature = new Uint8Array(Buffer.from(assertion.split('.')[2], 'base64url'))
+    expect(nkeys.fromPublic(publicKey).verify(new TextEncoder().encode(`${header}.${payload}`), signature)).toBe(true)
+  })
+
+  it('refuses to sign a key that is not the U-form or a ttl above the verifier ceiling', async () => {
+    const { publicKey, seed } = keypair()
+    await expect(buildNkeyAssertion({ seed, publicKey: publicKey.slice(2), audience: PROMPT_AUDIENCE })).rejects.toThrow(/U-form/)
+    await expect(buildNkeyAssertion({ seed, publicKey, audience: PROMPT_AUDIENCE, ttlSeconds: 301 })).rejects.toThrow(/1\.\.300/)
+  })
+
+  it('prefers the self-signed assertion and falls back to the configured OIDC token', async () => {
+    const { publicKey, seed } = keypair()
+    const primary = await promptBearerTokenSource({ ...config(), identity: { nkey: publicKey, seed } }).token()
+    expect(primary?.split('.').length).toBe(3)
+    expect(decodeToken(primary ?? '').aud).toBe('vizmaster-registry-vcc')
+
+    const fallback = await promptBearerTokenSource({ ...config(), identity: { nkey: publicKey, seed: 'SU-broken' }, accessToken: 'oidc-token' }).token()
+    expect(fallback).toBe('oidc-token')
+
+    const unsigned = await promptBearerTokenSource({ ...config(), identity: { nkey: publicKey, seed: 'SU-broken' } }).token()
+    expect(unsigned).toBeNull()
+  })
+
+  it('surfaces an unbound identity as a typed refusal', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.feedback', () => ({ ok: false, code: 'unbound', message: 'This nkey is not bound to an owner' }))
+    const service = serviceWith(fake)
+    await service.start()
+
+    await expect(service.feedback('sug-1', 'accepted')).resolves.toEqual({ ok: false, error: 'unbound' })
+    expect(fake.requests).toHaveLength(1)
+    expect(fake.refreshes).toBe(0)
+    await service.stop()
+  })
+})
+
+describe('identity enrolment', () => {
+  const { publicKey, seed } = (() => {
+    const created = nkeys.createUser()
+    return { publicKey: created.getPublicKey(), seed: new TextDecoder().decode(created.getSeed()) }
+  })()
+
+  const bound = () => new SuggestionsService({
+    connector: async () => fakeConnection().connection,
+    config: { ...config(), identity: { nkey: publicKey, seed }, accessToken: 'owner-oidc-token', registryUrl: 'https://registry.test' },
+  })
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('PUTs the bind assertion to the existing route with the owner token', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, nkey: publicKey }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(bound().link()).resolves.toEqual({ ok: true, data: { ok: true, nkey: publicKey } })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`https://registry.test/api/me/agent-bindings/${publicKey}`)
+    expect(init.method).toBe('PUT')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer owner-oidc-token')
+    const body = JSON.parse(String(init.body)) as { client_assertion: string }
+    const claims = JSON.parse(Buffer.from(body.client_assertion.split('.')[1], 'base64url').toString('utf8')) as Record<string, unknown>
+    expect(claims.aud).toBe(PROMPT_BIND_AUDIENCE)
+    expect(claims.iss).toBe(publicKey)
+  })
+
+  it('reports a refusal code instead of throwing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'forbidden_segment', message: 'wrong segment' }), { status: 403 })))
+    await expect(bound().link()).resolves.toEqual({ ok: false, error: 'forbidden_segment' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })))
+    await expect(bound().link()).resolves.toEqual({ ok: false, error: 'http_500' })
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
+    await expect(bound().link()).resolves.toEqual({ ok: false, error: 'unreachable' })
+  })
+
+  it('answers typed codes when the enrolment cannot even be attempted', async () => {
+    const noToken = new SuggestionsService({ connector: async () => fakeConnection().connection, config: { ...config(), identity: { nkey: publicKey, seed }, registryUrl: 'https://registry.test' } })
+    await expect(noToken.link()).resolves.toEqual({ ok: false, error: 'no_access_token' })
+
+    const noRegistry = new SuggestionsService({ connector: async () => fakeConnection().connection, config: { ...config(), identity: { nkey: publicKey, seed }, accessToken: 'owner-oidc-token' } })
+    await expect(noRegistry.link()).resolves.toEqual({ ok: false, error: 'unconfigured' })
   })
 })
