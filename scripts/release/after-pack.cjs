@@ -70,11 +70,48 @@ function verifyDashboardPayload(context) {
       ].join('\n'),
     )
   }
-  const markers = ['package.json', join('.omp', 'tools', 'math-renderer.ts'), 'src']
+  // The handoff (round-2 condition (i)): integrate-vcclaw.mjs delivers the member's
+  // release/handoff.json to product/handoff.json, beside the payload's parent. Read it
+  // and derive the marker list from it — the carrier's expectations stop being a
+  // hand-kept mirror of the member's declaration (the gap-2 whitelist-mirror class).
+  const handoffPath = join(payload, '..', 'handoff.json')
+  if (!fs.existsSync(handoffPath)) {
+    throw new Error(
+      `vizshow payload: ${handoffPath} is missing — the integration is incomplete (the integrator fails closed without it; a pack must never default to lenient expectations) (P0)`,
+    )
+  }
+  let handoff
+  try {
+    handoff = JSON.parse(fs.readFileSync(handoffPath, 'utf8'))
+  } catch (error) {
+    throw new Error(`vizshow payload: product/handoff.json is not parseable JSON — ${error.message}`)
+  }
+  if (!Array.isArray(handoff.markers) || handoff.markers.length === 0) {
+    throw new Error('vizshow payload: product/handoff.json declares no markers — refusing to verify against an empty expectation set')
+  }
+  const markers = handoff.markers
   for (const marker of markers) {
+    if (typeof marker !== 'string' || marker === '' || marker.includes('..')) {
+      throw new Error(`vizshow payload: product/handoff.json marker ${JSON.stringify(marker)} is not a safe relative path`)
+    }
     if (!fs.existsSync(join(payload, marker))) {
       throw new Error(`vizshow payload: ${marker} missing under ${payload} — the integration is incomplete (P0)`)
     }
+  }
+  // Round-2 condition (ii): the delivered handoff bytes are pinned in dependency-pins.json.
+  // A member edit to markers/bind paths/contract tuple therefore requires a carrier pin
+  // update in the same release — loosening expectations cannot happen silently.
+  const pinsPath = join(__dirname, 'dependency-pins.json')
+  const pins = JSON.parse(fs.readFileSync(pinsPath, 'utf8'))
+  const pinned = pins.handoff && pins.handoff['product/handoff.json']
+  if (!pinned || typeof pinned.integrity !== 'string' || !/^sha512-/.test(pinned.integrity)) {
+    throw new Error('vizshow payload: dependency-pins.json has no handoff pin for product/handoff.json — pin the delivered bytes (round-2 condition ii)')
+  }
+  const digest = `sha512-${crypto.createHash('sha512').update(fs.readFileSync(handoffPath)).digest('base64')}`
+  if (digest !== pinned.integrity) {
+    throw new Error(
+      `vizshow payload: product/handoff.json bytes do not match the pin (expected ${pinned.integrity.slice(0, 24)}…, got ${digest.slice(0, 24)}…) — a member-side expectation change needs a carrier pin update in the same release`,
+    )
   }
   // Belt-and-braces for the member's bundle gate (bundle-vizmaster.mjs fails closed on
   // the same condition at bundle time): the payload is seeded to ~/.vizmaster/default and

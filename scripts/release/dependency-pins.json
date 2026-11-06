@@ -42,6 +42,13 @@
       "note": "Upstream base release documented by vendor/prime-agent-ai-0.7.0-gooeypi.1.md; kept for provenance, never installed."
     }
   },
+  "handoff": {
+    "//": "The member's release/handoff.json, delivered by integrate-vcclaw.mjs to product/handoff.json (integrator fails closed without it). Pinning the delivered bytes makes loosening the carrier's payload expectations (markers, bind paths, contract tuple) a member+carrier coordinated change: the member edits, the carrier re-pins, one release. After-pack verifies the packaged copy against this pin.",
+    "product/handoff.json": {
+      "integrity": "sha512-OiHRJXF0kURtfCQzg1ytWJmwr8AmQPMIUeSC4tHCfJzp7xMi3pUJ12ILGEUErlSNLpuUQ598CePxX9sWuzU6Ug==",
+      "memberCommit": "db89a08"
+    }
+  },
   "artifacts": {
     "npm": {
       "version": "12.0.2",

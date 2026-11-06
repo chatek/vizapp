@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
@@ -1541,13 +1541,30 @@ describe('after-pack vizshow payload gate', () => {
   // builds exactly that, and the gate finds it via its BUILD.json probe.
   const makeContext = (root: string) => {
     const payload = join(root, 'app', 'resources', 'product', 'payload')
-    const writePayload = (packageJson: Record<string, unknown>) => {
+    const writePayload = (packageJson: Record<string, unknown>, handoff?: Record<string, unknown>) => {
       mkdirSync(payload, { recursive: true })
       writeFileSync(join(payload, 'BUILD.json'), '{}')
       writeFileSync(join(payload, 'package.json'), JSON.stringify(packageJson))
       mkdirSync(join(payload, '.omp', 'tools'), { recursive: true })
       writeFileSync(join(payload, '.omp', 'tools', 'math-renderer.ts'), '')
       mkdirSync(join(payload, 'src'), { recursive: true })
+      // The gate now requires the member's handoff beside the payload and verifies its
+      // bytes against the dependency-pins.json row; the default fixture uses the REAL
+      // product/handoff.json (so the pin leg is exercised) with its markers materialized.
+      const handoffJson = handoff ?? JSON.parse(readFileSync('product/handoff.json', 'utf8'))
+      // Default: copy the REAL file so its bytes match the dependency-pins row (the gate
+      // pins bytes, not structure). Custom handoffs are re-serialized deliberately — the
+      // pin-mismatch test depends on that difference.
+      if (handoff === undefined) copyFileSync('product/handoff.json', join(payload, '..', 'handoff.json'))
+      else writeFileSync(join(payload, '..', 'handoff.json'), JSON.stringify(handoff))
+      for (const marker of handoffJson.markers ?? []) {
+        // Materialize file markers the payload write did not create; directory
+        // markers (src) and already-written files (package.json) are skipped.
+        if (typeof marker === 'string' && marker !== '' && !existsSync(join(payload, marker))) {
+          mkdirSync(dirname(join(payload, marker)), { recursive: true })
+          writeFileSync(join(payload, marker), '')
+        }
+      }
     }
     return {
       context: {
@@ -1555,7 +1572,11 @@ describe('after-pack vizshow payload gate', () => {
         electronPlatformName: 'linux',
         packager: { appInfo: { productFilename: 'app', sanitizedName: 'app' } },
       },
+      payloadPath: payload,
       writePayload,
+      writeHandoffOnly: (handoff: Record<string, unknown>) => {
+        writeFileSync(join(payload, '..', 'handoff.json'), JSON.stringify(handoff))
+      },
     }
   }
 
@@ -1587,6 +1608,46 @@ describe('after-pack vizshow payload gate', () => {
       const { context, writePayload } = makeContext(root)
       writePayload({ name: 'default', devDependencies: { foo: 'workspace:*' } })
       expect(() => verifyDashboardPayload(context)).toThrow(/workspace: protocols cannot resolve outside the member repo/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses a missing handoff — a pack must never default to lenient expectations', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload } = makeContext(root)
+      writePayload({ name: 'default', dependencies: {} })
+      rmSync(join(root, 'app', 'resources', 'product', 'handoff.json'))
+      expect(() => verifyDashboardPayload(context)).toThrow(/handoff\.json.*is missing/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('derives markers from the handoff and refuses a marker it does not carry', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload, payloadPath } = makeContext(root)
+      const handoff = JSON.parse(readFileSync('product/handoff.json', 'utf8'))
+      handoff.markers = ['package.json', 'src', 'index.html', '.omp/tools/math-renderer.ts', '.omp/tools/build-vizshow.ts', 'absent-marker.js']
+      writePayload({ name: 'default', dependencies: {} }, handoff)
+      rmSync(join(payloadPath, 'absent-marker.js')) // materialized by the fixture; the point is its absence
+      expect(() => verifyDashboardPayload(context)).toThrow(/absent-marker\.js missing/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses handoff bytes that do not match the dependency-pins row', () => {
+    const root = mkdtempSync(join(tmpdir(), 'afterpack-payload-'))
+    try {
+      const { context, writePayload, writeHandoffOnly } = makeContext(root)
+      writePayload({ name: 'default', dependencies: {} })
+      const handoff = JSON.parse(readFileSync('product/handoff.json', 'utf8'))
+      delete handoff.$comment // same markers, different bytes — the pin must catch it
+      writeHandoffOnly(handoff)
+      expect(() => verifyDashboardPayload(context)).toThrow(/product\/handoff\.json bytes do not match the pin/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
