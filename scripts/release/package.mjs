@@ -57,7 +57,7 @@ try {
   if (process.platform !== platformHosts[platform]) throw new Error(`${platform} packaging must run natively on ${platformHosts[platform]}`)
   if (isPublic && platform === 'mac') validateReleaseCredentials(process.env)
   if (isPublic && platform === 'win') validateWindowsReleaseCredentials(process.env)
-  
+
   // The profile decides the product, so validate it BEFORE any work: a profile that cannot
   // start the app must never become an artefact. 'development' is the honest source here —
   // the profile is a file in this checkout, not yet the packaged copy.
@@ -90,7 +90,7 @@ try {
     console.error(`--member ${member} contradicts profile id "${profile.id}" (${profilePath})`)
     process.exit(2)
   }
-  
+
   const verifyScript = skipVerify ? 'build:bundle' : platform === 'mac' ? 'release:verify' : 'release:verify:package'
   run('npm', ['run', verifyScript], withoutReleaseCredentials(process.env))
   if (!dryRun) rmSync(resolve('release', platform, arch), { recursive: true, force: true })
@@ -105,9 +105,7 @@ try {
 
   // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
   // asserts the two agree, and this is the one place that makes them agree by construction.
-  const artifactName = profile.id === 'vclaw'
-    ? 'VClaw-${version}-${arch}.${ext}'
-    : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
+  const artifactName = profile.id === 'vclaw' ? 'VClaw-${version}-${arch}.${ext}' : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
   // Per-platform key, not the top-level one: package.json sets build.mac.artifactName, and a
   // platform artifactName WINS over the generic one — so `--config.artifactName` was silently
   // ignored and every member build kept the plain ${productName}-${version}-${arch} name.
