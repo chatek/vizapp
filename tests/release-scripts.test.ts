@@ -107,7 +107,7 @@ import {
 import { parseDraftAssetNames, staleDraftReleaseAssets } from '../scripts/release/prune-draft-release-assets.mjs'
 import { assertBundleSizeBudgets, assertPackageSizeBudgets, BUNDLE_SIZE_BUDGETS, collectBundleSizeMetrics, collectPackageSizeMetrics, PACKAGE_SIZE_BUDGETS } from '../scripts/release/size-budgets.mjs'
 import { assertReleaseTag } from '../scripts/release/validate-release-tag.mjs'
-import { assertCleanBuild, handoffManifest, handoffTuple, runStaging, stagingPrefix } from '../scripts/release/publish-member-staging.mjs'
+import { tagMoveVerdict } from '../scripts/release/assert-tag-move.mjs'
 // after-pack.cjs is CommonJS; the interop layer exposes module.exports properties as named exports.
 import { executablePath, verifyDashboardPayload } from '../scripts/release/after-pack.cjs'
 import { collectAuditAdvisories, describeAuditEvaluation, evaluateAuditReport, parseAuditExceptions, readAuditExceptions } from '../scripts/release/audit-exceptions.mjs'
@@ -1508,6 +1508,27 @@ describe('fuse hardening configuration', () => {
     expect(packageJson.build.afterPack).toBe('scripts/release/after-pack.cjs')
     expect(() => readFileSync('scripts/afterPack.cjs', 'utf8')).toThrow()
     expect(readFileSync(packageJson.build.afterPack, 'utf8')).toContain('FuseV1Options.OnlyLoadAppFromAsar')
+  })
+})
+
+describe('tag-move assert', () => {
+  // v1.1.18's move was safe only because billing left no in-flight runs and no
+  // published assets; the assert makes both properties REQUIRED, measured.
+  test('allows a move with no in-flight runs and no published assets', () => {
+    expect(tagMoveVerdict({ runs: [{ status: 'completed', conclusion: 'failure' }] })).toEqual({ ok: true })
+    expect(tagMoveVerdict({ runs: [], release: { assets: [] } })).toEqual({ ok: true })
+  })
+
+  test('refuses a move while any run is in flight — artifacts may publish for the old target', () => {
+    const verdict = tagMoveVerdict({ runs: [{ status: 'queued' }, { status: 'in_progress' }, { status: 'completed' }] })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.reason).toMatch(/2 workflow run\(s\).*in flight/)
+  })
+
+  test('refuses a move once release assets are published — consumed bytes stop matching the target', () => {
+    const verdict = tagMoveVerdict({ runs: [], release: { assets: [{ name: 'a.dmg' }, { name: 'b.dmg' }] } })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.reason).toMatch(/2 published asset\(s\)/)
   })
 })
 
