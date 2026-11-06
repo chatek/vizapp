@@ -16,6 +16,7 @@ import type {
   PromptDeliveryIntent,
   PromptImage,
   PromptSuggestion,
+  PromptSuggestionViz,
   QueuedPrompt,
   SessionRecord,
   SkillRecord,
@@ -32,6 +33,7 @@ import { clearComposerDraft, readComposerDraft, saveComposerDraft, takeComposerD
 import { contextDialLabel } from '@/lib/format-cost'
 import { messageActionForKey } from '@/lib/message-shortcuts'
 import { diffPrompts } from '@/lib/prompt-diff'
+import { formatVizParams } from '@/lib/prompt-viz'
 import { useComposerImages } from '@/hooks/useComposerImages'
 import { useDictation } from '@/hooks/useDictation'
 import { usePromptSuggestions } from '@/hooks/usePromptSuggestions'
@@ -480,6 +482,14 @@ export const Composer = memo(function Composer({
     : t('composer.suggest.source.human', {
       handle: suggestion.from.display ?? suggestion.from.ownerHandle ?? suggestion.from.nkey.slice(-8),
     })
+  /**
+   * What accepting would actually render. `vizshow` is display-only untrusted data: this string
+   * never leaves the row, and the whole chip is ellipsized with the same text in `title`.
+   */
+  const capabilityLabel = (viz: PromptSuggestionViz): string => {
+    const params = formatVizParams(viz.params)
+    return params ? t('composer.suggest.renders', { tutorial: viz.tutorialId, params }) : viz.tutorialId
+  }
 
   const mentionQuery = /(?:^|\s)@([^@\n]*)$/.exec(value)?.[1]?.toLocaleLowerCase().trim() ?? ''
 
@@ -538,6 +548,14 @@ export const Composer = memo(function Composer({
                     </span>
                     <small className="composer-suggest__meta">
                       <span className={`composer-suggest__chip composer-suggest__chip--${suggestion.from.kind}`}>{suggestionSource(suggestion)}</span>
+                      {suggestion.vizshow ? (
+                        <span
+                          className={`composer-suggest__chip composer-suggest__chip--viz composer-suggest__chip--viz-${suggestion.vizshow.kind}`}
+                          title={capabilityLabel(suggestion.vizshow)}
+                        >
+                          {capabilityLabel(suggestion.vizshow)}
+                        </span>
+                      ) : null}
                       {suggestion.rationale ? <span className="composer-suggest__rationale">{suggestion.rationale}</span> : null}
                     </small>
                   </span>

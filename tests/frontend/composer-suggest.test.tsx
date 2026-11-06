@@ -175,6 +175,41 @@ describe('composer suggestion list', () => {
     expect(container.querySelector('.composer-suggest__chip--agent')?.textContent).toBe('agent · @teacher')
   })
 
+  it('shows what a capability-validated intent would render', async () => {
+    renderComposer()
+    await arrive(suggestion({
+      vizshow: { tutorialId: 'quadratic-functions', kind: 'three', params: { a: 1, b: -3, c: 2 } },
+    }))
+
+    const chip = container.querySelector('.composer-suggest__chip--viz') as HTMLElement
+    expect(chip.textContent).toBe('quadratic-functions · a=1 b=-3 c=2')
+    expect(chip.getAttribute('title')).toBe('quadratic-functions · a=1 b=-3 c=2')
+    expect(chip.className).toContain('composer-suggest__chip--viz-three')
+  })
+
+  it('renders no capability chip for a suggestion without an intent', async () => {
+    renderComposer()
+    await arrive(suggestion())
+
+    expect(container.querySelector('.composer-suggest__chip--viz')).toBeNull()
+    expect(container.querySelectorAll('.composer-suggest__chip')).toHaveLength(1)
+  })
+
+  it('formats capability params to two decimals and omits false booleans', async () => {
+    renderComposer()
+    await arrive(suggestion({
+      vizshow: {
+        tutorialId: 'parabola',
+        kind: 'elucim',
+        params: { a: 1.234, b: -3.456, crisp: true, glow: false, mode: 'slide' },
+      },
+    }))
+
+    const chip = container.querySelector('.composer-suggest__chip--viz') as HTMLElement
+    expect(chip.textContent).toBe('parabola · a=1.23 b=-3.46 crisp=true mode=slide')
+    expect(chip.getAttribute('title')).toBe('parabola · a=1.23 b=-3.46 crisp=true mode=slide')
+  })
+
   it('dismisses with Escape and records the rejection', async () => {
     renderComposer()
     await arrive(suggestion())

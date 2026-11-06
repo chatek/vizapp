@@ -11,6 +11,9 @@ import type {
   PromptSuggestionInvokeResult,
   PromptSuggestionOutcome,
   PromptSuggestionSession,
+  PromptSuggestionViz,
+  PromptSuggestionVizKind,
+  PromptSuggestionVizParams,
 } from '../../src/types/api'
 
 /**
@@ -421,6 +424,31 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
 
 const textDecoder = new TextDecoder()
 
+const VIZ_KINDS: readonly PromptSuggestionVizKind[] = ['elucim', 'three', 'vectorplay']
+
+/**
+ * `vizshow` is display-only intent, so it is validated like any other untrusted input: every
+ * field must prove its shape or the FIELD is dropped. A malformed intent never costs the
+ * student the suggestion itself, and never reaches anything except the chip.
+ */
+function parseVizshow(value: unknown): PromptSuggestionViz | undefined {
+  if (!isRecord(value)) return undefined
+  const tutorialId = typeof value.tutorialId === 'string' ? value.tutorialId.trim() : ''
+  if (!tutorialId || tutorialId.length > 64) return undefined
+  if (!VIZ_KINDS.includes(value.kind as PromptSuggestionVizKind)) return undefined
+  if (!isRecord(value.params)) return undefined
+  const params: PromptSuggestionVizParams = {}
+  for (const [key, param] of Object.entries(value.params)) {
+    if (typeof param === 'number') {
+      if (!Number.isFinite(param)) return undefined
+    } else if (typeof param !== 'boolean' && typeof param !== 'string') {
+      return undefined
+    }
+    params[key] = param
+  }
+  return { tutorialId, kind: value.kind as PromptSuggestionVizKind, params }
+}
+
 /**
  * A push is untrusted input until it proves it is a suggestion. `from.kind` is a CLAIM the
  * renderer labels as such; the service is what verified it.
@@ -455,6 +483,8 @@ export function parseSuggestion(data: Uint8Array): PromptSuggestion | null {
   if (typeof parsed.locale === 'string' && parsed.locale) suggestion.locale = parsed.locale
   if (typeof parsed.expiresAt === 'string' && parsed.expiresAt) suggestion.expiresAt = parsed.expiresAt
   if (typeof parsed.confidence === 'number' && Number.isFinite(parsed.confidence)) suggestion.confidence = parsed.confidence
+  const vizshow = parseVizshow(parsed.vizshow)
+  if (vizshow) suggestion.vizshow = vizshow
   return suggestion
 }
 

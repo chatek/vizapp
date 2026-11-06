@@ -32,6 +32,22 @@ export interface VclawInboxMessage {
   read?: boolean
 }
 
+/** Runtimes a capability-validated intent can name. */
+export type PromptSuggestionVizKind = 'elucim' | 'three' | 'vectorplay'
+
+export type PromptSuggestionVizParams = Record<string, number | boolean | string>
+
+/**
+ * What a suggestion would ACTUALLY render, when the service attached a capability-validated
+ * intent. Display-only by contract: the parser drops a malformed intent without dropping the
+ * suggestion, and nothing here is ever sent back or acted on.
+ */
+export interface PromptSuggestionViz {
+  tutorialId: string
+  kind: PromptSuggestionVizKind
+  params: PromptSuggestionVizParams
+}
+
 /**
  * A teacher's pushed suggestion, as it arrives over
  * `tenant.<segment>.prompts.suggest.<selfSubHmac>` (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8).
@@ -48,6 +64,8 @@ export interface PromptSuggestion {
   from: { kind: 'human' | 'agent'; nkey: string; ownerHandle?: string; display?: string }
   confidence?: number
   expiresAt?: string
+  /** Optional capability-validated intent; absent for older/simple suggestions. */
+  vizshow?: PromptSuggestionViz
 }
 
 /** The lifecycle the service records for a suggestion (§3 rule 6). */

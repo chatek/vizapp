@@ -152,6 +152,47 @@ describe('prompt suggestion pushes', () => {
     expect(parsed?.from).toEqual({ kind: 'agent', nkey: 'UAGENTEXAMPLE', ownerHandle: 'teacher' })
     expect(parseSuggestion(encoder.encode('{}'))).toBeNull()
   })
+
+  it('keeps a well-formed vizshow intent as display data', () => {
+    const parsed = parseSuggestion(encoder.encode(JSON.stringify({
+      ...suggestion,
+      vizshow: {
+        tutorialId: ' quadratic-functions ',
+        kind: 'three',
+        params: { a: 1, b: -3, c: 2, crisp: true, mode: 'slide' },
+      },
+    })))
+
+    expect(parsed?.suggestionId).toBe('sug-1')
+    expect(parsed?.vizshow).toEqual({
+      tutorialId: 'quadratic-functions',
+      kind: 'three',
+      params: { a: 1, b: -3, c: 2, crisp: true, mode: 'slide' },
+    })
+  })
+
+  it('drops a malformed vizshow field without dropping the suggestion', () => {
+    const malformed = [
+      { tutorialId: 'quadratic-functions', kind: 'canvas', params: {} },
+      { tutorialId: 'quadratic-functions', kind: 'three', params: { nested: { a: 1 } } },
+      { tutorialId: 'quadratic-functions', kind: 'three', params: [1, 2] },
+      { tutorialId: 'quadratic-functions', kind: 'three' },
+      { tutorialId: '', kind: 'three', params: {} },
+      { tutorialId: '   ', kind: 'three', params: {} },
+      { tutorialId: 'x'.repeat(65), kind: 'three', params: {} },
+      { tutorialId: 42, kind: 'three', params: {} },
+      { tutorialId: 'quadratic-functions', kind: 'three', params: { a: Number.NaN } },
+      'quadratic-functions',
+      null,
+    ]
+    for (const vizshow of malformed) {
+      const parsed = parseSuggestion(encoder.encode(JSON.stringify({ ...suggestion, vizshow })))
+      expect(parsed, JSON.stringify(vizshow)).not.toBeNull()
+      expect(parsed?.suggestionId, JSON.stringify(vizshow)).toBe('sug-1')
+      expect(parsed?.prompt, JSON.stringify(vizshow)).toBe(suggestion.prompt)
+      expect(parsed?.vizshow, JSON.stringify(vizshow)).toBeUndefined()
+    }
+  })
 })
 
 describe('consent-gated draft requests', () => {
