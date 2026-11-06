@@ -70,6 +70,28 @@ export interface VizshowBuild {
   createdAt?: string
 }
 
+/**
+ * One creator-composed SHOW (`~/.vizmaster/shows/<id>/SHOW.json`): a named, ordered list of
+ * VizShow builds. Untrusted input like every manifest — `parseShowManifest` drops what it cannot
+ * prove, and the id must match its own directory name.
+ */
+export interface VizshowShow {
+  id: string
+  name: string
+  slug: string
+  prompt?: string
+  createdAt?: string
+  updatedAt?: string
+  /** Build ids the show is composed of, in the creator's order. */
+  builds: string[]
+}
+
+/** Every show the watcher has announced, newest change first, plus the single latest one. */
+export interface VizshowShowsSnapshot {
+  shows: VizshowShow[]
+  latest: VizshowShow | null
+}
+
 /** What the renderer knows about the vizshow surface: the latest build and the server's port. */
 export interface VizshowSnapshot {
   latest: VizshowBuild | null
@@ -1016,6 +1038,11 @@ export interface PrimeWorkApi {
     url(buildId?: string): Promise<{ ok: true; url: string; build: VizshowBuild } | { ok: false; error: string }>
     /** Spawns `npm run preview|dev` in the seeded project; answers the URL either way. */
     preview(mode?: 'preview' | 'dev'): Promise<VizmasterPreviewResult>
+    /** Creator-composed shows (`~/.vizmaster/shows/`), announced on each SHOW.json change. */
+    shows(): Promise<VizshowShowsSnapshot>
+    onShowsChanged(callback: (snapshot: VizshowShowsSnapshot) => void): () => void
+    /** Opens a show's NEWEST build through the same loopback resolution as a vizshow link. */
+    showUrl(showId?: string): Promise<{ ok: true; url: string; build: VizshowBuild; show: VizshowShow } | { ok: false; error: string }>
   }
 
   app: { getMeta(): Promise<AppMeta>; refreshHarnesses(): Promise<{ meta: AppMeta; settings: AppSettings }>; openExternal(url: string): Promise<boolean>; revealPath(path: string): Promise<boolean>; popupMenu(menu: ApplicationMenuName, x: number, y: number): Promise<boolean>; setTitleBarTheme(theme: TitleBarTheme): Promise<boolean>; onOpenSettings(callback: () => void): () => void }

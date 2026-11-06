@@ -43,6 +43,7 @@ import { extensionInjection, resolveExtensionPath, type ExtensionCapability } fr
 import { SessionService } from './sessions'
 import { VclawInboxService } from './inbox-service'
 import { VizshowService } from './vizshow-service'
+import { ShowsService } from './shows-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
@@ -79,6 +80,7 @@ let agentBrowser: AgentBrowserService | null = null
 let agentBrowserBridge: AgentBrowserBridge | null = null
 let agentCollaborationBridge: AgentCollaborationBridge | null = null
 let vizshowService: VizshowService | null = null
+let showsService: ShowsService | null = null
 let backgroundMode: MacBackgroundController | null = null
 let shutdownStarted = false
 let shutdownApproved = false
@@ -1172,6 +1174,8 @@ async function bootstrap(): Promise<void> {
   // the first URL the renderer asks for, so a desktop that never shows a build opens no port.
   const vizshow = new VizshowService()
   vizshowService = vizshow
+  const shows = new ShowsService()
+  showsService = shows
   const inboxService = new VclawInboxService({
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
@@ -1181,12 +1185,14 @@ async function bootstrap(): Promise<void> {
     popupApplicationMenu, setTitleBarTheme,
     inbox: inboxService,
     vizshow,
+    shows,
     omp: { projects: ompProjects, sessions: ompSessions, agents: ompManager, catalog: ompCatalog, plugins: ompPlugins },
     pi: { projects: piProjects, sessions: piSessions, agents: piManager, catalog: piCatalog, plugins: piPlugins },
     applyInterfaceZoom,
   }, trustedRendererUrl)
   inboxService.start()
   vizshow.start()
+  shows.start()
   // Both managers share the one renderer forwarding path: envelopes carry the
   // runtimeId and RuntimeInfo carries the harness, so the renderer can route.
   const forwardAgentEvent = (envelope: PrimeEventEnvelope): void => {
@@ -1345,6 +1351,7 @@ app.on('before-quit', (event) => {
   agentBrowser?.beginShutdown()
   void settleShutdown([
     vizshowService?.stop() ?? Promise.resolve(),
+    Promise.resolve(showsService?.stop()),
     ...agentScheduleBridges.map((bridge) => bridge.stop()),
     agentBrowserBridge?.stop() ?? Promise.resolve(),
     agentCollaborationBridge?.stop() ?? Promise.resolve(),

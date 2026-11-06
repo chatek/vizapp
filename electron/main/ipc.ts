@@ -21,6 +21,8 @@ import type { UpdateService } from './updates'
 import type { AgentBrowserService } from './browser/agent-service'
 import { isRecord, requireExistingPath, requireRecord, requireString, requireWebUrl } from './validation'
 import type { SuggestionsService } from './suggestions-service'
+import type { ShowsService } from './shows-service'
+import { newestShowBuild } from './shows-service'
 import type { VizshowService } from './vizshow-service'
 import { ensureProjectPreview } from './vizmaster-preview'
 
@@ -57,6 +59,8 @@ interface Services {
   inbox: VclawInboxService
   /** Per-prompt VizShow builds: the loopback static server and the build watch. */
   vizshow: VizshowService
+  /** Creator-composed shows (`~/.vizmaster/shows/`), announced on each SHOW.json change. */
+  shows: ShowsService
   /**
    * Shared prompt auto-complete: NATS subscriber + invoke bridge (contract §4). ABSENT while
    * `VCLAW_PROMPTS` is off — that absence is how the flag reaches the IPC layer, where every
@@ -525,11 +529,33 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
     return services.vizshow.urlFor(typeof buildId === 'string' ? buildId : undefined)
   })
   handle('vclaw-vizshow:preview', (_event, mode) => ensureProjectPreview({ mode: mode === 'dev' ? 'dev' : 'preview' }))
+  handle('vclaw-vizshow:shows', () => services.shows.snapshot())
+  // A show's builds ARE vizshow build ids, so opening one is the same resolution (and the same
+  // lazy loopback bind) as a `vizshow://` link — newest by the build watch's own ordering.
+  handle('vclaw-vizshow:show-url', async (_event, showId) => {
+    if (showId !== null && showId !== undefined && typeof showId !== 'string') return { ok: false, error: 'invalid_show' }
+    const snapshot = services.shows.snapshot()
+    const show = typeof showId === 'string'
+      ? snapshot.shows.find((candidate) => candidate.id === showId) ?? null
+      : snapshot.latest
+    if (!show) return { ok: false, error: typeof showId === 'string' ? 'unknown_show' : 'no_show' }
+    const build = newestShowBuild(show, services.vizshow.builds)
+    if (!build) return { ok: false, error: 'no_build' }
+    const resolved = await services.vizshow.urlFor(build.id)
+    return resolved.ok ? { ok: true, url: resolved.url, build, show } : resolved
+  })
   const unsubscribeVizshow = services.vizshow.onChanged((snapshot) => {
     for (const [id, contents] of authorized) {
       if (contents.isDestroyed()) { authorized.delete(id); continue }
       if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
         && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-vizshow:changed', snapshot)
+    }
+  })
+  const unsubscribeShows = services.shows.onChanged((snapshot) => {
+    for (const [id, contents] of authorized) {
+      if (contents.isDestroyed()) { authorized.delete(id); continue }
+      if (isTrustedRendererUrl(contents.getURL(), expectedRendererUrl)
+        && isTrustedRendererUrl(contents.mainFrame.url, expectedRendererUrl)) contents.send('vclaw-vizshow:shows-changed', snapshot)
     }
   })
   // Cached in main for the process lifetime: the endpoint costs ~2 s, and the renderer may ask
@@ -636,6 +662,7 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
       unsubscribeInbox()
       unsubscribeSuggestions()
       unsubscribeVizshow()
+      unsubscribeShows()
       unsubscribeDraftOutcomes()
       if (typeof unsubscribeScheduleChanges === 'function') unsubscribeScheduleChanges()
       if (typeof unsubscribeBrowserChanges === 'function') unsubscribeBrowserChanges()

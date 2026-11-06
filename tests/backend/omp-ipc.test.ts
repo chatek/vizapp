@@ -154,7 +154,8 @@ function buildServices() {
     },
     heartbeats: serviceStub(),
     inbox: inboxStub(),
-    vizshow: { snapshot: () => ({ latest: null, builds: 0, port: null, baseUrl: null }), onChanged: () => () => undefined, urlFor: async () => ({ ok: false as const, error: 'no_build' }) },
+    vizshow: { snapshot: () => ({ latest: null, builds: 0, port: null, baseUrl: null }), builds: [], onChanged: () => () => undefined, urlFor: async () => ({ ok: false as const, error: 'no_build' }) },
+    shows: { snapshot: () => ({ shows: [], latest: null }), onChanged: () => () => undefined },
     schedules: { ...serviceStub(), onDidChange: vi.fn(() => () => undefined), list: vi.fn(() => 'scheduled'), create: vi.fn(async () => 'created') },
     browser: { ...serviceStub(), closeForSession: vi.fn(() => true), onDidChange: vi.fn(() => vi.fn()), onPointer: vi.fn(() => vi.fn()), onActivity: vi.fn(() => vi.fn()) },
     omp: {

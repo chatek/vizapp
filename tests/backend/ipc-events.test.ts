@@ -34,19 +34,28 @@ type ServiceFixtures = { [Key in keyof RegisterIpcServices]: unknown } & Record<
 
 /** Members these suites never exercise. Spreading them lets a fixture satisfy `Services` completely
  *  without listing a dozen spies, so a NEW required member still fails typecheck at construction. */
-type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providerSetup' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets' | 'vizshow'>
+type UnrelatedServices = Pick<ServiceFixtures, 'refreshHarnesses' | 'popupApplicationMenu' | 'setTitleBarTheme' | 'checkouts' | 'providerSetup' | 'providers' | 'updates' | 'cuaDriver' | 'heartbeats' | 'voice' | 'pets' | 'vizshow' | 'shows'>
 
 /** The vizshow surface needs real shapes: `onChanged` must return an unsubscribe, not a promise. */
 function vizshowStub() {
   return {
     snapshot: vi.fn(() => ({ latest: null as { id: string } | null, builds: 0, port: null as number | null, baseUrl: null as string | null })),
+    builds: [] as Array<{ id: string; status: string; entry: string }>,
     onChanged: vi.fn((_listener: (snapshot: unknown) => void) => () => undefined),
-    urlFor: vi.fn(async (_buildId?: string) => ({ ok: false as const, error: 'no_build' })),
+    urlFor: vi.fn(async (_buildId?: string): Promise<{ ok: true; url: string; build: { id: string; status: string; entry: string } } | { ok: false; error: string }> => ({ ok: false, error: 'no_build' })),
+  }
+}
+
+/** The shows surface: a snapshot and an unsubscribe-returning subscription, nothing else. */
+function showsStub() {
+  return {
+    snapshot: vi.fn(() => ({ shows: [] as Array<{ id: string }>, latest: null as { id: string } | null })),
+    onChanged: vi.fn((_listener: (snapshot: unknown) => void) => () => undefined),
   }
 }
 
 function unrelatedServices(): UnrelatedServices {
-  return { ...(serviceStub() as UnrelatedServices), vizshow: vizshowStub() }
+  return { ...(serviceStub() as UnrelatedServices), vizshow: vizshowStub(), shows: showsStub() }
 }
 
 function serviceStub(): Record<string, unknown> {
@@ -435,7 +444,11 @@ describe('prompt suggestion IPC', () => {
     }
   }
 
-  function register(suggestions?: ReturnType<typeof suggestionsStub>, vizshow?: ReturnType<typeof vizshowStub>) {
+  function register(
+    suggestions?: ReturnType<typeof suggestionsStub>,
+    vizshow: ReturnType<typeof vizshowStub> = vizshowStub(),
+    shows: ReturnType<typeof showsStub> = showsStub(),
+  ) {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
     const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>()
     electronMocks.ipcMain.handle.mockImplementation((channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) => {
@@ -460,7 +473,8 @@ describe('prompt suggestion IPC', () => {
       inbox: inboxStub(),
       pi: harnessStub(),
       ...(suggestions ? { suggestions } : {}),
-      ...(vizshow ? { vizshow } : {}),
+      vizshow,
+      shows,
     } satisfies ServiceFixtures
     const registration = registerIpc(services as never, expectedUrl)
     const trusted = { id: 1, getURL: () => expectedUrl, mainFrame: { url: expectedUrl }, isDestroyed: () => false, send: vi.fn() }
@@ -475,8 +489,10 @@ describe('prompt suggestion IPC', () => {
     const catalogue = () => Promise.resolve(handlers.get('vclaw-suggestions:catalogue')!(event))
     const vizshowState = () => Promise.resolve(handlers.get('vclaw-vizshow:state')!(event))
     const vizshowUrl = (buildId: unknown) => Promise.resolve(handlers.get('vclaw-vizshow:url')!(event, buildId))
+    const showsState = () => Promise.resolve(handlers.get('vclaw-vizshow:shows')!(event))
+    const showUrl = (showId: unknown) => Promise.resolve(handlers.get('vclaw-vizshow:show-url')!(event, showId))
     const feedback = (suggestionId: unknown, outcome: unknown, ms?: unknown) => Promise.resolve(handlers.get('vclaw-suggestions:feedback')!(event, suggestionId, outcome, ms))
-    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback, link, catalogue, vizshowState, vizshowUrl }
+    return { registration, trusted, navigated, handlers, listeners, event, consent, feedback, link, catalogue, vizshowState, vizshowUrl, showsState, showUrl }
   }
 
   const pushed = {
@@ -571,6 +587,43 @@ describe('prompt suggestion IPC', () => {
     expect(trusted.send).toHaveBeenCalledWith('vclaw-vizshow:changed', expect.objectContaining({ builds: 1 }))
     expect(navigated.send).not.toHaveBeenCalled()
     registration.dispose()
+  })
+
+  it('announces shows and opens the newest build a show lists', async () => {
+    const shows = {
+      ...showsStub(),
+      snapshot: vi.fn(() => ({
+        shows: [{ id: 'quadratic', name: 'Quadratic', slug: 'quadratic', builds: ['build-a', 'build-b'] }],
+        latest: { id: 'quadratic', name: 'Quadratic', slug: 'quadratic', builds: ['build-a', 'build-b'] },
+      })),
+    }
+    const vizshow = vizshowStub()
+    vizshow.builds = [
+      { id: 'build-c', status: 'done', entry: 'index.html' },
+      { id: 'build-b', status: 'done', entry: 'index.html' },
+      { id: 'build-a', status: 'done', entry: 'index.html' },
+    ]
+    vizshow.urlFor.mockResolvedValue({ ok: true, url: 'http://127.0.0.1:1/build-b/', build: { id: 'build-b', status: 'done', entry: 'index.html' } })
+    const { registration, trusted, navigated, showsState, showUrl } = register(undefined, vizshow, shows)
+
+    await expect(showsState()).resolves.toMatchObject({ latest: { id: 'quadratic' } })
+    await expect(showUrl(undefined)).resolves.toMatchObject({ ok: true, url: 'http://127.0.0.1:1/build-b/', show: { id: 'quadratic' } })
+    // build-c is newer but NOT in the show: the newest LISTED build wins.
+    expect(vizshow.urlFor).toHaveBeenLastCalledWith('build-b')
+    await expect(showUrl('missing')).resolves.toEqual({ ok: false, error: 'unknown_show' })
+    await expect(showUrl(7)).resolves.toEqual({ ok: false, error: 'invalid_show' })
+
+    shows.onChanged.mock.calls[0][0]({ shows: [], latest: null })
+    expect(trusted.send).toHaveBeenCalledWith('vclaw-vizshow:shows-changed', { shows: [], latest: null })
+    expect(navigated.send).not.toHaveBeenCalled()
+    registration.dispose()
+  })
+
+  it('answers no_show / no_build instead of guessing a URL', async () => {
+    const empty = register()
+    await expect(empty.showUrl(undefined)).resolves.toEqual({ ok: false, error: 'no_show' })
+    await expect(empty.showUrl('known')).resolves.toEqual({ ok: false, error: 'unknown_show' })
+    empty.registration.dispose()
   })
 
   it('serves the cached catalogue and answers disabled without the service', async () => {
