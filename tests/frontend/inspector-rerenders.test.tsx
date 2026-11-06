@@ -9,7 +9,7 @@ import type { InspectorProps } from '../../src/components/Inspector'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const observed = vi.hoisted(() => ({ inspectorProps: [] as unknown[], changesPanelRenders: 0 }))
+const observed = vi.hoisted(() => ({ inspectorProps: [] as Array<Parameters<typeof import('../../src/components/Inspector').Inspector>[0]>, changesPanelRenders: 0 }))
 
 // Wraps the memoized Inspector, so every App render is observed even when the
 // memo (correctly) skips the inspector subtree.
