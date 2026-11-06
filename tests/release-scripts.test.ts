@@ -107,6 +107,7 @@ import {
 import { parseDraftAssetNames, staleDraftReleaseAssets } from '../scripts/release/prune-draft-release-assets.mjs'
 import { assertBundleSizeBudgets, assertPackageSizeBudgets, BUNDLE_SIZE_BUDGETS, collectBundleSizeMetrics, collectPackageSizeMetrics, PACKAGE_SIZE_BUDGETS } from '../scripts/release/size-budgets.mjs'
 import { assertReleaseTag } from '../scripts/release/validate-release-tag.mjs'
+import { assertCleanBuild, handoffManifest, handoffTuple, runStaging, stagingPrefix } from '../scripts/release/publish-member-staging.mjs'
 import { tagMoveVerdict } from '../scripts/release/assert-tag-move.mjs'
 // after-pack.cjs is CommonJS; the interop layer exposes module.exports properties as named exports.
 import { executablePath, verifyDashboardPayload } from '../scripts/release/after-pack.cjs'
