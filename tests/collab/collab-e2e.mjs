@@ -36,7 +36,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { connect as natsConnect } from 'nats'
+import { connect as natsConnect, headers as natsHeaders } from 'nats'
 
 // ── configuration ───────────────────────────────────────────────────────────
 
@@ -46,6 +46,9 @@ const STUDENT_SUB_HMAC = process.env.STUDENT_SUB_HMAC ?? 'e2e-student-sub-hmac-0
 const TEACHER_SUB_HMAC = process.env.TEACHER_SUB_HMAC ?? 'e2e-teacher-sub-hmac-0001'
 const STRANGER_SUB_HMAC = process.env.STRANGER_SUB_HMAC ?? 'e2e-stranger-sub-hmac-01'
 const SEGMENT = process.env.VIZREG_SEGMENT ?? 'vclaw'
+const STUDENT_BEARER = process.env.STUDENT_BEARER ?? 'e2e-student-bearer'
+const TEACHER_BEARER = process.env.TEACHER_BEARER ?? 'e2e-teacher-bearer'
+const STRANGER_BEARER = process.env.STRANGER_BEARER ?? 'e2e-stranger-bearer'
 const DRAFT_TEXT = '一元二次方程'
 
 const results = []
@@ -134,6 +137,13 @@ function draftSubject(subHmac) {
   return `tenant.${SEGMENT}.prompts.draft.${subHmac}`
 }
 
+/** Micro requests carry the bearer in NATS headers (measured live E2E). */
+function microRequest(nc, subject, payload, bearer) {
+  const header = natsHeaders()
+  header.set('Authorization', `Bearer ${bearer}`)
+  return nc.request(subject, new TextEncoder().encode(JSON.stringify(payload)), { timeout: 10_000, headers: header })
+}
+
 // ── the legs ────────────────────────────────────────────────────────────────
 
 async function runLegs() {
@@ -153,38 +163,36 @@ async function runLegs() {
     }
   })()
 
-  // A. mutual follow
+  // A. mutual follow (REST: PUT /api/me/follows/:handle, per the measured live E2E).
+  // The mutual preflight is GET /api/me/follows/:handle?mutual=true — the list
+  // route ignores the flag, so the preflight is the only reliable check.
   {
-    const forward = await rest('POST', '/api/follow', { peer: TEACHER_SUB_HMAC })
-    const backward = await rest('POST', '/api/follow', { peer: STUDENT_SUB_HMAC })
+    const forward = await rest('PUT', `/api/me/follows/${TEACHER_SUB_HMAC}`, undefined, STUDENT_BEARER)
+    const backward = await rest('PUT', `/api/me/follows/${STUDENT_SUB_HMAC}`, undefined, TEACHER_BEARER)
+    const preflight = await rest('GET', `/api/me/follows/${TEACHER_SUB_HMAC}?mutual=true`, undefined, STUDENT_BEARER)
     const forwardOk = forward.status === 200 || forward.status === 201 || forward.status === 204
     const backwardOk = backward.status === 200 || backward.status === 201 || backward.status === 204
-    log('A mutual-follow', forwardOk && backwardOk,
-      `student→teacher ${forward.status}, teacher→student ${backward.status}`)
+    const mutualOk = preflight.status === 200
+    log('A mutual-follow', forwardOk && backwardOk && mutualOk,
+      `student→teacher ${forward.status}, teacher→student ${backward.status}, mutual preflight ${preflight.status}`)
   }
 
-  // B. consent grant (student consents to the teacher + her agent)
+  // B. consent grant (REST: PUT /api/me/collab-consent/:handle, per the measured live E2E;
+  // NOT POST /api/consent — that route does not exist. KV key consent.<student>.<teacher>.)
   {
-    const consent = await rest('POST', '/api/consent', {
-      peer: TEACHER_SUB_HMAC,
-      scope: 'drafts+suggestions',
-    })
+    const consent = await rest('PUT', `/api/me/collab-consent/${TEACHER_SUB_HMAC}`, undefined, STUDENT_BEARER)
     const ok = consent.status === 200 || consent.status === 201 || consent.status === 204
-    log('B consent-grant', ok, `POST /api/consent → ${consent.status}`)
+    log('B consent-grant', ok, `PUT /api/me/collab-consent/${TEACHER_SUB_HMAC} → ${consent.status}`)
   }
 
   // C. room.open — NATS Micro (v3: NATS for ALL principals; no REST collab surface).
   // The reply is {roomId, peer, expiresAt, mutual}.
   let roomId = null
   {
-    const reply = await nc.request(
-      'vizregistry.prompts.room.open',
-      new TextEncoder().encode(JSON.stringify({
-        peer: TEACHER_SUB_HMAC,
-        conversationId,
-      })),
-      { timeout: 10_000 },
-    )
+    const reply = await microRequest(nc, 'vizregistry.prompts.room.open', {
+      peer: TEACHER_SUB_HMAC,
+      conversationId,
+    }, STUDENT_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(reply.data))
     roomId = decoded.roomId ?? null
     const ok = decoded.mutual === true
@@ -207,18 +215,14 @@ async function runLegs() {
   // E. the teacher's AGENT submits a suggestion through the Micro endpoint
   let suggestionId = null
   {
-    const suggest = await nc.request(
-      'vizregistry.prompts.suggest',
-      new TextEncoder().encode(JSON.stringify({
-        roomId,
-        requestId: randomUUID(),
-        prompt: 'Solve the quadratic equation in one variable using the discriminant method',
-        rationale: 'The student typed the Chinese term for this exact topic',
-        locale: 'zh-CN',
-        confidence: 0.9,
-      })),
-      { timeout: 10_000 },
-    )
+    const suggest = await microRequest(nc, 'vizregistry.prompts.suggest', {
+      roomId,
+      requestId: randomUUID(),
+      prompt: 'Solve the quadratic equation in one variable using the discriminant method',
+      rationale: 'The student typed the Chinese term for this exact topic',
+      locale: 'zh-CN',
+      confidence: 0.9,
+    }, TEACHER_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(suggest.data))
     suggestionId = decoded.suggestionId ?? null
     const ok = decoded.delivery === 'pushed' || decoded.delivery === 'queued'
@@ -246,35 +250,50 @@ async function runLegs() {
     }
   }
 
-  // G. a NON-mutual pair is refused with not_mutual
+  // G. refusals, in the measured order: an identity that is not the room's teacher gets
+  // `wrong_role` FIRST (deliberate — it discloses nothing about room membership); the
+  // room's own teacher gets `not_mutual` only after a follow edge is deleted. The refusal
+  // shape (measured live) is {ok:false, code:"not_mutual"|"wrong_role", message}, and NO push.
   {
-    const refusal = await nc.request(
-      'vizregistry.prompts.suggest',
-      new TextEncoder().encode(JSON.stringify({
-        roomId,
-        requestId: randomUUID(),
-        prompt: 'should be refused',
-        locale: 'en',
-      })),
-      { timeout: 10_000 },
-    )
-    const decoded = JSON.parse(new TextDecoder().decode(refusal.data))
-    // The refusal shape is contract §3 rule 1: `rejected: not_mutual`.
-    // For the non-mutual case, the stranger's suggestion must NOT be delivered.
-    const refused = decoded.rejected === 'not_mutual' || decoded.delivery === undefined
-    log('G non-mutual-refused', refused, `rejected=${decoded.rejected ?? 'none'} delivery=${decoded.delivery ?? 'none'}`)
+    // G1. wrong_role: a stranger calling suggest on a room they are not the teacher of.
+    const strangerReply = await microRequest(nc, 'vizregistry.prompts.suggest', {
+      roomId,
+      requestId: randomUUID(),
+      prompt: 'should be refused with wrong_role',
+      locale: 'en',
+    }, STRANGER_BEARER)
+    const stranger = JSON.parse(new TextDecoder().decode(strangerReply.data))
+    const strangerRefused = stranger.ok === false && stranger.code === 'wrong_role'
+    log('G1 wrong-role-refused', strangerRefused, `ok=${stranger.ok} code=${stranger.code ?? 'none'}`)
+
+    // G2. not_mutual: delete the teacher→student follow edge, then suggest from the
+    // (now non-mutual) teacher. The room's own teacher, so the refusal is not_mutual.
+    const unfollow = await rest('DELETE', `/api/me/follows/${STUDENT_SUB_HMAC}`, undefined, TEACHER_BEARER)
+    const mutualAfterDelete = await rest('GET', `/api/me/follows/${STUDENT_SUB_HMAC}?mutual=true`, undefined, TEACHER_BEARER)
+    const teacherReply = await microRequest(nc, 'vizregistry.prompts.suggest', {
+      roomId,
+      requestId: randomUUID(),
+      prompt: 'should be refused with not_mutual',
+      locale: 'en',
+    }, TEACHER_BEARER)
+    const teacher = JSON.parse(new TextDecoder().decode(teacherReply.data))
+    const teacherRefused = teacher.ok === false && teacher.code === 'not_mutual'
+    const followDeleted = unfollow.status === 200 || unfollow.status === 204
+    const noLongerMutual = mutualAfterDelete.status !== 200
+    log('G2 not-mutual-refused', teacherRefused && followDeleted && noLongerMutual,
+      `unfollow=${unfollow.status} preflight-after=${mutualAfterDelete.status} code=${teacher.code ?? 'none'}`)
+
+    // Nothing was pushed for either refusal (both suggestions are absent from the student's stream).
+    const refusalPushes = suggestions.filter((s) => s.prompt?.startsWith('should be refused'))
+    log('G3 no-push-for-refusals', refusalPushes.length === 0, `${refusalPushes.length} refusal push(es) received`)
   }
 
   // H. feedback (the student accepts)
   if (suggestionId) {
-    const feedback = await nc.request(
-      'vizregistry.prompts.feedback',
-      new TextEncoder().encode(JSON.stringify({
-        suggestionId,
-        outcome: 'accepted',
-      })),
-      { timeout: 10_000 },
-    )
+    const feedback = await microRequest(nc, 'vizregistry.prompts.feedback', {
+      suggestionId,
+      outcome: 'accepted',
+    }, STUDENT_BEARER)
     const decoded = JSON.parse(new TextDecoder().decode(feedback.data))
     log('H feedback-accepted', decoded.ok === true, `ok=${decoded.ok}`)
   } else {
