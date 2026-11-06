@@ -275,7 +275,11 @@ export function createBearerTokenSource(
 let armedConnections = 0
 let exitGuardInstalled = false
 
-function installSdkExitGuard(): void {
+/**
+ * Installs the containment once. `exitGuardInstalled` is what makes a second call a no-op: two
+ * wrappers would capture each other and a single exit request would be logged twice.
+ */
+export function installSdkExitGuard(): void {
   if (exitGuardInstalled) return
   exitGuardInstalled = true
   const exit = process.exit.bind(process)
@@ -286,6 +290,17 @@ function installSdkExitGuard(): void {
     }
     return exit(code)
   }) as typeof process.exit
+}
+
+/** Arms the containment for one live connection; every arm needs its `disarm`. */
+export function armSdkExitGuard(): void {
+  installSdkExitGuard()
+  armedConnections += 1
+}
+
+/** Disarms one connection; at zero the guard is inert and exits pass through again. */
+export function disarmSdkExitGuard(): void {
+  armedConnections = Math.max(0, armedConnections - 1)
 }
 
 const encoder = new TextEncoder()
@@ -323,7 +338,7 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
   const nc = await connectViaJWT(config.natsUrl, () => current, config.identity.seed, config.name)
   const refresh = setInterval(() => { void adopt(tokens.refresh()) }, JWT_REFRESH_MS)
   refresh.unref?.()
-  armedConnections += 1
+  armSdkExitGuard()
   return {
     subscribe: async (subject, handler) => {
       const sub = nc.subscribe(subject, {
@@ -345,7 +360,7 @@ export async function connectSuggestionsNats(config: PromptConfig): Promise<Sugg
     refreshAuthToken: () => adopt(tokens.refresh()),
     close: async () => {
       clearInterval(refresh)
-      armedConnections = Math.max(0, armedConnections - 1)
+      disarmSdkExitGuard()
       try { await nc.drain() } catch { /* already closed */ }
     },
   }
