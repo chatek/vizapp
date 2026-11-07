@@ -14,10 +14,12 @@
         display: flex; align-items: center; justify-content: center;
         opacity: 1; transition: opacity 300ms ease }
       #vclaw-splash.vclaw-splash--hidden { opacity: 0 }
-      .vclaw-splash__shimmer { font: 600 46px/1.1 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-        letter-spacing: .14em; color: transparent;
-        background: linear-gradient(100deg, #e7e5e4 20%, #9ca3af 40%, #f5f5f4 50%, #52525b 60%, #e7e5e4 80%);
-        animation: vclaw-splash-shimmer 2.2s linear infinite }
+      .vclaw-splash__wordmark { font: 700 40px/1.15 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: .08em; color: #f4f4f5; text-shadow: 0 2px 14px rgba(0, 0, 0, .45) }
+      .vclaw-splash__wordmark small { display: block; margin-top: 10px;
+        font: 500 15px/1.3 ui-sans-serif, -apple-system, system-ui, sans-serif;
+        letter-spacing: .04em; color: rgba(196, 181, 253, .92);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, .5) }
       .vclaw-splash__stack { display: flex; flex-direction: column; align-items: center; }
       .vclaw-splash__pet { width: 120px; height: 130px; margin-bottom: 18px;
         background: url(/vclaw-splash-pet.png) 0 0 / 720px 130px no-repeat;
@@ -36,7 +38,6 @@
         0%, 100% { transform: translateY(0) scale(1) }
         50% { transform: translateY(-5px) scale(1.02, .98) }
       }
-      @keyframes vclaw-splash-shimmer { from { background-position: 120% 0 } to { background-position: -120% 0 } }
       .vclaw-splash__bar { position: absolute; left: 50%; bottom: 66px; width: 180px; height: 2px; margin-left: -90px;
         border-radius: 2px; background: #26272e; overflow: hidden }
       .vclaw-splash__bar i { position: absolute; top: 0; left: 0; height: 100%; width: 40%; border-radius: 2px;
@@ -44,7 +45,6 @@
       @keyframes vclaw-splash-slide { from { transform: translateX(-120%) } to { transform: translateX(320%) } }
       #vclaw-splash .vclaw-splash__scene { position: absolute; inset: 0; display: none }
       #vclaw-splash.vclaw-splash--scene .vclaw-splash__scene { display: block }
-      #vclaw-splash.vclaw-splash--scene .vclaw-splash__shimmer,
       #vclaw-splash.vclaw-splash--scene .vclaw-splash__bar,
       #vclaw-splash.vclaw-splash--scene .vclaw-splash__stack { display: none }
       .vclaw-splash__frame, .vclaw-splash__poster { position: absolute; inset: 0; width: 100%; height: 100%; border: 0 }
@@ -108,7 +108,7 @@
       <div class="vclaw-splash__vignette"></div>
       <div class="vclaw-splash__stack">
         <div class="vclaw-splash__pet"></div>
-        <div class="vclaw-splash__shimmer">VClaw</div>
+        <div class="vclaw-splash__wordmark">VizMaster<small>powered by VClaw</small></div>
       </div>
       <div class="vclaw-splash__bar"><i></i></div>
       <h2 class="vclaw-splash__title"></h2>

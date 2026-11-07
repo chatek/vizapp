@@ -595,13 +595,15 @@ describe('index.html splash overlay', () => {
     expect(dismissalSource).toContain(`export const SPLASH_OVERLAY_ID = '${SPLASH_OVERLAY_ID}'`)
   })
 
-  test('overlay structure: scene host, vignette, shimmer, progress bar, wordmark, attribution slot', () => {
-    for (const className of ['vclaw-splash__scene', 'vclaw-splash__vignette', 'vclaw-splash__shimmer', 'vclaw-splash__bar', 'vclaw-splash__mark', 'vclaw-splash__attribution']) {
+  test('overlay structure: scene host, vignette, wordmark, progress bar, attribution slot', () => {
+    for (const className of ['vclaw-splash__scene', 'vclaw-splash__vignette', 'vclaw-splash__wordmark', 'vclaw-splash__bar', 'vclaw-splash__mark', 'vclaw-splash__attribution']) {
       expect(html).toContain(className)
     }
-    expect(html).toContain('@keyframes vclaw-splash-shimmer')
+    expect(html).toContain('@keyframes vclaw-splash-pet-blink')
     expect(html).toContain('@keyframes vclaw-splash-kenburns')
     expect(html).toContain('prefers-reduced-motion')
+    expect(html).toContain('VizMaster')
+    expect(html).toContain('powered by VClaw')
   })
 
   test('the overlay paints without scripts: only the bundle script tag exists', () => {
