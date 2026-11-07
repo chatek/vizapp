@@ -38,6 +38,32 @@ export function navigateVizshowUrl(url: string): boolean {
   return true
 }
 
+// ── Play-streams D4: the paste-time join ──────────────────────────────────────
+/**
+ * The prompt the user last accepted from a suggestion (or pasted intending to build).
+ * When a fresh VizShow build's BUILD.json.prompt EQUALS this string, that build is the
+ * local match for the tip — the chip announces it and the pane can navigate. This is
+ * deliberately PASTE-TIME, not poll-time (play-streams design §transport ruling): the
+ * desktop holds no tips list and no tokens; the pasted prompt IS the join key.
+ * One slot, latest wins: a new accepted prompt replaces the previous expectation.
+ */
+let expectedPrompt: string | null = null
+
+/** Records the prompt the user just accepted/pasted to build (the D4 join key). */
+export function expectVizshowForPrompt(prompt: string): void {
+  expectedPrompt = prompt.trim() !== '' ? prompt : null
+}
+
+/** Clears the expectation (a failed turn should not match a later unrelated build). */
+export function clearExpectedVizshowPrompt(): void {
+  expectedPrompt = null
+}
+
+/** D4 match predicate: exact string equality, BUILD.json.prompt verbatim. */
+export function matchesExpectedVizshowPrompt(buildPrompt: string | undefined): boolean {
+  return expectedPrompt !== null && buildPrompt !== undefined && buildPrompt === expectedPrompt
+}
+
 export async function openVizshow(idOrHref: string): Promise<boolean> {
   const id = parseVizshowHref(idOrHref) ?? idOrHref
   const api = window.prime?.vizshow

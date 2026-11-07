@@ -41,6 +41,7 @@ import { IconButton, SelectControl } from './ui'
 import { ExecutingModelChip, type ExecutingModelChipProps } from './ExecutingModelChip'
 import { ModelPicker } from './ModelPicker'
 import { CheckoutPicker } from './CheckoutPicker'
+import { expectVizshowForPrompt } from '@/lib/vizshow-open'
 
 interface ComposerProps {
   busy: boolean
@@ -465,6 +466,10 @@ export const Composer = memo(function Composer({
     const textarea = textareaRef.current
     if (textarea) insertAtCaret(textarea, suggestion.prompt)
     else setValue((current) => `${current}${suggestion.prompt}`)
+    // Play-streams D4: the accepted prompt becomes the paste-time join key — when the
+    // agent's buildVizShow produces a build whose BUILD.json.prompt equals this string,
+    // the VizShow chip recognizes it as the local match for this tip.
+    expectVizshowForPrompt(suggestion.prompt)
     promptSuggestions.accept(suggestion)
     setMenu(null)
     textarea?.focus()

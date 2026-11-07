@@ -1,7 +1,7 @@
 import { CircleDot, Play } from 'lucide-react'
 import { useState } from 'react'
 import { useI18n } from '@/lib/i18n'
-import { navigateVizshowUrl } from '@/lib/vizshow-open'
+import { matchesExpectedVizshowPrompt, navigateVizshowUrl } from '@/lib/vizshow-open'
 import type { VizshowSnapshot } from '@/types/api'
 
 interface VizshowChipProps {
@@ -55,7 +55,8 @@ export function VizshowChip({ snapshot, fresh, pending, onOpenLatest, onOpenPrev
         >
           <CircleDot size={12} aria-hidden="true" />
           <span className="vizshow-chip__label">{t('vizshow.latest', { id: shortBuildId(latest.id) })}</span>
-          {fresh ? <span className="vizshow-chip__fresh">{t('vizshow.new')}</span> : null}
+          {matchesExpectedVizshowPrompt(latest.prompt) ? <span className="vizshow-chip__fresh">{t('vizshow.match')}</span> : null}
+          {fresh && !matchesExpectedVizshowPrompt(latest.prompt) ? <span className="vizshow-chip__fresh">{t('vizshow.new')}</span> : null}
         </button>
       ) : null}
       <button

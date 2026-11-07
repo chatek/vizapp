@@ -476,6 +476,31 @@ export default function App() {
   // `vizshow://` transcript links and the VizShow chip both hand a resolved loopback URL here.
   const vizshow = useVizshow()
   useEffect(() => setVizshowNavigator((url) => openTerminalLink(url, false)), [openTerminalLink])
+  // Play-streams delta 1 (login-jump, D5): when the desktop gains its vclaw identity
+  // (the operator's 'app login' — the inbox spool appears), the Browser pane jumps to
+  // the play surface. TWO LOGINS BY DESIGN: this jump does NOT carry a web session —
+  // the pane arrives empty and runs the landing's Authelia sign-in once (D5); the play
+  // shell then reads that same-origin session. Fired only on the no-identity → identity
+  // transition, once per app run, so a re-derive or spool refresh never re-navigates.
+  useEffect(() => {
+    const inbox = bridge?.inbox
+    if (!inbox?.read || !inbox.onChanged) return
+    let hadIdentity = false
+    let active = true
+    const jumpIfNewIdentity = (snapshot: { spoolPath?: string }) => {
+      if (!active) return
+      const hasIdentity = Boolean(snapshot.spoolPath)
+      if (hasIdentity && !hadIdentity) {
+        hadIdentity = true
+        openTerminalLink('https://vizmaster.app/play/', false)
+      } else if (!hasIdentity) {
+        hadIdentity = false
+      }
+    }
+    void inbox.read().then(jumpIfNewIdentity).catch(() => {})
+    const unsubscribe = inbox.onChanged(jumpIfNewIdentity)
+    return () => { active = false; unsubscribe() }
+  }, [bridge, openTerminalLink])
   const handleBrowserNavigationRequest = useCallback((id: number) => {
     setBrowserNavigationRequest((current) => current?.id === id ? undefined : current)
   }, [])
