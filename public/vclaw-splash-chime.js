@@ -117,12 +117,12 @@
       master.gain.value = 0.5 // a greeting, not an interruption
       master.connect(context.destination)
       var t = context.currentTime + 0.02
-      // SYNC: the main process passes the SAME hold value the scene swap waits
-      // (SPLASH_MIN_HOLD_MS + the per-launch jitter), so the piece is timed to
-      // end with the logo set. Clamped to stay musical (~94–187 BPM).
-      var EIGHTH = (typeof durationMs === 'number' && durationMs > 0)
-        ? Math.min(0.32, Math.max(0.16, durationMs / 1000 / TOTAL_EIGHTHS))
-        : DEFAULT_EIGHTH
+      // SYNC (operator 2026-11-07): the music ALWAYS plays at its natural pitch and
+      // tempo (110 BPM, ~4.64s) — never stretched. The LOGO overlay's hold is timed
+      // to THIS length (see splash.holdMs), so the two end together. durationMs is
+      // accepted for call-compatibility and used only as a sanity floor for the
+      // watchdog, never to rescale the music.
+      var EIGHTH = DEFAULT_EIGHTH
       var e = function (beats) { return t + beats * EIGHTH }
 
       // SYNC WATCHDOG: the overlay can leave EARLIER than the hold (renderer

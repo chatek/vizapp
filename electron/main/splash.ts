@@ -47,9 +47,15 @@ const MAX_OFFICIAL_POSTER_BYTES = 2_000_000
  * blocks the UI behind it (pointer-events: none), so there is no lifetime cap.
  */
 const SPLASH_SCENE_SWAP_DEADLINE_MS = 2_000
-/** Per-launch random extension of the overlay hold, on top of the 3s minimum. */
-export const SPLASH_MIN_HOLD_MS = 3_000
-export const SPLASH_MAX_HOLD_JITTER_MS = 2_000
+/**
+ * The logo hold is TIMED TO THE MUSIC (operator 2026-11-07): the branded chime
+ * always plays at its natural pitch and tempo — 17 eighths at 110 BPM ≈ 4.64s —
+ * and the overlay holds exactly that long (4.7s floor = music + fade tail), with
+ * NO jitter (a randomized extension would outlast the finished piece). The hard
+ * cap keeps 300ms of fade headroom. Music and logo end together, every launch.
+ */
+export const SPLASH_MIN_HOLD_MS = 4_700
+export const SPLASH_MAX_HOLD_JITTER_MS = 0
 /** Hard cap: the overlay is gone by this point after first paint, whatever init does. */
 export const SPLASH_MAX_HOLD_MS = 5_000
 /** DOM id of the overlay element index.html paints; mirrored in src/lib/splash-overlay.ts. */
