@@ -1239,6 +1239,25 @@ async function bootstrap(): Promise<void> {
   backgroundMode.start()
   const window = await ensureWindow()
   splash?.deliverTo(window?.webContents ?? null)
+  // The branded startup chime: same authority as the scene swap, same moment as the
+  // logo overlay — the main process, at the member splash. The renderer defines the
+  // player (public/vclaw-splash-chime.js, an original NES-idiom composition — actual
+  // Nintendo audio is copyrighted); the call is fire-and-forget and a missing player
+  // (generic build, devtools experiment) is never an error.
+  if (splash && window && !window.isDestroyed()) {
+    // The chime module is self-hosted (public/vclaw-splash-chime.js, served by the
+    // renderer's own origin), loaded ONLY at the member splash moment via dynamic
+    // import — CSP script-src 'self' permits it, the overlay stays script-free,
+    // and the generic build never loads it at all. splash.holdMs is the SAME value
+    // the scene swap waits, so the piece is timed to end with the logo set; the
+    // player's own watchdog fades it out early if the overlay leaves sooner.
+    void window.webContents.executeJavaScript(
+      `import('/vclaw-splash-chime.js')` +
+        `.then(() => (window.__vclawSplashChime ? window.__vclawSplashChime(${splash.holdMs}) : false))` +
+        `.catch(() => false)`,
+      true,
+    ).catch(() => {})
+  }
   if (packagedSmokeMarkerFile) {
     await runPackagedSmoke(window, packagedSmokeMarkerFile)
     return

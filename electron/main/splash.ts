@@ -683,6 +683,12 @@ export interface SplashOverlayPresentation {
    * still ran, nothing is presented, nothing throws.
    */
   deliverTo(target: SplashOverlayTarget | null): void
+  /**
+   * The logo overlay's hold time for THIS launch (min hold + the per-launch jitter),
+   * in ms — the same value the scene swap waits. The startup chime is timed to it so
+   * the branded sound plays exactly as long as the logo set is on screen.
+   */
+  readonly holdMs: number
 }
 
 /**
@@ -694,6 +700,9 @@ export interface SplashOverlayPresentation {
 export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresentation {
   const filesystem = options.filesystem ?? defaultFilesystem
   const holdJitter = options.holdJitter ?? (() => Math.floor(Math.random() * (SPLASH_MAX_HOLD_JITTER_MS + 1)))
+  // ONE hold value per launch: the scene swap waits it, and the chime is timed
+  // to it, so the branded sound lasts exactly as long as the logo set is shown.
+  const holdMs = SPLASH_MIN_HOLD_MS + holdJitter()
   let expired = false
   const deadline = setTimeout(() => { expired = true }, options.sceneSwapDeadlineMs ?? SPLASH_SCENE_SWAP_DEADLINE_MS)
   deadline.unref()
@@ -703,6 +712,7 @@ export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresent
     return choice
   })
   return {
+    holdMs,
     deliverTo(target) {
       if (!target || target.isDestroyed()) return
       void selection.then(async (choice) => {
@@ -714,7 +724,7 @@ export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresent
           ? (passthrough.params as Record<string, unknown>)
           : undefined
         const script = choice.mode === 'html'
-          ? splashOverlaySceneScript({ mode: 'html', html: await filesystem.readFile(choice.htmlPath, 'utf8') }, holdJitter())
+          ? splashOverlaySceneScript({ mode: 'html', html: await filesystem.readFile(choice.htmlPath, 'utf8') }, holdMs - SPLASH_MIN_HOLD_MS)
           : splashOverlaySceneScript({
               mode: 'poster',
               dataUrl: posterDataUrl(await filesystem.readBinary(choice.posterPath), choice.posterFileName),
@@ -726,7 +736,7 @@ export function beginSplash(options: SplashOverlayOptions): SplashOverlayPresent
                 field: ambientFieldSpec(choice.showId),
                 palette: ambientPalette(subject),
               },
-            }, holdJitter())
+            }, holdMs - SPLASH_MIN_HOLD_MS)
         if (expired || target.isDestroyed()) return
         await target.executeJavaScript(script).catch(() => {})
       }).catch(() => {})
