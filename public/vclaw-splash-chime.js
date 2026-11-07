@@ -109,6 +109,8 @@
   }
 
   function play(durationMs) {
+    // Diagnostic stamp (read by the splash sync measurement): when the piece actually began.
+    try { window.__vclawChimeStartedAt = performance.now() } catch (e) { /* no perf */ }
     try {
       var Ctor = window.AudioContext || window.webkitAudioContext
       if (!Ctor) return false

@@ -50,14 +50,18 @@ const SPLASH_SCENE_SWAP_DEADLINE_MS = 2_000
 /**
  * The logo hold is TIMED TO THE MUSIC (operator 2026-11-07): the branded chime
  * always plays at its natural pitch and tempo — 17 eighths at 110 BPM ≈ 4.64s —
- * and the overlay holds exactly that long (4.7s floor = music + fade tail), with
- * NO jitter (a randomized extension would outlast the finished piece). The hard
- * cap keeps 300ms of fade headroom. Music and logo end together, every launch.
+ * and the overlay holds long enough for it to FINISH. MEASURED (2026-11-07, dev):
+ * the chime starts ~1.8s after page load (window creation → dynamic import →
+ * AudioContext) while the hold anchors at first contentful paint, so the budget
+ * is chime start latency (~1.8s) + the music's natural 4.64s + fade margin —
+ * 6.8s floor. NO jitter (a randomized extension would outlast the finished
+ * piece); the 7.2s cap bounds stuck init. The music always finishes; the logo
+ * outlasts it by design, never the reverse.
  */
-export const SPLASH_MIN_HOLD_MS = 4_700
+export const SPLASH_MIN_HOLD_MS = 6_800
 export const SPLASH_MAX_HOLD_JITTER_MS = 0
 /** Hard cap: the overlay is gone by this point after first paint, whatever init does. */
-export const SPLASH_MAX_HOLD_MS = 5_000
+export const SPLASH_MAX_HOLD_MS = 7_200
 /** DOM id of the overlay element index.html paints; mirrored in src/lib/splash-overlay.ts. */
 export const SPLASH_OVERLAY_ID = 'vclaw-splash'
 
