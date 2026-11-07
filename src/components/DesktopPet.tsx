@@ -13,7 +13,9 @@ const BUILT_INS: PetDefinition[] = [
 ]
 
 function initialPosition(): Position {
-  const fallback = { x: Math.max(16, window.innerWidth - 150), y: Math.max(70, window.innerHeight - 180) }
+  // Default: the TOP-LEFT corner of the opened UI, just under the toolbar (operator
+  // preference 2026-11-07). A saved position still wins; only the first run uses this.
+  const fallback = { x: 16, y: 58 }
   try {
     const saved = JSON.parse(window.localStorage.getItem('vclaw:pet-position') ?? '') as Partial<Position>
     return typeof saved.x === 'number' && typeof saved.y === 'number' ? { x: saved.x, y: saved.y } : fallback
