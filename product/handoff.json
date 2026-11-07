@@ -12,7 +12,7 @@
     "app": "product/app",
     "content": "product/content",
     "bundleOutput": "payload/vizmaster",
-    "artifactDir": "app/build"
+    "artifactDir": "release/out"
   },
   "bindPaths": [
     "README.md",

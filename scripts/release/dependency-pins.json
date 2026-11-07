@@ -45,8 +45,8 @@
   "handoff": {
     "//": "The member's release/handoff.json, delivered by integrate-vcclaw.mjs to product/handoff.json (integrator fails closed without it). Pinning the delivered bytes makes loosening the carrier's payload expectations (markers, bind paths, contract tuple) a member+carrier coordinated change: the member edits, the carrier re-pins, one release. After-pack verifies the packaged copy against this pin.",
     "product/handoff.json": {
-      "integrity": "sha512-g5grIXdFSpXA/+La7Y1rtn53935KMCsQG3WUhCRGxx+9GhYhSkHxbOUFv7eVPYr2kg4la9/kbWi7jycXuzE6ug==",
-      "memberCommit": "9a2b0f5",
+      "integrity": "sha512-vHjcxoT/KCktwx9E6s558l2bS0Nknxnj7is1lta9x7C7wq3fBzej2PKlr5ytMCmGGONPx3zlvrIEN2gVlpUFFw==",
+      "memberCommit": "21642a5f",
       "markers": 5,
       "bindPaths": 5
     }
