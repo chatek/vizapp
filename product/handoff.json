@@ -8,7 +8,7 @@
     "payload": "release:payload"
   },
   "paths": {
-    "$comment": "Repo-side paths are private to this repo: the carrier only ever sees the bundle OUTPUT directory.",
+    "$comment": "Repo-side paths are private (the carrier copies the bundle OUTPUT dir, never these). NOTE: bindPaths and markers are TOP-LEVEL keys, not under paths.* — they describe the payload's shape, not a location. A parser must read them at the root.",
     "app": "product/app",
     "content": "product/content",
     "bundleOutput": "payload/vizmaster",
