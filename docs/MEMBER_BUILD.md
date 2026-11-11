@@ -102,7 +102,7 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    flow). Verify the artifact (layout, identity, your release stamp
    `<memberVersion>+<date>.<shortSha>`), write `SHA256SUMS`, publish to **your** updater channel.
    The build that vclaw-desktop itself hands over is published as a **Forgejo release on
-   `chatek/vclaw-app`** with its per-arch `BUILD-<arch>.json` and `tuple.json`
+   `chatek/vclaw-desktop`** with its per-arch `BUILD-<arch>.json` and `tuple.json`
    (`docs/RELEASE_FLOW.md` §3). That release **is** the handoff — a published (or `prerelease`)
    URL that answers anonymously, not a draft. A consumer that additionally wants a signed
    artefact or a `handoff.json` is asking for something this estate cannot produce (0 codesigning

@@ -1,0 +1,14 @@
+{
+  "natsUrl": "nats://127.0.0.1:14222",
+  "natsTokenFile": "~/.config/pi-a2a/server.seed",
+  "fabricLabel": "VLink",
+  "matterMode": "matter",
+  "bleEnabled": true,
+  "commandQueue": "vlink",
+  "healthIntervalMs": 30000,
+  "reconnectWaitMs": 2000,
+  "logLevel": "info",
+  "notifyEvents": false,
+  "defaultCommandTimeoutMs": 5000,
+  "defaultCommissionTimeoutMs": 120000
+}

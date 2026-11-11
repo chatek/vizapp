@@ -1,0 +1,60 @@
+{
+  "name": "@chatek/vlink",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VLink \u2014 Matter to NATS bridge for omp.sh, sharing the local pi-a2a NATS server",
+  "license": "Apache-2.0",
+  "author": "Chatek",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sidecar": "./src/sidecar.ts",
+    "./runtime": "./src/runtime.ts"
+  },
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src/",
+    "docs/",
+    "README.md",
+    "vlink_prd.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test tests/unit tests/integration",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "test:hw": "VLINK_HW=1 bun test tests/hardware",
+    "dev:sim": "bun run scripts/dev-sim.ts",
+    "sidecar": "bun run src/sidecar.ts",
+    "nats:smoke": "bun run scripts/nats-smoke.ts",
+    "commission": "bun run scripts/commission.ts",
+    "hw:smoke": "bun run scripts/hw-smoke.ts",
+    "vlink:attach": "bun run scripts/attach.ts",
+    "vlink:flash": "bun run scripts/flash.ts",
+    "vlink:stream": "bun run scripts/stream.ts"
+  },
+  "dependencies": {
+    "@matter/general": "0.18.0",
+    "@matter/main": "0.18.0",
+    "@matter/node": "0.18.0",
+    "@matter/nodejs": "0.18.0",
+    "@matter/nodejs-ble": "0.18.0",
+    "@matter/protocol": "0.18.0",
+    "@matter/types": "0.18.0",
+    "@nats-io/nats-core": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.18.7",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.0"
+  }
+}

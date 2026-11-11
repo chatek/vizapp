@@ -4,7 +4,7 @@ Two destinations, and they are different things:
 
 | what | where | who writes it |
 |---|---|---|
-| **release assets** (the thing a person downloads) | a Forgejo release on `chatek/vclaw-app`, built from `release-remote/<arch>/` | the workstation: `scripts/release/release-forgejo.sh` — [RELEASE_FLOW.md](RELEASE_FLOW.md) §3 |
+| **release assets** (the thing a person downloads) | a Forgejo release on `chatek/vclaw-desktop`, built from `release-remote/<arch>/` | the workstation: `scripts/release/release-forgejo.sh` — [RELEASE_FLOW.md](RELEASE_FLOW.md) §3 |
 | **updater feed** | `https://assets.vclawhub.com/vclaw-desktop/latest.yml` (and `latest-mac.yml`, `latest-linux.yml`), bucket `vclawhub-assets` / `vclaw-desktop/` | `scripts/publish-r2.sh <electron-builder output dir>`, from the workstation after a verified release — pass the directory explicitly (`release/mac/arm64`); the script's default `dist` predates `build.directories.output=release` |
 
 GitHub Releases is not a destination in this flow; installs that shipped before the R2 feed

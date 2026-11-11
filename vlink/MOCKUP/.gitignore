@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# generated blueprint output (npm run export)
+public/screens/
+public/SPEC.md

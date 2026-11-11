@@ -29,7 +29,7 @@ one lane may ask of another are [BOUNDARIES.md](BOUNDARIES.md).
 
 - **Publishing happens on the workstation — not on the build host, not in CI.**
   `scripts/release/release-forgejo.sh` builds through `build-remote.sh`, tags, publishes a Forgejo
-  release on `chatek/vclaw-app` (draft unless `--publish`) and re-fetches to verify. Steps and
+  release on `chatek/vclaw-desktop` (draft unless `--publish`) and re-fetches to verify. Steps and
   token/`--dry-run` details: [RELEASE_FLOW.md](RELEASE_FLOW.md) §3 · Publish.
 - **Nobody signs today.** The host and the workstation each have 0 codesigning identities, so
   `package.mjs --public` refuses and only `--qa` artefacts exist; releases are marked `unsigned`

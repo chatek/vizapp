@@ -22,14 +22,14 @@ macOS builds and installer packaging have one entry point; start at [`docs/BUILD
 - The dmg/zip path (`package.mjs`) is documented in `docs/RELEASE_BUILD_HOST.md` and runs on
   that same host; it needs the repo-pinned npm 12 there, and only `--qa` (unsigned) is possible.
 - **Publishing is a workstation job, not CI.** `scripts/release/release-forgejo.sh` builds on the
-  host, tags, publishes a Forgejo release on `chatek/vclaw-app` (draft unless `--publish`) and
+  host, tags, publishes a Forgejo release on `chatek/vclaw-desktop` (draft unless `--publish`) and
   re-fetches to verify — `docs/RELEASE_FLOW.md` §3.
 - **No CI build path exists.** Forgejo Actions cannot build this repo (no darwin runner; the
   instance cannot fetch actions from github.com). Do not document or plan one.
 - **Nobody signs today** (0 codesigning identities on the host and the workstation). Releases
   are marked `unsigned` and default to draft.
 - `main` is the only long-lived branch; `origin/vizmaster` is legacy and retiring.
-- **The handoff is a published Forgejo release URL on `chatek/vclaw-app`**, and this repo's
+- **The handoff is a published Forgejo release URL on `chatek/vclaw-desktop`**, and this repo's
   responsibility ends there. Lane ownership, what a lane may ask of another, and the
   anti-patterns are [`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) — read it before describing any
   release as blocked, or asking another lane for anything.

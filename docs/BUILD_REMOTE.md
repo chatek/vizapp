@@ -13,7 +13,7 @@ signing/notarisation lane through `package.mjs` (its npm-12 trap) is separate an
 This driver **builds**; it does not publish. The workstation runs
 `scripts/release/release-forgejo.sh`, which calls this driver, tags the commit, uploads the dmg,
 the app zip, `BUILD-<arch>.json`, `SHA256SUMS.txt` and `tuple.json` to a draft Forgejo release on
-`chatek/vclaw-app` and re-fetches to verify (served sizes, `cmp` of the sums file, and
+`chatek/vclaw-desktop` and re-fetches to verify (served sizes, `cmp` of the sums file, and
 `hdiutil verify` on each re-downloaded dmg) ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3). Lane
 ownership and what a handoff is: [BOUNDARIES.md](BOUNDARIES.md).
 
@@ -101,7 +101,7 @@ tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop ~/build/vclaw/vendors/oh-
 
 # 3. the OMP release set — streamed from the workstation, digests checked on both sides
 #    (equivalently from Forgejo on a machine that can reach it:
-#     https://REDACTED_INTERNAL_FORGE/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/)
+#     https://REDACTED_INTERNAL_FORGE/chatek/oh-my-pi/releases/download/v18.16.0/)
 ```
 
 Nothing in the driver touches `brew`, sudo, npm globals, `PATH` files or shell rc files:
@@ -121,7 +121,7 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
   "dirty": false,
   "source": {
     "repo": "vclaw-desktop",
-    "remote": "https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app",
+    "remote": "https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop",
     "branch": "vizmaster",
     "commit": "ee212d9810741a7d8094fa8ef99907d2222f1902",
     "worktree": { "clean": true, "from": "git bundle at ee212d9810741a7d8094fa8ef99907d2222f1902" }
@@ -160,8 +160,10 @@ Measured values from draft release #518. `payload_sha256` changes between builds
 commits: the payload's own `BUILD.json` carries `builtAt`, so the tree digest is a per-build
 fingerprint (like `artifact.sha256`), not a commit hash.
 
-`source.remote` is `git remote get-url origin`. In this clone that is the **Forgejo remote**
-(`chatek/vclaw-app`), not the GitHub record repo (`chatek/vclaw-desktop`), so treat the field as a
+`source.remote` is `git remote get-url origin`. ★ 2026-11-11: the Forgejo repo was renamed
+`chatek/vclaw-app` → `chatek/vclaw-desktop` (matching this directory; the old name 301s), and this
+checkout's remotes were repointed the same day — `github` is the GitHub record repo, `origin` the
+Forgejo one — so treat the field as a
 **locator, not an authority**: it says which URL this checkout fetched from, not which repo is
 canonical. Measured 2026-11-05 at HEAD `346127d`: both remotes carried `main 92991ab` and
 `vizmaster 1b2c62b`, and `c49cc37` is an ancestor of `cabbc52` — one linear history, not two. A pin
@@ -600,7 +602,7 @@ the short keys remain for display and for the in-tree `:326` prefix check.
 
 **Member-repo source of truth.** Reproducible with one command per side — `git ls-remote
 <remote> refs/heads/main` against the member clone's remotes (`origin` = GitHub
-`chatek/vizmaster`, `forgejo` = `…/forgejo/chatek/vizmaster`). Measured 2026-11-05: the Forgejo
+`chatek/vizmaster`, `forgejo` = `https://REDACTED_INTERNAL_FORGE/chatek/vizmaster`). Measured 2026-11-05: the Forgejo
 mirror answers `a77a74ef` (its 2026-10-26 tip, unchanged) while GitHub's main keeps advancing
 (`813c2c7` at the time of writing, `31dd4a5` minutes earlier) — so the mirror is not merely behind,
 it is frozen, and the gap grows. A payload cut from the mirror would carry a stamp naming code that is not there,
@@ -820,7 +822,7 @@ Two facts belong here because they are **build** inputs:
 ## Handoff
 
 **The handoff is a published (or explicitly `prerelease`) Forgejo release URL on
-`chatek/vclaw-app`; this lane's responsibility ends there.** The rule, the legitimate cross-lane
+`chatek/vclaw-desktop`; this lane's responsibility ends there.** The rule, the legitimate cross-lane
 requests and the anti-patterns — including why a **draft is not a handoff** — are
 [BOUNDARIES.md](BOUNDARIES.md) §2–§4.
 

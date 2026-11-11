@@ -79,7 +79,7 @@ What it does, aborting loudly at each step:
 6. **tag** — annotated, at `HEAD`, default `v<package.json version>+<short sha>`; refused if the
    tag already exists at a different commit, pushed to `origin` **and** `github` explicitly
    (this submodule has no fan-out), never forced.
-7. **release** — `POST /api/v1/repos/chatek/vclaw-app/releases`; **draft unless `--publish`**,
+7. **release** — `POST /api/v1/repos/chatek/vclaw-desktop/releases`; **draft unless `--publish`**,
    and the body states `unsigned=yes` and why.
 8. **upload** — each staged asset, checked against the server's reported size.
 9. **verify by re-fetch** — served size equals local size for every asset, and `SHA256SUMS.txt`
@@ -92,7 +92,7 @@ nothing downstream — their intake, their `handoff.json` expectations, their si
 publisher, their landing — is a precondition for calling the release done. The rule, the
 legitimate cross-lane requests and the anti-patterns are [BOUNDARIES.md](BOUNDARIES.md) §2–§4.
 
-`chatek/vclaw-app` is also this checkout's `origin` remote (`BUILD.json` → `source.remote`
+`chatek/vclaw-desktop` is also this checkout's `origin` remote (`BUILD.json` → `source.remote`
 records the URL it fetched, not a claim of canon). GitHub `chatek/vclaw-desktop` receives the
 tag, not the release assets.
 
@@ -121,7 +121,7 @@ curl in a 0600 config so it never appears on a command line or in any output.
 | `has uncommitted changes to tracked files` | commit or undo — the host builds a commit, not your working tree |
 | `is not the tip of origin/<branch>` | push the branch, or check out the tip you mean to release |
 | `--check failed on: <label>` | a host fault a build cannot repair (node, disk, mirror, profile); `checkout` / `omp …` / `SHA256SUMS.txt` failures are synced by the build |
-| `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-app` with `{"has_releases":true}`, once, as an admin |
+| `Releases unit is disabled` | `PATCH /api/v1/repos/chatek/vclaw-desktop` with `{"has_releases":true}`, once, as an admin |
 | `already exists at …` / `a release for … already exists` | tags and releases are never rewritten — pick another `--tag` |
 | `served size … != local` | the upload truncated; the release is not trustworthy |
 | `POST releases -> HTTP 403 … user should have a permission to write to a repo` | an `FORGEJO_TOKEN` in the environment won the precedence and is read-only (`GET /api/v1/user` returns no login); unset it so the scoped token file is used, or point `FORGEJO_TOKEN_FILE` at the write token |
@@ -136,7 +136,7 @@ as in the lane checkout:
 ```bash
 git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
 git -C /tmp/proof/vclaw-desktop checkout -B <branch> <HEAD>   # a branch whose tip IS that commit
-git -C /tmp/proof/vclaw-desktop remote set-url origin https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app
+git -C /tmp/proof/vclaw-desktop remote set-url origin https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop
 ln -s "$PWD/../vendors" /tmp/proof/vendors                    # the OMP release set, one level above
 RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
   bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2

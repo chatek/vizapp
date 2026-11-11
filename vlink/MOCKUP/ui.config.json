@@ -1,0 +1,15 @@
+{
+  "productTitle": {
+    "en": "VLink Mockup",
+    "zh": "VLink 界面手稿"
+  },
+  "device": {
+    "name": "Waveshare ESP32-C6-LCD-1.47 · 320 × 172 (landscape)",
+    "w": 320,
+    "h": 172,
+    "insetTop": 0,
+    "insetBottom": 0
+  },
+  "port": 5180,
+  "stringsModule": ""
+}

@@ -104,8 +104,10 @@ Ask User and computer control are off by default. You can enable, disable, or re
 
 1. Install Pi, OMP, Prime Agent, or any combination of the three.
 2. Sign in or configure a model provider through each harness's own CLI.
-3. Download VClaw from the [release page](https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app/releases), or run it from source.
+3. Download VClaw from the [release page](https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop/releases), or run it from source.
 4. Add a project folder and start a session.
+
+> ★ 2026-11-11 — The Forgejo instance moved from a subpath to the root: `…/forgejo/<org>/<repo>` is now `…/<org>/<repo>` (e.g. `https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop`). Browser URLs redirect, but **git does not follow the redirect** — update any `origin`/push remote with `git remote set-url` to the new scheme.
 
 VClaw checks common install locations automatically. If a harness is missing, open **Settings → Harness** to refresh detection or choose its executable.
 

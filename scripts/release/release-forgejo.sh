@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish a remote-built VClaw desktop app to a Forgejo release on chatek/vclaw-app.
+# Publish a remote-built VClaw desktop app to a Forgejo release on chatek/vclaw-desktop.
 #
 #   bash scripts/release/release-forgejo.sh --arm64 --dry-run
 #   bash scripts/release/release-forgejo.sh --arm64 --x64
@@ -37,7 +37,7 @@
 #                 refused if it exists anywhere at a different commit, pushed to
 #                 `origin` AND `github` explicitly (this submodule has no fan-out),
 #                 never forced
-#   7. release    POST /api/v1/repos/chatek/vclaw-app/releases; draft unless --publish
+#   7. release    POST /api/v1/repos/chatek/vclaw-desktop/releases; draft unless --publish
 #   8. upload     each staged asset, size-checked against the server's reply
 #   9. verify     re-fetch the release: served size == local size for every asset,
 #                 SHA256SUMS.txt re-downloaded and compared byte for byte, and each dmg
@@ -50,7 +50,7 @@
 # exact tag commands, the release JSON payload and every upload call it would make.
 #
 # Env (all optional):
-#   FORGEJO_REPO        owner/repo (default chatek/vclaw-app)
+#   FORGEJO_REPO        owner/repo (default chatek/vclaw-desktop)
 #   FORGEJO_URL         instance base incl. sub-path; default derived from `origin`
 #   FORGEJO_TOKEN       API token; otherwise read from FORGEJO_TOKEN_FILE
 #   FORGEJO_TOKEN_FILE  default <repo>/../.prime/forgejo-token
@@ -70,7 +70,7 @@ REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BUILD_DRIVER="$SCRIPT_DIR/build-remote.sh"
 LOCAL_OUT="${LOCAL_OUT:-$REPO_ROOT/release-remote}"
 export LOCAL_OUT
-FORGEJO_REPO="${FORGEJO_REPO:-chatek/vclaw-app}"
+FORGEJO_REPO="${FORGEJO_REPO:-chatek/vclaw-desktop}"
 # Relative to the LANE checkout (where the scripts live), not REPO_ROOT: a clean release
 # clone elsewhere must still find the operator's token unless FORGEJO_TOKEN_FILE says otherwise.
 TOKEN_FILE="${FORGEJO_TOKEN_FILE:-$SCRIPT_REPO_ROOT/../.prime/forgejo-token}"
