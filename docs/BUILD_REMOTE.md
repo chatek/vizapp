@@ -53,7 +53,7 @@ Two things about the host's network are not negotiable, and both cost a cycle if
   downloads therefore need `ELECTRON_MIRROR`, and the OMP binaries can never be fetched from a
   GitHub release URL on this host.
 * **The host's tailnet does not contain the Forgejo box.** `tailscale status` on the host lists
-  42 peers and no `vmaker-pi`; `vmaker-pi.TAILNET_REDACTED` resolves to the same fake-ip
+  42 peers and no `vmaker-pi`; `REDACTED_INTERNAL_FORGE` resolves to the same fake-ip
   `198.18.0.11` and `curl -v` dies in the TLS handshake:
   `LibreSSL SSL_connect: SSL_ERROR_SYSCALL`. Measured — so this host **cannot clone from
   Forgejo**, even though the workstation can (`curl -o /dev/null -w %{http_code}` → `200`,
@@ -101,7 +101,7 @@ tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop ~/build/vclaw/vendors/oh-
 
 # 3. the OMP release set — streamed from the workstation, digests checked on both sides
 #    (equivalently from Forgejo on a machine that can reach it:
-#     https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/)
+#     https://REDACTED_INTERNAL_FORGE/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/)
 ```
 
 Nothing in the driver touches `brew`, sudo, npm globals, `PATH` files or shell rc files:
@@ -121,7 +121,7 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
   "dirty": false,
   "source": {
     "repo": "vclaw-desktop",
-    "remote": "https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app",
+    "remote": "https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app",
     "branch": "vizmaster",
     "commit": "ee212d9810741a7d8094fa8ef99907d2222f1902",
     "worktree": { "clean": true, "from": "git bundle at ee212d9810741a7d8094fa8ef99907d2222f1902" }
@@ -446,7 +446,7 @@ at it would ship arm64 Electron. Cross-arch builds get their Electron from `ELEC
 | symptom | cause | action |
 |---|---|---|
 | `⨯ connect EADDRNOTAVAIL 198.18.0.11:443 - Local (0.0.0.0:0)` | electron-builder downloading from github.com; the Clash TUN fake-ip is not routed | export `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` (the driver always does), or build the host arch where `electronDist` applies |
-| `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to vmaker-pi.TAILNET_REDACTED:443` | the host is not in the Forgejo box's tailnet; the name resolves to `198.18.0.11` | do not clone from Forgejo on this host — the driver streams a bundle |
+| `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to REDACTED_INTERNAL_FORGE:443` | the host is not in the Forgejo box's tailnet; the name resolves to `198.18.0.11` | do not clone from Forgejo on this host — the driver streams a bundle |
 | `node -v` → `v25.8.0` and the build then behaves differently from the validated toolchain | homebrew node on `PATH` | prepend `~/build/toolchain/node-v24.15.0-darwin-arm64/bin`; the driver refuses to start if that node is missing or not `v24.15.0` |
 | `Error: bundled omp: resources/harness/bin/omp is missing — was mac.extraResources applied?` | the release set is not at `../vendors/oh-my-pi/releases/v18.16.0/` relative to the checkout | create the sibling `vendors/` tree |
 | electron-builder `⨯ Application entry file "out/main/index.js" … was not found in this archive` | `out/` was never built — `npm ci` alone does not produce it | run `npm run build:bundle` first; the driver does, and asserts `out/main/index.js` |

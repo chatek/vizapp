@@ -136,7 +136,7 @@ as in the lane checkout:
 ```bash
 git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
 git -C /tmp/proof/vclaw-desktop checkout -B <branch> <HEAD>   # a branch whose tip IS that commit
-git -C /tmp/proof/vclaw-desktop remote set-url origin https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app
+git -C /tmp/proof/vclaw-desktop remote set-url origin https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app
 ln -s "$PWD/../vendors" /tmp/proof/vendors                    # the OMP release set, one level above
 RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
   bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2

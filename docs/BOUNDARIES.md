@@ -40,7 +40,7 @@ both remotes for exactly this reason. Everything else about vchat3 belongs to th
 **A handoff is a release URL, and only a release URL.**
 
 1. The build lane publishes (see [RELEASE_FLOW.md](RELEASE_FLOW.md) §3) and hands over
-   `https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/vclaw-app/releases/tag/<tag>`.
+   `https://REDACTED_INTERNAL_FORGE/forgejo/chatek/vclaw-app/releases/tag/<tag>`.
 2. A **valid** handoff is a release that answers **anonymously** — the page 200 and every
    `…/releases/download/<tag>/<asset>` 200/206 with no token — and carries, per arch, the `.dmg`
    and the `.app` `.zip` plus `BUILD-<arch>.json`, a merged `SHA256SUMS.txt` and `tuple.json`.

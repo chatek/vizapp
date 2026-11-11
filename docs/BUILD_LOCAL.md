@@ -177,7 +177,7 @@ the `lipo` slice, so the failure is loud — what it does *not* catch is a *corr
 the wrong arch, which trap 5 turns into a broken bundle. Both binaries are published at
 
 ```
-https://vmaker-pi.TAILNET_REDACTED/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/
+https://REDACTED_INTERNAL_FORGE/forgejo/chatek/oh-my-pi/releases/download/v18.16.0/
 ```
 
 Expected values (2026-11-04): arm64 `215,642,256` B
