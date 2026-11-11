@@ -174,3 +174,74 @@ from these pages cites the mock's module, never "the firmware".
 | `vlink/README.md` §1/§3/§5/§9 | the narrative, the milestones, the subject taxonomy, the tool vocabulary |
 | `vlink_framework.md` §2/§3/§5 | the three zones, the maker journey, the latency targets |
 | `vclaw-desktop/vlink/docs/ARCHITECTURE.md` | bridge health states (`ready`/`degraded`) the fabric page mirrors |
+
+## 9. F1 firmware architecture (build plan, added 2026-11-12 from the prompt review)
+
+The review of an external firmware prompt against this design adopted three hints
+(sdkconfig as a deliverable, DMA flush + tick source named as the hard parts, clean
+BSP → port → UI layering) and rejected two (SquareLine Studio, "sensor loops" as the
+update source). This section is what F1 is built against — the screen inventory
+above plus this architecture is the complete design.
+
+### 9.1 Layering (three components, no widget-tree generator)
+
+| layer | contents | note |
+|---|---|---|
+| **BSP** (`main/bsp/`) | ST7789 SPI driver (MADCTL `0x70`, gap 34, landscape 320×172), backlight PWM, button GPIO9/GPIO18 debounce, RGB bead (GPIO8 — re-verify against schematic, README §3's caveat) | pin map is verified against the board schematic when F1 starts, not assumed from the framework |
+| **LVGL port** (`main/lvgl_port/`) | `lv_init()`, draw buffers, `disp_flush` via SPI DMA, `esp_timer` tick → `lv_timer_handler()` | the two genuinely hard parts (below) |
+| **UI** (`main/ui/`) | the four screens from §4, hand-built from this SPEC's inventory — one `lv_canvas` creature blit, text labels, the 280×4 bar | SquareLine is **rejected**: its widget-tree export cannot express the canvas creature, the 13-state machine, or the `bored` decay, and the mockup framework (1 SVG unit = 1 px, provenance buckets, per-screen contract checks) is the better design-to-firmware pipeline |
+
+### 9.2 Memory model (board fact: **no PSRAM**)
+
+The C6FH8 has internal SRAM only. A full-frame 16-bit buffer at 320×172 is ~110 KB
+the chip cannot casually spare — this is the strongest argument for §4.1's 1-bit
+creature and the design's text-first pages:
+
+- **Draw buffers:** two partial buffers, 320×20 lines each (12.8 KB per buffer at
+  RGB565, ~25 KB the pair), in internal DMA-capable SRAM. LVGL renders into one
+  while SPI DMA pushes the other.
+- **Creature:** the 16×8 1-bit sprite is 16 bytes. All six expressions share one
+  silhouette; only eyes/mouth bitmaps differ (D3). The blit is the cheapest thing
+  LVGL animates, deliberately.
+- **Fonts:** Montserrat 14/20/40 as LVGL compiled assets (A6); f40 is hero-only
+  (a 14-char line at 40 px overruns 320).
+
+### 9.3 The two hard parts (named, per the review)
+
+1. **`disp_flush` over SPI DMA** — the ST7789 window-address + column/row offset
+   must account for the landscape MADCTL and the 34-pixel gap; a driver written
+   from a generic ST7789 description shows a shifted, rotated image on first boot.
+   Budget: ~22 ms full-frame at 40 MHz SPI (110 KB payload); zone-sized partial
+   refreshes keep interaction well under the < 50 ms target.
+2. **Tick + handler threading** — `esp_timer` callback does `lv_tick_inc(1)`; a
+   FreeRTOS task at ~28 ms priority-below-transport runs `lv_timer_handler()`.
+   UI updates arrive only from the CDC task (below); no sensor loops exist.
+
+### 9.4 The update source: CDC codec, not sensor loops
+
+The prompt's "background FreeRTOS tasks or sensor loops" updating the UI is the
+dashboard pattern — **rejected**. The device's real update source is the §5.3 CDC
+line protocol (README): `render`/`event` lines with echo-gated `ok` replies
+(2 s → `DEVICE_TIMEOUT`), the device's node id being its zero-padded BASE MAC
+learned from `hello`. The UI task consumes a queue fed by the CDC receive task;
+button presses flow the other way as event lines. F2 replaces the CDC transport
+with Wi-Fi to the same subjects — the codec is unchanged, only the pipe.
+
+### 9.5 sdkconfig (a deliverable, per the review)
+
+| setting | value | why |
+|---|---|---|
+| `CONFIG_COMPILER_OPTIMIZATION_PERF` | -O2 | flush path + codec hot loops |
+| `CONFIG_FREERTOS_HZ` | 1000 | 1 ms tick resolution for the debounce/LVGL cadence |
+| `CONFIG_SPIRAM*` | **unsupported** | no PSRAM on C6FH8 — any reference to it is a defect |
+| `CONFIG_LV_*` | per §9.2 buffers | LVGL memory from internal SRAM pools |
+| Flash partitions | app < 1.5 MB of 8 MB | README §4.1 budget |
+
+### 9.6 Verification hooks for F4
+
+- D5's < 50 ms agent→LVGL assertion gates on the p95 harness (README §10).
+- The bored-decay timer (5 min in the mock) is firmware-owned; its real value is
+  a `CONFIG_VLINK_BORED_MIN` Kconfig default, testable without waiting.
+- Reflash cycles must not lose pairing (README §3 F4) — the BASE-MAC identity and
+  CDC handshake are stateless on the device side, so this holds by construction;
+  the test proves it.
