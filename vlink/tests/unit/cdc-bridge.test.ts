@@ -372,7 +372,7 @@ describe("CdcBridge hot-plug supervision and OMP-status sync", () => {
     await bridge.syncStatusForTest();
     const statusRender = cdc.written.find((line) => line.includes('"zone":"status"'));
     expect(statusRender).toBeDefined();
-    expect(statusRender).toContain("a2a 2 live");
+    expect(statusRender).toContain("awake · 2 friends");
     expect(statusRender).toContain('"tone":"green"');
 
     // All agents silent → amber waiting line, and no duplicate render while unchanged.
@@ -461,14 +461,14 @@ describe("CdcBridge NATS → device", () => {
     const replyPromise = nats.nextPublish((m) => m.subject === reply);
     nats.deliver(
       `iot.cmd.matter.${FABRIC}.${NODE}.1.display.status`,
-      displayCommandPayload("status", { text: "nats ok · a2a 13 live", tone: "green" }, "req-1"),
+      displayCommandPayload("status", { text: "awake · 13 friends", tone: "green" }, "req-1"),
       reply,
     );
 
     const renderLine = await cdc.nextWrite((line) => line.includes('"type":"render"'));
     const render = parseJson<{ zone: string; text: string; tone: string; id: string }>(renderLine);
     expect(render.zone).toBe("status");
-    expect(render.text).toBe("nats ok · a2a 13 live");
+    expect(render.text).toBe("awake · 13 friends");
     expect(render.tone).toBe("green");
     expect(render.id.length).toBeGreaterThan(0);
 

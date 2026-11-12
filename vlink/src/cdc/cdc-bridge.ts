@@ -391,7 +391,9 @@ export class CdcBridge {
       if (now - seenAt > this.heartbeatTtlMs) this.hbSeen.delete(agent);
     }
     const live = this.hbSeen.size;
-    const text = live > 0 ? `vclaw · a2a ${live} live` : "vclaw · waiting for agents";
+    // Kid voice (operator ruling 2026-11-12, pet topology): friends = live agents.
+    // The mockup's Home idle line renders the same words.
+    const text = live > 0 ? `awake · ${live} friends` : "sleeping · plug me in";
     const amber = live === 0;
     if (text === this.lastStatusText && amber === this.lastStatusAmber) return;
     this.lastStatusText = text;

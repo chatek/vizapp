@@ -138,25 +138,25 @@ const FRAMES: Record<
 > = {
   "no-bus": {
     square: C_AMB,
-    status: "waiting for bus",              // framework §3.1: attach is the onboarding step
+    status: "sleeping · plug me in",        // pet voice (operator ruling: no "bus" jargon)
     statusFill: C_AMB,
-    ticker: "> plug in · vclaw vlink attach", // F3 CLI name; VClaw is the platform brand — ILLUSTRATIVE wording
+    ticker: "> usb-c wakes me up",           // the wire is step one — roads page teaches the rest
     activity: 0,
     doze: true,
   },
   idle: {
     square: C_GRN,                          // awake and connected
-    status: "nats ok · a2a 13 live",        // pi-a2a's own status vocabulary; 13 is illustrative
+    status: "awake · 13 friends",           // friends = live agents (heartbeat count); 13 illustrative
     statusFill: C_GRN,
-    ticker: "> heartbeat 30s",              // VLINK_HEALTH_INTERVAL_MS default (README §7)
+    ticker: "> listening for you",          // the agent is listening
     activity: 0,
     doze: false,
   },
   bored: {
-    square: C_AMB,                          // a nudge, not a fault: still on the bus, just quiet
+    square: C_AMB,                          // a nudge, not a fault: still connected, just quiet
     status: "bored · 5 min quiet",          // decay from idle; 5 min is ILLUSTRATIVE
     statusFill: C_AMB,
-    ticker: "> press BOOT to ping",         // the way out is the maker's button
+    ticker: "> press BOOT to say hi",       // the way out is the maker's button
     activity: 0,
     doze: false,
   },
@@ -164,7 +164,7 @@ const FRAMES: Record<
     square: C_GRN,
     status: "agent working",
     statusFill: C_GRN,
-    ticker: "> onOff.toggle 42ms ok",       // vlink_command round trip; 42ms illustrative (< 50ms target)
+    ticker: "> trick done · 42ms",          // pet trick, latency teaching kept; 42ms illustrative (< 50ms target)
     activity: 0.46,                         // illustrative
     doze: false,
   },
@@ -172,7 +172,7 @@ const FRAMES: Record<
     square: C_AMB,                          // the flash the RGB LED also makes (framework §3.3)
     status: "BOOT -> agent",                // ASCII arrow: Montserrat basic-Latin coverage
     statusFill: C_AMB,
-    ticker: "> button event sent",          // iot.event.matter.… (README §5.1)
+    ticker: "> saying hi…",                 // the button event, in kid voice
     activity: 1,
     doze: false,
   },
