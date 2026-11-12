@@ -39,8 +39,8 @@ The device has no Matter node id; it uses a MAC-derived synthetic identity:
 | type | fields | meaning |
 |---|---|---|
 | `ack` | `fabric:"<fabric-…>"`, `instance:"<host instance>"` | host bridge is up; device may leave `no-bus` |
-| `render` | `zone:"status"\|"ticker"\|"creature"\|"activity"`, plus zone payload (below) | paint one zone |
-| `event` | `name:string`, `text:string` | an agent-side happening: device shows the `ask` face + `text` on the ticker for ≥ 5 s |
+| `render` | `zone:"status"\|"ticker"\|"creature"\|"activity"\|"page"`, plus zone payload (below) | paint one zone (`page` = the pet-topology screens, below) |
+| `event` | `name:string`, `text:string` | an agent-side happening: device shows the `ask` face + `text` on the ticker for ≥ 5 s. Named events `adopt-start` / `adopt-end` arm/clear the adoption window instead (below) |
 | `bye` | — | host bridge is going down; device returns to `no-bus` |
 
 `render` zone payloads:
@@ -49,6 +49,36 @@ The device has no Matter node id; it uses a MAC-derived synthetic identity:
 - `ticker`: `{"text":"> onOff.toggle 42ms ok"}`
 - `creature`: `{"state":"idle"}` — same enum as the `state` message
 - `activity`: `{"fraction":0.46,"tone":"green"|"amber"}` (0 hides the fill)
+- `page` — the pet-topology screens (pets / roads / today / adopt):
+  `{"screen":"pets"|"roads"|"today"|"adopt","state":"…","rows":[{"key":"USB-C","value":"plugged in","tone":"green"|"amber"|"dim"}]}`
+  — up to 4 rows, each value ≤ 24 chars. The device applies the rows to the
+  named screen (creating its state; unknown screens/states are ignored for
+  forward compat), echoes with the render `id` like any render, and repaints
+  immediately if that page is currently displayed. A page render is data
+  sync, not a creature command: it does NOT drive the `working` overlay.
+  Host-side senders are future work; the device side is live. Per-screen
+  state enums: pets `empty|list`; roads `fresh|talking|adopting|free`;
+  today `attention|quiet|empty`; adopt `calling|secret|homeword|home`.
+  On `today`, the 4th row renders as the full-width note `> said: "…"`
+  (unless its value is `--`).
+
+`event` examples (adoption window):
+
+- `{"v":1,"type":"event","name":"adopt-start"}` — an adoption window is
+  active: the device enters the armed `adopt` page (modal; BOOT short =
+  confirm — the `button` line still fires and the host interprets it —
+  GPIO18 short = cancel).
+- `{"v":1,"type":"event","name":"adopt-end"}` — the window closed; the
+  device clears the armed state and, if it was on `adopt`, moves to `pets`.
+  On success the host follows with a `render zone:"page"` for `pets` so the
+  family list refreshes.
+
+Device-side page navigation (local side effect of the buttons; every press
+still emits its `button` line): BOOT long from home enters the page cycle
+(`home → pets → roads → today → adopt → pets`), BOOT short advances it,
+BOOT long or GPIO18 short from any page returns home, GPIO18 long toggles
+the display. While on a page, `render`s for the home zones keep updating
+zone content (visible on return to home).
 
 ## 5. NATS mapping (host bridge)
 
