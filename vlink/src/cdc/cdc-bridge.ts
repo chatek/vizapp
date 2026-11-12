@@ -38,10 +38,24 @@ import {
 
 const DEFAULT_ECHO_TIMEOUT_MS = 2_000;
 const DEFAULT_QUEUE = "vlink";
+/** How often the supervisor re-checks the device (hot-plug rediscovery). */
+const DEFAULT_SUPERVISE_MS = 5_000;
+/** No device line for this long while open → the link is dead; re-discover. */
+const DEFAULT_LINK_SILENCE_MS = 45_000;
+/** A heartbeat older than this no longer counts the agent as live. */
+const DEFAULT_HB_TTL_MS = 15_000;
 const DISPLAY_ACTIONS = ["status", "ticker", "activity", "notify"] as const;
 const RENDER_ZONES = ["status", "ticker", "activity"] as const;
 type DisplayAction = (typeof DISPLAY_ACTIONS)[number];
 type RenderZone = (typeof RENDER_ZONES)[number];
+
+/** Named timer contract (Bun/Node interval handle). */
+type Interval = ReturnType<typeof setInterval>;
+
+/** The value when positive, else the fallback. */
+function positiveOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && value > 0 ? value : fallback;
+}
 
 export interface CdcBridgeOptions {
   transport: CdcTransport;
@@ -53,6 +67,14 @@ export interface CdcBridgeOptions {
   logger: Logger;
   /** Queue group for the display subscription (§5); default `vlink`. */
   queue?: string;
+  /** Supervisor re-check period for hot-plug rediscovery; default 5 s. */
+  superviseMs?: number;
+  /** Open-but-silent period after which the link is considered dead. */
+  linkSilenceMs?: number;
+  /** Period for the OMP-status → LCD sync publisher; default the same as superviseMs. */
+  statusIntervalMs?: number;
+  /** Heartbeat age over which a peer no longer counts as live; default 15 s. */
+  heartbeatTtlMs?: number;
   /** How long to wait for the device `echo` before `DEVICE_TIMEOUT`. */
   echoTimeoutMs?: number;
 }
@@ -117,12 +139,24 @@ export class CdcBridge {
   private readonly logger: Logger;
   private readonly queue: string | undefined;
   private readonly echoTimeoutMs: number;
+  private readonly superviseMs: number;
+  private readonly linkSilenceMs: number;
+  private readonly statusIntervalMs: number;
+  private readonly heartbeatTtlMs: number;
   private readonly pending = new Map<string, PendingRender>();
   private subscription: NatsSubscription | undefined;
+  private hbSubscription: NatsSubscription | undefined;
   private disposeLines: (() => void) | undefined;
   private nodeId: string | undefined;
   private started = false;
   private renderCounter = 0;
+  private lastDeviceLineAt = 0;
+  private superviseTimer: Interval | undefined;
+  /** Live agent names from `agents.hb.>` heartbeats, with the time of the last beat. */
+  private readonly hbSeen = new Map<string, number>();
+  private hbTimer: Interval | undefined;
+  private lastStatusText: string | undefined;
+  private lastStatusAmber: boolean | undefined;
 
   constructor(options: CdcBridgeOptions) {
     this.transport = options.transport;
@@ -132,6 +166,10 @@ export class CdcBridge {
     this.logger = options.logger;
     this.queue = options.queue && options.queue.length > 0 ? options.queue : DEFAULT_QUEUE;
     this.echoTimeoutMs = options.echoTimeoutMs && options.echoTimeoutMs > 0 ? options.echoTimeoutMs : DEFAULT_ECHO_TIMEOUT_MS;
+    this.superviseMs = positiveOr(options.superviseMs, DEFAULT_SUPERVISE_MS);
+    this.linkSilenceMs = positiveOr(options.linkSilenceMs, DEFAULT_LINK_SILENCE_MS);
+    this.statusIntervalMs = positiveOr(options.statusIntervalMs, this.superviseMs);
+    this.heartbeatTtlMs = positiveOr(options.heartbeatTtlMs, DEFAULT_HB_TTL_MS);
   }
 
   /** True between start() and stop() — lets the router know display commands have an owner. */
@@ -142,31 +180,46 @@ export class CdcBridge {
   /**
    * Open the device and wire the translation. A missing device resolves
    * normally (logged, `status().connected === false`): absence is a normal
-   * deployment state, not a bridge failure.
+   * deployment state — and the supervisor keeps rediscovering so a board
+   * plugged in later is picked up.
    */
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    this.lastDeviceLineAt = Date.now();
     this.disposeLines = this.transport.onLine((line) => this.handleLine(line));
-    let opened = false;
-    try {
-      opened = await this.transport.open();
-    } catch (error) {
-      this.logger.warn("cdc transport open failed", { error: errorText(error) });
-    }
-    if (!opened) {
-      this.logger.info("cdc device not found; bridge idle", { fabricId: this.fabricId });
-      return;
-    }
-    this.logger.info("cdc device opened", { fabricId: this.fabricId });
-    // §7: the device may already be waiting from a previous session — an ack
-    // is harmless when it is not, and re-acks a dozing device back to idle.
-    this.sendAck();
+    await this.tryOpen();
+
+    // Hot-plug + link supervision: re-check the device every superviseMs.
+    // Covers board-absent-at-start (rediscovery) and unplugged-while-open
+    // (silence watchdog) — the daily-use "plug in whenever" flow.
+    this.superviseTimer = setInterval(() => void this.supervise(), this.superviseMs);
+    this.superviseTimer.unref?.();
+
+    // OMP-status → LCD sync: count live agents from the pi-a2a heartbeat
+    // plane and push the status line whenever it changes.
+    this.hbSubscription = await this.subscribeHeartbeats();
+    this.hbTimer = setInterval(() => this.syncStatus(), this.statusIntervalMs);
+    this.hbTimer.unref?.();
   }
 
   async stop(): Promise<void> {
     if (!this.started) return;
     this.started = false;
+
+    if (this.superviseTimer) {
+      clearInterval(this.superviseTimer);
+      this.superviseTimer = undefined;
+    }
+    if (this.hbTimer) {
+      clearInterval(this.hbTimer);
+      this.hbTimer = undefined;
+    }
+    this.hbSubscription?.unsubscribe();
+    this.hbSubscription = undefined;
+    this.hbSeen.clear();
+    this.lastStatusText = undefined;
+    this.lastStatusAmber = undefined;
 
     if (this.transport.isOpen()) {
       this.writeMessage({ type: "bye" });
@@ -201,6 +254,42 @@ export class CdcBridge {
     this.nodeId = undefined;
   }
 
+  /** One supervisor pass: open if closed, respawn the link if silent-dead. */
+  private async supervise(): Promise<void> {
+    if (!this.started) return;
+    if (!this.transport.isOpen()) {
+      await this.tryOpen();
+      return;
+    }
+    if (this.lastDeviceLineAt > 0 && Date.now() - this.lastDeviceLineAt > this.linkSilenceMs) {
+      // The device ticks every 30 s; past the silence window the link is a
+      // zombie (an unplug can leave the fd readable-but-EOF). Close and
+      // rediscover; the device re-hellos and everything rejoins.
+      this.logger.info("cdc link silent; rediscovering", { node: this.nodeId });
+      await this.transport.close().catch(() => {});
+      await this.tryOpen();
+    }
+  }
+
+  /** Open + ack; absence is a normal state, logged at debug to keep the log quiet. */
+  private async tryOpen(): Promise<void> {
+    let opened = false;
+    try {
+      opened = await this.transport.open();
+    } catch (error) {
+      this.logger.warn("cdc transport open failed", { error: errorText(error) });
+    }
+    if (!opened) {
+      this.logger.debug("cdc device not found; will retry", { fabricId: this.fabricId });
+      return;
+    }
+    this.lastDeviceLineAt = Date.now();
+    this.logger.info("cdc device opened", { fabricId: this.fabricId });
+    // §7: the device may already be waiting from a previous session — an ack
+    // is harmless when it is not, and re-acks a dozing device back to idle.
+    this.sendAck();
+  }
+
   status(): CdcBridgeStatus {
     return {
       connected: this.transport.isOpen(),
@@ -213,6 +302,7 @@ export class CdcBridge {
   // -------------------------------------------------------------------------
 
   private handleLine(line: string): void {
+    this.lastDeviceLineAt = Date.now();
     const parsed = parseCdcLine(line);
     if (!parsed.ok) {
       this.logger.warn("cdc line dropped", { error: parsed.error, line: line.slice(0, 120) });
@@ -273,6 +363,45 @@ export class CdcBridge {
   private sendAck(): void {
     if (!this.transport.isOpen()) return;
     this.writeMessage({ type: "ack", fabric: this.fabricId, instance: this.instanceId });
+  }
+
+  /**
+   * The OMP-status source: pi-a2a's heartbeat plane (`agents.hb.>`), the
+   * same traffic its own status bar counts. One entry per agent, refreshed
+   * by every beat; `syncStatus` expires stale ones.
+   */
+  private async subscribeHeartbeats(): Promise<NatsSubscription | undefined> {
+    try {
+      return await this.nats.subscribe("agents.hb.>", (error, message) => {
+        if (error) return;
+        // Subject: agents.hb.<agent>.<owner>.<name> — the tail identifies the peer.
+        this.hbSeen.set(message.subject, Date.now());
+      });
+    } catch (error) {
+      this.logger.warn("cdc hb subscribe failed (status sync degraded)", { error: errorText(error) });
+      return undefined;
+    }
+  }
+
+  /** Push the OMP status line to the LCD when it changes (§ daily-use sync). */
+  private syncStatus(): void {
+    if (!this.started || !this.transport.isOpen()) return;
+    const now = Date.now();
+    for (const [agent, seenAt] of [...this.hbSeen]) {
+      if (now - seenAt > this.heartbeatTtlMs) this.hbSeen.delete(agent);
+    }
+    const live = this.hbSeen.size;
+    const text = live > 0 ? `vclaw · a2a ${live} live` : "vclaw · waiting for agents";
+    const amber = live === 0;
+    if (text === this.lastStatusText && amber === this.lastStatusAmber) return;
+    this.lastStatusText = text;
+    this.lastStatusAmber = amber;
+    this.writeMessage({ type: "render", zone: "status", id: `status-${++this.renderCounter}`, payload: { text, tone: amber ? "amber" : "green" } });
+  }
+
+  /** Test hook: run one status-sync pass immediately (timer paths are covered by lifecycle tests). */
+  syncStatusForTest(): void {
+    this.syncStatus();
   }
 
   private publishButton(message: CdcButtonMessage): void {

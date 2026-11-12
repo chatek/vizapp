@@ -57,68 +57,77 @@ const C_GRN = "#00FF00";
 const C_DIM = "#005500";
 const C_DRK = "#002200";
 
-/** The creature, one mask per state. `#` = dot. Eyes are gaps in the dot field; expressions
- * change only eyes and mouth, so the silhouette stays one creature across states. */
+/** The creature: the CLAWD wordmark — two 5×6 block letters with hollow
+ *  interiors (the emulator's "Block Clawd" model, v2.4). The letters ARE
+ *  the face: eye pixels live in the letterform hollows (rows 2–4), the
+ *  baseline row carries the mouth. Expressions (only eye/mouth pixels and
+ *  the odd baseline accent change, so the wordmark stays readable):
+ *   no-bus  eyes closed, no baseline — asleep, dim
+ *   idle    dot eyes, full baseline — content (the canonical frame)
+ *   bored   eyes dropped one row — sulking
+ *   working eyes present, mouth gap mid-baseline — busy
+ *   ping    WIDE split eyes, mouth off-center — the ping moment
+ *   ask     hollowed eyes (row 2 filled), shortened smile — answering */
 const MASKS: Record<State, readonly string[]> = {
   "no-bus": [
-    "....########....",
-    "..##........##..",
-    ".#...##..##...#.",
-    ".#............#.",
-    ".#............#.",
-    "..#..........#..",
-    "...##......##...",
-    ".....######.....",
-  ],
-  bored: [
-    "....########....",
-    "..##........##..",
-    ".#...##..##...#.",
-    ".#............#.",
-    ".#............#.",
-    "..#....##....#..",
-    "...##......##...",
-    ".....######.....",
+    "..###.....###...",
+    ".#...#...#...#..",
+    ".#..###..#..###.",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "................",
+    "................",
   ],
   idle: [
-    "....########....",
-    "..##........##..",
-    ".#...##..##...#.",
-    ".#...##..##...#.",
-    ".#............#.",
-    "..#..######..#..",
-    "...##......##...",
-    ".....######.....",
+    "..###.....###...",
+    ".#...#...#...#..",
+    ".#.###...#.###..",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "...............#",
+    "..############..",
+  ],
+  bored: [
+    "..###.....###...",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#.###...#.###..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "................",
+    "..############..",
   ],
   working: [
-    "....########....",
-    "..##........##..",
-    ".#...##..##...#.",
-    ".#...##..##...#.",
-    ".#............#.",
-    "..#..........#..",
-    "...##..####..##.",
-    ".....######.....",
+    "..###.....###...",
+    ".#.##....#.##...",
+    ".#.###...#.###..",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "......###.......",
+    "..############..",
   ],
   ping: [
-    "....########....",
-    "..##........##..",
-    ".#..###..###..#.",
-    ".#..###..###..#.",
-    ".#....####....#.",
-    "..#..######..#..",
-    "...##......##...",
-    ".....######.....",
+    ".#.#.#...#.#.#..",
+    ".#.#.#...#.#.#..",
+    "..........##.#..",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "...............#",
+    "..############..",
   ],
   ask: [
-    "....########....",
-    "..##........##..",
-    ".#............#.",
-    ".#............#.",
-    ".#............#.",
-    "..#..######..#..",
-    "...##......##...",
-    ".....######.....",
+    "..###.....###...",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    ".#...#...#...#..",
+    ".#...#...#...#..",
+    ".#####...#####..",
+    "...#.......#....",
+    "...#########....",
   ],
 };
 
@@ -176,27 +185,25 @@ const FRAMES: Record<
     doze: false,
   },
 };
+/** "z z" dozing marks above the lores creature at row `y0` — two 2×2 dots. */
+function dozeMarksAt(dot: string, y0: number): string {
+  return (
+    rect(GRID_X + 15 * GRID.cell, y0 - 8, 2, 2, { fill: dot }) +
+    rect(GRID_X + 13 * GRID.cell, y0 - 14, 2, 2, { fill: dot })
+  );
+}
 
-/** Render one mask as dot-matrix rects. */
-function creature(mask: readonly string[], dot: string): string {
+function creature(mask: readonly string[], dot: string, y0 = GRID_Y): string {
   const parts: string[] = [];
   mask.forEach((row, r) => {
     for (let c = 0; c < row.length; c++) {
       if (row[c] !== "#") continue;
       parts.push(
-        rect(GRID_X + c * GRID.cell, GRID_Y + r * GRID.cell, GRID.dot, GRID.dot, { fill: dot }),
+        rect(GRID_X + c * GRID.cell, y0 + r * GRID.cell, GRID.dot, GRID.dot, { fill: dot }),
       );
     }
   });
   return parts.join("");
-}
-
-/** "z z" dozing marks at the creature's top-right — two 2×2 dots, one row apart. */
-function dozeMarks(dot: string): string {
-  return (
-    rect(GRID_X + 15 * GRID.cell, GRID_Y - 8, 2, 2, { fill: dot }) +
-    rect(GRID_X + 13 * GRID.cell, GRID_Y - 14, 2, 2, { fill: dot })
-  );
 }
 
 export const home: Screen = {
@@ -217,9 +224,9 @@ export const home: Screen = {
       // Zone A — connection status: state square + tokens, the name-row geometry.
       rect(12, STATUS_BASE - 8, 4, 4, { fill: f.square }),
       text(24, STATUS_BASE, f.status, { size: F_LABEL.size, fill: f.statusFill }),
-      // Zone B — the agent as a creature.
+      // Zone B — the creature: the wordmark Clawd, one dot per block-art cell.
       creature(MASKS[s], dot),
-      ...(f.doze ? [dozeMarks(C_DIM)] : []),
+      ...(f.doze ? [dozeMarksAt(C_DIM, GRID_Y)] : []),
       // Zone C — activity bar (the firmware's own 280×4 geometry) + the ticker.
       rect(BAR.x, BAR.y, BAR.w, BAR.h, { fill: C_DRK }),
       ...(f.activity > 0

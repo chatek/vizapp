@@ -146,17 +146,22 @@ html, body { margin: 0; background: var(--shell-bg); color: var(--shell-text); }
   letter-spacing: .06em;
 }
 .r-head .screen-name {
-  font-size: 25px; line-height: 1.25; margin: 0 0 12px; font-weight: 650;
+  font-size: 21px; line-height: 1.25; margin: 0 0 10px; font-weight: 680;
   letter-spacing: -.01em; color: var(--shell-accent);
+}
+.r-head .screen-name .screen-sub {
+  display: block; margin-top: 2px;
+  font-size: 13.5px; font-weight: 500; letter-spacing: .01em;
+  color: var(--shell-muted);
 }
 .r-head .meta {
   display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px;
 }
 .r-head .meta span {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px; letter-spacing: .02em; color: var(--shell-text);
+  font-size: 12.5px; letter-spacing: .02em; color: var(--shell-text);
   background: var(--shell-code); border: 1px solid var(--shell-line);
-  border-radius: 6px; padding: 2px 8px;
+  border-radius: 6px; padding: 2.5px 9px;
 }
 .r-head .meta span:first-child { color: var(--shell-accent); border-color: color-mix(in srgb, var(--shell-accent) 40%, transparent); }
 
@@ -178,9 +183,9 @@ html, body { margin: 0; background: var(--shell-bg); color: var(--shell-text); }
 .pick { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 18px; }
 .pick span { color: var(--shell-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .pick select {
-  width: 100%; max-width: 420px; padding: 9px 12px; border-radius: 10px;
+  width: 100%; max-width: 480px; padding: 10px 14px; border-radius: 10px;
   border: 1px solid var(--shell-line); background: var(--shell-panel); color: var(--shell-text);
-  font-size: 14.5px;
+  font-size: 15.5px; font-weight: 550;
 }
 
 .block { margin-top: 34px; }

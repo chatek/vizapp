@@ -496,6 +496,19 @@ and gates p95 at `VLINK_HW_P95_MS` (default 50 ms).
 - **Localhost trust boundary.** The shared NATS server is token-auth, bound to
   `127.0.0.1`, with no leafnode. VLink inherits that boundary; it exposes no
   network listener.
+- **No identity surface in v1 — by ruling (vchat-email-lead, 2026-11-12).**
+  VLink stays purely on the local NATS bus as scoped: no IDP client, no
+  segment coupling, no device-pairing identity. Design constraint for any
+  future version: under the AUTENTICO Group=Segment model, a device
+  identity's natural key is the **owning human's segment membership**, never
+  a device-local account — and it enters only through vgate's delegation
+  model (a device as an agent under a human's ownership row), the sole path
+  the fabric's authz recognizes. Until then: board-local, bus-local, no IDP
+  calls. **The seam is deliberate:** the device's bus identity is a synthetic
+  MAC-derived node id assigned by the host bridge (CDC_PROTOCOL §2), not by
+  the device and not by any IdP — the bridge is the only place identity
+  enters, so a future pairing-identity provider plugs in there without
+  touching firmware or wire protocol.
 - **Topic authorization is not per-device.** Any process with the local NATS
   token can command any commissioned device. Per-fabric NATS accounts/subject
   ACLs are a hardening step, not a v1 guarantee.

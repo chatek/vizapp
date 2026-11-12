@@ -114,21 +114,30 @@ export function hintLeft(tk: Tokens, s: string, fill?: string): string {
  *  on every page. LVGL positions a label at INTEGER coordinates, so a column that is not
  *  fixed is a column the firmware cannot reproduce.
  *
- *  Now: keys UPPERCASE at x 12 (f14, letter-space 1), values at x 104 (f20) — two integer
- *  columns, one shared baseline, everything expressible as two lv_labels per row. */
-export const KV = { top0: 26, pitch: 24, valueX: 104 } as const;
-/** Shared baseline for both cells: the f20 baseline of the row (top + 18), so a 14 px key
- *  and a 20 px value sit on ONE line, the way LVGL's own baseline alignment does it. */
-export const kvBase = (i: number): number => KV.top0 + i * KV.pitch + F_VALUE.line - F_VALUE.base;
+ *  Now: keys UPPERCASE at x 12, values at x 118 — both f14, one shared
+ *  baseline, everything expressible as two lv_labels per row. Hierarchy rides
+ *  the column split and colour, not size.
+ *  FIXED 2026-11-12 (two rounds): the first cut (f14 keys / f20 values,
+ *  top0 26, pitch 24, valueX 104) collided twice — the widest key (TRANSPORT,
+ *  98 px) overran the 104 px value column, and row 3's f20 value (ink to
+ *  y 111) landed under the hint band (ink from y 99). Four f20/f14 pairs
+ *  need ~96 px but only 75 px exists between the header and the hint; two
+ *  text scales do not fit the 320 × 172 canvas at four rows. Uniform f14
+ *  with pitch 19 (top0 23: baselines 36/55/74/93, last ink clear of the hint band at 98) and keeps every slide's body text the
+ *  same size — the f40 hero stays reserved for state words (SPEC §3.3). */
+export const KV = { top0: 23, pitch: 19, valueX: 118 } as const;
+/** Shared baseline for both cells (f14: line 16, base 3 → +13 from row top). */
+export const kvBase = (i: number): number => KV.top0 + i * KV.pitch + F_LABEL.line - F_LABEL.base;
 
 export function kvRow(tk: Tokens, i: number, key: string, value: string, fill?: string): string {
   const y = kvBase(i);
   const label = key.replace(/:$/, "").toUpperCase();
   return (
     text(LEFT, y, label, { size: F_LABEL.size, ls: 1, fill: tk.text }) +
-    text(KV.valueX, y, truncate(value, RIGHT - KV.valueX, F_VALUE.size), { size: F_VALUE.size, fill: fill ?? tk.text })
+    text(KV.valueX, y, truncate(value, RIGHT - KV.valueX, F_LABEL.size), { size: F_LABEL.size, fill: fill ?? tk.text })
   );
 }
+
 
 /** A bare sentence on a row, no key — MINE (a consequence/reason line, which UX_DESIGN §4
  *  asks for on two pages but gives no literal for). */

@@ -101,3 +101,10 @@ code `DEVICE_TIMEOUT`.
    `vlink`) and starts translating.
 4. On serial error/close: bridge unsubscribes, device (after ~10 s of silence)
    returns to `no-bus` and re-`hello`s every 5 s until re-acked.
+
+Host-side supervision (no wire element, recorded so the next reader does not
+hunt for a protocol change): the bridge re-runs device discovery every 5 s
+(hot-plug) and treats 45 s without any device line as a dead link (close +
+rediscover); it also counts live agents from the pi-a2a heartbeat plane and
+pushes the OMP status line via `render zone:"status"` whenever it changes.
+All of this rides the messages above — nothing in this document changed.

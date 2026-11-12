@@ -76,6 +76,13 @@ const GROUPS_ZH: Record<string, string> = {
   Onboarding: "引导", Codes: "口令", Entry: "录入", System: "系统", Overlays: "浮层",
 };
 
+/** Split a screen title "Name · subtitle" into a bold head + a readable tail;
+ *  screens without a separator render the whole title as the head. */
+function titleParts(title: string): { head: string; tail: string | undefined } {
+  const idx = title.indexOf(" · ");
+  if (idx < 0) return { head: title, tail: undefined };
+  return { head: title.slice(0, idx), tail: title.slice(idx + 3) };
+}
 const titleOf = (s: Screen): string => (lang === "zh" ? TITLES_ZH[s.id] ?? s.title : s.title);
 const groupOf = (g: string): string => (lang === "zh" ? GROUPS_ZH[g] ?? g : g);
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
@@ -212,9 +219,9 @@ function renderRight(s: Screen | undefined, state: string | undefined, c: (typeo
       <h1>${esc(c.title)}</h1>
       <p class="sub">${esc(c.sub)}</p>
       ${s?.proposal ? `<p class="proposal">PROPOSAL · not implemented in the firmware</p>` : ""}
-      ${s ? `<div class="eyebrow">${lang === "zh" ? "界面" : "Screen"}</div><h2 class="screen-name">${esc(titleOf(s))}</h2>` : ""}
+      ${s ? (() => { const { head, tail } = titleParts(titleOf(s)); return `<div class="eyebrow">${lang === "zh" ? "界面" : "Screen"}</div><h2 class="screen-name">${esc(head)}${tail ? `<span class="screen-sub">${esc(tail)}</span>` : ""}</h2>`; })() : ""}
       ${s ? `<p class="meta"><span>${esc(s.id)}</span><span>${esc(groupOf(s.group))}</span>${state ? `<span>${esc(state)}</span>` : ""}<span>${theme}</span><span>${lang}</span></p>` : ""}
-      <div class="ctl-row">${controls(c, s?.states ?? [], state)}</div>
+      ${controls(c, s?.states ?? [], state)}
       ${picker(c)}
     </header>`;
 

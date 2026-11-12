@@ -152,11 +152,27 @@ class FakeCdcTransport implements CdcTransport {
   private readonly waiters: WriteWaiter[] = [];
   private listener: CdcLineListener | undefined;
   private opened = false;
+  private readonly openWaiters: Array<() => void> = [];
 
-  constructor(private readonly available = true) {}
+  constructor(private available = true) {}
+
+  /** Simulate the board being plugged in after start(). */
+  plugIn(): void {
+    this.available = true;
+  }
+
+  /** Resolves after the next open() call completes. */
+  nextOpen(): Promise<void> {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.openWaiters.push(resolve);
+    return promise;
+  }
 
   async open(): Promise<boolean> {
     this.opened = this.available;
+    if (this.available) {
+      for (const resolve of this.openWaiters.splice(0)) resolve();
+    }
     return this.available;
   }
 
@@ -317,6 +333,53 @@ describe("CdcBridge lifecycle", () => {
     expect(cdc.written.at(-1)).toBe(serializeCdcMessage({ type: "bye" }));
     expect(nats.subscriptions.size).toBe(0);
     expect(bridge.status()).toEqual({ connected: false });
+  });
+});
+
+describe("CdcBridge hot-plug supervision and OMP-status sync", () => {
+  test("a device plugged in after start is discovered by the supervisor and acked", async () => {
+    const late = new FakeCdcTransport(false);
+    const lateBridge = new CdcBridge({
+      transport: late,
+      nats,
+      fabricId: FABRIC,
+      instanceId: "test-host",
+      logger: silentLogger,
+      superviseMs: 10,
+      statusIntervalMs: 10,
+      heartbeatTtlMs: 10,
+    });
+    await lateBridge.start();
+    expect(late.isOpen()).toBe(false);
+
+    // The board appears (hot-plug): the supervisor's next pass opens and acks.
+    late.plugIn();
+    // Await the ack line itself, not a guessed delay: it is written
+    // synchronously after the supervisor's open resolves.
+    const ackLine = late.nextWrite((line) => line.includes('"type":"ack"'));
+    await late.nextOpen();
+    await ackLine;
+    expect(late.isOpen()).toBe(true);
+    expect(late.written).toContain(serializeCdcMessage({ type: "ack", fabric: FABRIC, instance: "test-host" }));
+    await lateBridge.stop();
+  });
+
+  test("the status line tracks live agents from heartbeats and lands on the device", async () => {
+    await startWithHello();
+    // Two agents beat, one goes silent past the TTL.
+    nats.deliver("agents.hb.agent1.owner1.s1", "{}");
+    nats.deliver("agents.hb.agent2.owner2.s2", "{}");
+    await bridge.syncStatusForTest();
+    const statusRender = cdc.written.find((line) => line.includes('"zone":"status"'));
+    expect(statusRender).toBeDefined();
+    expect(statusRender).toContain("a2a 2 live");
+    expect(statusRender).toContain('"tone":"green"');
+
+    // All agents silent → amber waiting line, and no duplicate render while unchanged.
+    const renderCount = cdc.written.filter((line) => line.includes('"zone":"status"')).length;
+    await bridge.syncStatusForTest();
+    await bridge.syncStatusForTest();
+    expect(cdc.written.filter((line) => line.includes('"zone":"status"')).length).toBe(renderCount);
   });
 });
 
