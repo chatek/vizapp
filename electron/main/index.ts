@@ -28,6 +28,7 @@ import { PiModelCatalogService } from './providers-pi'
 import { PACKAGED_RENDERER_URL, PACKAGED_SMOKE_READY_EVENT, packagedSmokeMarker, packagedSmokeMarkerPath, serializePackagedSmokeMarker, type PackagedSmokeProductEvidence } from './packaged-smoke'
 import { PetService } from './pets'
 import { seedDefaultProject } from './default-project'
+import { seedVlinkSkills } from './vlink-skills'
 import { ProjectService } from './projects'
 import { BUILT_IN_PROFILE, describeProductProfile, expandDefaultProjectTarget, loadProductProfile, ProductProfileError, type ProductProfile } from './product-profile'
 import { SettingsService } from './settings-schedules'
@@ -637,6 +638,18 @@ async function bootstrap(): Promise<void> {
   // Product-scoped agent-sdk root: a member product's spool and credentials live
   // under ~/.<profile-id> (read here, and written by the child via VCLAW_HOME).
   setVclawSdkRootDirectory(productProfile.id)
+  // First-run seeding of the bundled VLink skills into the OMP agent skills directory
+  // (the directory the OMP harness discovers skills in). Copy-if-absent, never overwrite:
+  // after seeding the files are the user's. Runs after setOmpStateDirectory so a member
+  // product seeds into its own isolated state root, and before any OMP child spawns.
+  const vlinkSkillsSeeded = await seedVlinkSkills({
+    sourceRoot: app.isPackaged ? join(process.resourcesPath, 'skills') : join(app.getAppPath(), 'assets', 'skills'),
+    targetRoot: join(homedir(), ompStateDirectory(), 'agent', 'skills'),
+  })
+  const vlinkSkillsMissing = vlinkSkillsSeeded.filter((result) => result.status === 'absent')
+  if (vlinkSkillsMissing.length > 0) {
+    console.warn(`bundled vlink skills missing: ${vlinkSkillsMissing.map((result) => result.id).join(', ')}; starting without them`)
+  }
   // Member products paint the in-frame splash overlay (static HTML in index.html)
   // while the rest of bootstrap runs; the generic product never does, and neither
   // do background/test/smoke launches. Selection starts now so the scene is ready
