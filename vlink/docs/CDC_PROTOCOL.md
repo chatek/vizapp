@@ -67,7 +67,10 @@ The device has no Matter node id; it uses a MAC-derived synthetic identity:
 - `{"v":1,"type":"event","name":"adopt-start"}` — an adoption window is
   active: the device enters the armed `adopt` page (modal; BOOT short =
   confirm — the `button` line still fires and the host interprets it —
-  GPIO18 short = cancel).
+  GPIO18 short = cancel). **No `state` line is emitted for the arming**:
+  it is a page navigation, not a creature state change — the tamagotchi
+  stays `idle` underneath (verified on-device 2026-11-12; do not flag the
+  missing transition).
 - `{"v":1,"type":"event","name":"adopt-end"}` — the window closed; the
   device clears the armed state and, if it was on `adopt`, moves to `pets`.
   On success the host follows with a `render zone:"page"` for `pets` so the
