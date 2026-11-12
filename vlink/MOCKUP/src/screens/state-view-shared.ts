@@ -38,7 +38,7 @@ export const C_AMB = "#FFA500";
  *  oversight: the shortest line any page carries ("APPROVE LOGIN?", 14 chars) measures
  *  347 px at 40 px in the advance table, i.e. wider than the 320 px panel. The state view is
  *  a text page; the hero size stays on the main screen, where six digits are all it has to hold. */
-export const F_LABEL = { size: 14, line: 16, base: 3 } as const;
+export const F_LABEL = { size: 17, line: 19, base: 4 } as const; // Roboto 17 (lv_font_roboto_17.c)
 
 /** `lv_font_montserrat_20` — line 22, base 4 (`lv_font_montserrat_20.c:3207-3208`), ENABLED
  *  (`CONFIG_LV_FONT_MONTSERRAT_20=y`). Used for VALUE text only: a 20 px value beside a 14 px
@@ -63,12 +63,12 @@ export const RIGHT = metrics.canvas.w - 12;
 /** Row stack — MINE. Four f14 line boxes starting where the main screen's name row starts
  *  (y 24), pitch 18: baselines 37 / 55 / 73 / 91, last ink row ending at ~92, clear of the
  *  hint band (box 100–116). Four rows is the budget: a fifth baseline (109) collides. */
-export const ROW = { top0: 24, pitch: 18 } as const;
+export const ROW = { top0: 30, pitch: 22 } as const; // matches KV grid
 export const rowTop = (i: number): number => ROW.top0 + i * ROW.pitch;
 export const rowBase = (i: number): number => baseline(rowTop(i), F_LABEL);
 
 /** Hint band: box 100–116, baseline 113 — the firmware's `CENTER, 0, 22` + f14 (SPEC §3.1). */
-export const HINT_TOP = 100;
+export const HINT_TOP = 120;
 export const HINT_BASE = baseline(HINT_TOP, F_LABEL);
 
 /** List-line columns — MINE: a 14 px marker gutter, then the text column at 26. The text
@@ -80,7 +80,7 @@ export const LABEL_X = 26;
 /** The header every page keeps: `VLink` at x 8, the version right-aligned to x 312, y 4,
  *  f14, C_DIM — verbatim from ui_screens.cpp:55-65 (main.ts draws the same two labels). */
 export function headerOf(tk: Tokens): string {
-  const y = baseline(4, F_LABEL);
+  const y = baseline(6, F_LABEL);
   return (
     text(8, y, str("vlink"), { size: F_LABEL.size, fill: tk.muted }) +
     text(metrics.canvas.w - 8, y, str("version"), { size: F_LABEL.size, anchor: "end", fill: tk.muted })
@@ -125,7 +125,7 @@ export function hintLeft(tk: Tokens, s: string, fill?: string): string {
  *  text scales do not fit the 320 × 172 canvas at four rows. Uniform f14
  *  with pitch 19 (top0 23: baselines 36/55/74/93, last ink clear of the hint band at 98) and keeps every slide's body text the
  *  same size — the f40 hero stays reserved for state words (SPEC §3.3). */
-export const KV = { top0: 23, pitch: 19, valueX: 118 } as const;
+export const KV = { top0: 30, pitch: 22, valueX: 118 } as const;
 /** Shared baseline for both cells (f14: line 16, base 3 → +13 from row top). */
 export const kvBase = (i: number): number => KV.top0 + i * KV.pitch + F_LABEL.line - F_LABEL.base;
 

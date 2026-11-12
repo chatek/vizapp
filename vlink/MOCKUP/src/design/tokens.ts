@@ -96,9 +96,9 @@ export const font = {
    *  same TTF (public/fonts, copied from vkey/vendors/lvgl/scripts/built_in_font) so digit
    *  advances match the firmware's slot math. Standalone exported SVGs fall back to system-ui
    *  unless Montserrat is installed — stated in SPEC A6. */
-  stack: "Montserrat, 'Segoe UI', system-ui, sans-serif",
+  stack: "Roboto, 'Segoe UI', system-ui, sans-serif",
   /** body */
-  body: 16,
+  body: 17,
   /** body line-height (unitless multiplier) */
   lineHeight: 1.45,
   /** .brand-name */

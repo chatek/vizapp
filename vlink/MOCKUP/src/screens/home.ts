@@ -19,14 +19,14 @@
 // design the firmware is to be built against.
 //
 // STATE "no-bus"  — powered, not yet on the bus: creature dozes dim, amber status, attach hint.
-// STATE "idle"    — on the bus, agent listening: creature awake, green, heartbeat ticker.
+// STATE "idle"    — on the bus, agent listening: creature awake, green.
 // STATE "bored"   — decay from idle after quiet minutes: half-lid eyes, flat mouth, amber nudge
 //                   "press BOOT to ping" — the tamagotchi pull that makes the maker engage.
-// STATE "working" — agent executing a command: busy mouth, activity bar filling, live ticker.
+// STATE "working" — agent executing a command: busy mouth.
 // STATE "ping"    — the BOOT moment (framework §3.3): button event on its way to the agent;
 //                   wide eyes, open mouth, full bar. The RGB LED (GPIO8) mirrors this off-canvas.
 // STATE "ask"     — the GPIO18 moment: the maker summoned the agent and the agent answers on
-//                   the panel — eyes-closed smile, one-line digest on the ticker.
+//                   the panel — eyes-closed smile.
 // LVGL plausibility: every element is one lv_label, one lv_obj rect or one lv_canvas blit — the
 // creature is a 16×8 1-bit sprite, the cheapest thing LVGL can animate at 20 fps.
 import type { Screen } from "../design/contract.js";
@@ -43,15 +43,11 @@ type State = (typeof STATES)[number];
  * centered on the panel (x 96…224, y 48…112). INVENTED, integer by the board lane's rule. */
 const GRID = { cols: 16, rows: 8, cell: 8, dot: 6 } as const;
 const GRID_X = (320 - GRID.cols * GRID.cell) / 2; // 96
-const GRID_Y = 48;
+const GRID_Y = 70; // face ink centered on the canvas center (ink 56..116, center 86)
 
-/** Zone A: the status row — the firmware's own name-row geometry (box 24-40, baseline 37). */
-const STATUS_BASE = baseline(24, F_LABEL); // 37
+/** The status line sits BELOW the face: the emotional read of the pet. */
+const STATUS_BASE = baseline(140, F_LABEL); // near the bottom, clear of the face (ends y94)
 
-/** Zone C: the activity bar on the TOTP bar's geometry (280×4 at x 20, y 148) and the
- * ticker line below it (f14 box 152-168, baseline 165). */
-const BAR = { x: 20, y: 148, w: 280, h: 4 } as const;
-const TICKER_BASE = baseline(152, F_LABEL); // 165
 
 const C_GRN = "#00FF00";
 const C_DIM = "#005500";
@@ -134,54 +130,42 @@ const MASKS: Record<State, readonly string[]> = {
 /** Zone A + C content per state. PRODUCT VOCAB names; ILLUSTRATIVE values. */
 const FRAMES: Record<
   State,
-  { square: string; status: string; statusFill: string; ticker: string; activity: number; doze: boolean }
+  { square: string; status: string; statusFill: string; doze: boolean }
 > = {
   "no-bus": {
     square: C_AMB,
-    status: "sleeping · plug me in",        // pet voice (operator ruling: no "bus" jargon)
+    status: "sleeping, plug me in",        // pet voice (operator ruling: no "bus" jargon)
     statusFill: C_AMB,
-    ticker: "> usb-c wakes me up",           // the wire is step one — roads page teaches the rest
-    activity: 0,
     doze: true,
   },
   idle: {
     square: C_GRN,                          // awake and connected
-    status: "awake · 13 friends",           // friends = live agents (heartbeat count); 13 illustrative
+    status: "awake, 13 friends online",           // friends = live agents (heartbeat count); 13 illustrative
     statusFill: C_GRN,
-    ticker: "> listening for you",          // the agent is listening
-    activity: 0,
     doze: false,
   },
   bored: {
     square: C_AMB,                          // a nudge, not a fault: still connected, just quiet
-    status: "bored · 5 min quiet",          // decay from idle; 5 min is ILLUSTRATIVE
+    status: "bored, 5 min quiet",          // decay from idle; 5 min is ILLUSTRATIVE
     statusFill: C_AMB,
-    ticker: "> press BOOT to say hi",       // the way out is the maker's button
-    activity: 0,
     doze: false,
   },
   working: {
     square: C_GRN,
     status: "agent working",
     statusFill: C_GRN,
-    ticker: "> trick done · 42ms",          // pet trick, latency teaching kept; 42ms illustrative (< 50ms target)
-    activity: 0.46,                         // illustrative
     doze: false,
   },
   ping: {
     square: C_AMB,                          // the flash the RGB LED also makes (framework §3.3)
     status: "BOOT -> agent",                // ASCII arrow: Montserrat basic-Latin coverage
     statusFill: C_AMB,
-    ticker: "> saying hi…",                 // the button event, in kid voice
-    activity: 1,
     doze: false,
   },
   ask: {
     square: C_GRN,                          // GPIO18 short: the agent answers on the panel
     status: "agent says:",                  // the summon (GPIO18) asked; this is the reply
     statusFill: C_GRN,
-    ticker: "> all green · 3 tests pass",   // agent's one-line digest — ILLUSTRATIVE
-    activity: 0,
     doze: false,
   },
 };
@@ -221,18 +205,11 @@ export const home: Screen = {
 
     const body = [
       headerOf(tk),
-      // Zone A — connection status: state square + tokens, the name-row geometry.
-      rect(12, STATUS_BASE - 8, 4, 4, { fill: f.square }),
-      text(24, STATUS_BASE, f.status, { size: F_LABEL.size, fill: f.statusFill }),
-      // Zone B — the creature: the wordmark Clawd, one dot per block-art cell.
+      // The face first — the wordmark Clawd, centered.
       creature(MASKS[s], dot),
       ...(f.doze ? [dozeMarksAt(C_DIM, GRID_Y)] : []),
-      // Zone C — activity bar (the firmware's own 280×4 geometry) + the ticker.
-      rect(BAR.x, BAR.y, BAR.w, BAR.h, { fill: C_DRK }),
-      ...(f.activity > 0
-        ? [rect(BAR.x, BAR.y, BAR.w * f.activity, BAR.h, { fill: f.activity === 1 ? C_AMB : C_GRN })]
-        : []),
-      text(20, TICKER_BASE, f.ticker, { size: F_LABEL.size, fill: C_DIM }),
+      // The single caption — one natural sentence per state, centered, near the bottom.
+      text(160, STATUS_BASE, f.status, { size: F_LABEL.size, fill: f.statusFill, anchor: "middle" }),
     ];
     return svgScreen(tk, body.join(""));
   },

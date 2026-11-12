@@ -275,18 +275,22 @@ async function main(): Promise<number> {
     console.error(`vlink:flash: read_mac failed (exit ${rc}) — nothing was flashed`);
     return 1;
   }
-  const mac = out.match(/(?:[0-9a-f]{2}:){5}[0-9a-f]{2}/i)?.[0];
+  // esptool prints several MACs; the gate keys on the BASE MAC line (the
+  // eFuse identity the board is bound by). The first generic "MAC:" line is
+  // the USB interface MAC (base + ff:fe) and must NOT be used — it mismatched
+  // once and refused a legitimate board.
+  const baseMac = out.match(/BASE MAC:\s*((?:[0-9a-f]{2}:){5}[0-9a-f]{2})/i)?.[1];
   const norm = (m: string): string => m.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-  if (!mac) {
-    console.error(`vlink:flash: could not parse a MAC from esptool output — REFUSING (nothing flashed)`);
+  if (!baseMac) {
+    console.error(`vlink:flash: could not parse a BASE MAC from esptool output — REFUSING (nothing flashed)`);
     return 1;
   }
-  if (norm(mac) !== norm(EXPECTED_MAC)) {
-    console.error(`vlink:flash: REFUSED — board MAC ${mac} != VLink board ${EXPECTED_MAC}`);
+  if (norm(baseMac) !== norm(EXPECTED_MAC)) {
+    console.error(`vlink:flash: REFUSED — board BASE MAC ${baseMac} != VLink board ${EXPECTED_MAC}`);
     console.error(`vlink:flash: product/board separation is an operator rule; nothing was flashed.`);
     return 1;
   }
-  console.log(`BASE MAC ${mac} ✓ (node-0000${norm(mac)})`);
+  console.log(`BASE MAC ${baseMac} ✓ (node-0000${norm(baseMac)})`);
 
   // 6. flash, after confirmation
   if (!o.yes) {

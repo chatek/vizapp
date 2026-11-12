@@ -1,5 +1,6 @@
 // COPY PROVENANCE (vclaw-worker1 rule, 2026-10-31; VLink buckets, 2026-11-12 pet topology) — never flattened:
 //   FIRMWARE       the header grammar (ui_screens.cpp:55-65, SPEC §3.1) — cited, NOT illustrative.
+//                  Nothing else: no maker firmware exists (README §3 F1).
 //   PRODUCT VOCAB  nothing — the underlying facts (sessions needing attention, running count,
 //                  context %, scheduled runs, latest message) are OMP session records; the
 //                  desktop app itself surfaces exactly these (session-attention core loop,
@@ -18,7 +19,7 @@ import type { Screen } from "../design/contract.js";
 import type { Tokens } from "../design/tokens.js";
 import { THEMES } from "../design/tokens.js";
 import { text, svgScreen } from "../design/primitives.js";
-import { C_AMB, F_LABEL, LEFT, headerOf, hintLeft, kvRow } from "./state-view-shared.js";
+import { C_AMB, F_LABEL, LEFT, headerOf, hintLeft, kvBase, kvRow } from "./state-view-shared.js";
 
 const STATES = ["attention", "quiet", "empty"] as const;
 type State = (typeof STATES)[number];
@@ -51,7 +52,7 @@ export const today: Screen = {
         kvRow(tk, 0, "NEEDS YOU", "0 · all clear", C_GRN),
         kvRow(tk, 1, "RUNNING", "1 · brain 62%", C_GRN),
         kvRow(tk, 2, "DUE TODAY", "2 done", C_GRN),
-        text(LEFT, 93, '> said: "all green · 3 pass"', { size: F_LABEL.size, fill: C_DIM }),
+        text(LEFT, kvBase(3), '> said: "all green · 3 pass"', { size: F_LABEL.size, fill: C_DIM }),
       );
       body.push(hintLeft(tk, "all quiet · go play", C_GRN));
     } else {
@@ -59,7 +60,7 @@ export const today: Screen = {
         kvRow(tk, 0, "NEEDS YOU", "2 waiting", C_AMB),
         kvRow(tk, 1, "RUNNING", "1 · brain 62%", C_GRN),
         kvRow(tk, 2, "DUE TODAY", "2 done · 1 failed", C_AMB),
-        text(LEFT, 93, '> said: "ship the deploy hook"', { size: F_LABEL.size, fill: C_DIM }),
+        text(LEFT, kvBase(3), '> said: "ship the deploy hook"', { size: F_LABEL.size, fill: C_DIM }),
       );
       body.push(hintLeft(tk, "what your agent did today", C_DIM));
     }
