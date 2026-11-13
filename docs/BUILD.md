@@ -9,13 +9,17 @@ below has exactly one procedure document.
 |---|---|---|---|
 | **remote (primary)** | every artefact of record — the unsigned `.dmg` and the `.app` `.zip` (OMP is bundled only in a checkout that declares `harness/bin` in `build.mac.extraResources`) | [BUILD_REMOTE.md](BUILD_REMOTE.md) | `scripts/release/build-remote.sh` |
 | **local (fallback)** | only when that host is unavailable: does the tree still package? (when the tree bundles a harness binary) does the bundled `omp` verify? | [BUILD_LOCAL.md](BUILD_LOCAL.md) | `scripts/release/build-local.sh` |
-| **dmg/zip via `package.mjs`** | the signing/notarisation lane on that same host and toolchain — blocked while no Developer ID exists; the remote flow already emits an unsigned dmg, so this is not needed for an unsigned release | [RELEASE_BUILD_HOST.md](RELEASE_BUILD_HOST.md) | `npm run package:mac[:local-qa]` |
+| **windows (win11 KVM guest)** | every Windows artefact of record — the `.exe`/AppX installer (`package:win` / `package:win:local-qa`) | [BUILD_REMOTE.md](BUILD_REMOTE.md) §Windows host | `npm run package:win[:local-qa]` on the guest |
 
 Exact commands live in each procedure page, not here. Lane ownership, the handoff rule and what
 one lane may ask of another are [BOUNDARIES.md](BOUNDARIES.md).
 
 ## Artefact-of-record rule
 
+- **Windows artefacts follow the same rule on their own host:** only a build produced inside the
+  `_WIN_HOST_` win11 guest (see the windows flow row above) is evidence for a Windows release;
+  `package.mjs` refuses `--platform win` unless `process.platform === 'win32'`, so no other
+  machine can produce it.
 - **Only the remote host's artefact is evidence.** Report it as the triple (source commit,
   output digest, and — when the checkout bundles a harness binary — the pinned OMP digest)
   exactly as [BUILD_REMOTE.md](BUILD_REMOTE.md) collects it.

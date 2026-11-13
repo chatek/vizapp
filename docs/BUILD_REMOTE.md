@@ -46,7 +46,30 @@ build is never evidence for a release. The local path is a separate, explicitly 
 | disk | 198 GiB free on `/System/Volumes/Data` | 198 GiB free before the build |
 | code-signing identities | 0 → `--config.mac.identity=null` in the driver | same |
 
-Two things about the host's network are not negotiable, and both cost a cycle if discovered late:
+## Windows host — `BUILD_USER_REDACTED` (win11 KVM guest on _HYPER_)
+
+Windows artefacts of record are built **only** inside this guest, by the same evidence rule as
+the mac host: `package.mjs` refuses `--platform win` unless it runs on `win32`, so this guest is
+the only machine that can produce them. Measured 2026-11-13:
+
+| | facts |
+|---|---|
+| what it is | Windows 11 **Pro** (unactivated — see note), KVM guest `win11` on `HYPERVISOR_REDACTED`, 8 vCPU / 16 GiB, qcow2 on btrfs |
+| access | `ssh BUILD_USER_REDACTED` (tailscale MagicDNS, key auth; `BUILD_ALIAS_REDACTED` alias in the workstation's `~/.ssh/config`) |
+| node / npm / git | node **v26.13.1**, npm **11.20.0** (needed `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` for npm.ps1), git **2.56.0.windows.4** |
+| omp on the guest | omp/18.20.0 via bun — GLM configured (`glm-5.3` default, `glm-5.3-flash` smol) — usable for build-driving agents |
+| activation note | the provisioned MAK key was rejected by Microsoft (`0xC004F050`, revoked volume key) — the box runs unactivated, which does not affect building; a real retail key is an open errand |
+| DNS | estate servers (119.29.29.29, 8.8.8.8, 223.5.5.5, 8.8.4.4) on the Ethernet adapter; Tailscale adapter keeps MagicDNS |
+| network caveat | outbound CDN throughput is poor (~100 KB/s class to Microsoft/herdr.dev); stage large payloads via the LAN/tailnet (measured: ISO 9.1 GB at ~110 MB/s via ct17 rsync) |
+
+**Windows build procedure (first run pending):** `git clone` the repo into the guest (git+
+node already verified working), `npm ci`, then `npm run package:win:local-qa` (QA mode;
+`package:win` public mode additionally needs Windows signing credentials,
+`validateWindowsReleaseCredentials`). Report the same triple as the mac flow. The mac-doc traps
+translate in spirit: trust the tool's own verdict line, not the ssh exit code.
+
+Two things about the **mac host's** network are not negotiable, and both cost a cycle if
+discovered late:
 
 * **`github.com` does not resolve to anything routable** — `nslookup github.com` → `198.18.0.11`,
   the fake-ip range a local Clash Verge (`verge-mihomo`) TUN hands out. electron-builder's
