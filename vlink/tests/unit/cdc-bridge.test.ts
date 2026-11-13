@@ -645,8 +645,10 @@ describe("CdcBridge §4 page sender", () => {
     expect(roadsLine).toContain('"key":"BLUETOOTH"');
     cdc.receive(deviceLine({ type: "echo", zone: "page", id: roads.id }));
 
-    // A tick makes the widget itself alive → pets page changes → re-pushed.
+    // A tick records widget aliveness but does NOT itself push (lead ruling:
+    // no tick-driven pushes); the next sync pass re-pushes on change.
     cdc.receive(deviceLine({ type: "tick", uptimeS: 1, heapFree: 1000 }));
+    bridge.syncPagesForTest();
     const petsLine2 = await cdc.nextWrite(
       (line) => line.includes('"zone":"page"') && line.includes('"screen":"pets"') && line.includes("this is me!"),
     );
@@ -665,8 +667,11 @@ describe("CdcBridge §4 page sender", () => {
       facts: pageFacts([]),
     });
     await startWithHello();
-    // Drain the initial page pushes.
-    await cdc.nextWrite((line) => line.includes('"screen":"pets"'));
+    // Drain the initial page pushes; also lock the lead's rule: an empty node
+    // list => pets state "empty" (the widget self-row still rides).
+    const emptyPets = await cdc.nextWrite((line) => line.includes('"screen":"pets"'));
+    expect(emptyPets).toContain('"state":"empty"');
+    expect(emptyPets).toContain('"key":"vlink"');
     await cdc.nextWrite((line) => line.includes('"screen":"roads"'));
 
     bridge.onCommissionStart();

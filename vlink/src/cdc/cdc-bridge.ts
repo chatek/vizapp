@@ -511,6 +511,11 @@ export class CdcBridge {
     }
   }
 
+  /** Test hook: run one page-sync pass immediately (timer paths are covered by lifecycle tests). */
+  syncPagesForTest(): void {
+    void this.syncPages();
+  }
+
   /** The pets screen (§4): the family list. Row value ≤ 24 chars on the wire. */
   private buildPetsPage(nodes: MatterNodeInfo[], now: number): CdcPagePayload {
     const rows: CdcPageRow[] = [];
@@ -524,7 +529,9 @@ export class CdcBridge {
         tone: node.connected ? "green" : "dim",
       });
     }
-    if (rows.length === 0) return { screen: "pets", state: "empty", rows: [] };
+    // Lead ruling: state is "empty" iff the NODE list is empty — the widget's
+    // own self-row does not make a family. Both states are §4 enum members.
+    if (nodes.length === 0) return { screen: "pets", state: "empty", rows };
     return { screen: "pets", state: "list", rows: rows.slice(0, 4) };
   }
 
