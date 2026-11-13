@@ -17,15 +17,42 @@ export const CDC_MAX_HOST_LINE_BYTES = 4096;
 export type CdcDeviceState = "no-bus" | "idle" | "bored" | "working" | "ping" | "ask";
 export type CdcButtonName = "boot" | "aux";
 export type CdcPressKind = "short" | "long";
-export type CdcZone = "status" | "ticker" | "creature" | "activity";
+export type CdcZone = "status" | "ticker" | "creature" | "activity" | "page";
 export type CdcTone = "green" | "amber";
+/** §4 page-row tones: the page zone alone allows `dim`. */
+export type CdcRowTone = "green" | "amber" | "dim";
 
 const DEVICE_STATES: readonly CdcDeviceState[] = ["no-bus", "idle", "bored", "working", "ping", "ask"];
 const BUTTON_NAMES: readonly CdcButtonName[] = ["boot", "aux"];
 const PRESS_KINDS: readonly CdcPressKind[] = ["short", "long"];
-const ZONES: readonly CdcZone[] = ["status", "ticker", "creature", "activity"];
+const ZONES: readonly CdcZone[] = ["status", "ticker", "creature", "activity", "page"];
 const TONES: readonly CdcTone[] = ["green", "amber"];
+const ROW_TONES: readonly CdcRowTone[] = ["green", "amber", "dim"];
 const MAC_PATTERN = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+
+/** §4 page screens with their per-screen state enums (forward compat: the device ignores unknown states). */
+export type CdcPageScreen = "pets" | "roads" | "today" | "adopt";
+const PAGE_SCREENS: readonly CdcPageScreen[] = ["pets", "roads", "today", "adopt"];
+const PAGE_STATES: Record<CdcPageScreen, readonly string[]> = {
+  pets: ["empty", "list"],
+  roads: ["fresh", "talking", "adopting", "free"],
+  today: ["attention", "quiet", "empty"],
+  adopt: ["calling", "secret", "homeword", "home"],
+};
+
+/** One §4 page row: `value` ≤ 24 chars on the wire. */
+export interface CdcPageRow {
+  key: string;
+  value: string;
+  tone: CdcRowTone;
+}
+
+/** §4 `render zone:"page"` payload — pet-topology data sync, not a creature command. */
+export interface CdcPagePayload {
+  screen: CdcPageScreen;
+  state: string;
+  rows: CdcPageRow[];
+}
 
 /** Device → host: sent once after boot and again after every `host-reset`. */
 export interface CdcHelloMessage {
@@ -84,7 +111,7 @@ export interface CdcActivityPayload {
   fraction: number;
   tone?: CdcTone;
 }
-export type CdcZonePayload = CdcStatusPayload | CdcTickerPayload | CdcCreaturePayload | CdcActivityPayload;
+export type CdcZonePayload = CdcStatusPayload | CdcTickerPayload | CdcCreaturePayload | CdcActivityPayload | CdcPagePayload;
 
 /** Host → device: paint one zone. */
 export interface CdcRenderMessage {
@@ -94,11 +121,13 @@ export interface CdcRenderMessage {
   payload: CdcZonePayload;
 }
 
-/** Host → device: an agent-side happening (ask face + ticker text ≥ 5 s). */
+/** Host → device: an agent-side happening (ask face + ticker text ≥ 5 s).
+ * `text` is optional for the named adoption events (§4: `adopt-start` /
+ * `adopt-end` carry no text — they arm/clear the adoption window instead). */
 export interface CdcEventMessage {
   type: "event";
   name: string;
-  text: string;
+  text?: string;
 }
 
 /** Device → host: the device applied the `render` with this id. */
@@ -190,6 +219,35 @@ function parseZonePayload(zone: CdcZone, object: Record<string, unknown>): CdcZo
       if (tone === undefined && object.tone !== undefined) return "render activity tone must be green|amber";
       return tone === undefined ? { fraction } : { fraction, tone };
     }
+    case "page": {
+      const screen = enumValue(object.screen, PAGE_SCREENS);
+      if (screen === undefined) return "render page requires screen pets|roads|today|adopt";
+      const state = nonEmptyString(object.state);
+      if (state === undefined) return "render page requires a non-empty state";
+      if (!PAGE_STATES[screen].includes(state)) {
+        return `render page state "${state}" is not a ${screen} state (${PAGE_STATES[screen].join("|")})`;
+      }
+      const rawRows = object.rows;
+      if (!Array.isArray(rawRows) || rawRows.length > 4) {
+        return "render page requires rows as an array of at most 4";
+      }
+      const rows: CdcPageRow[] = [];
+      for (const raw of rawRows) {
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+          return "render page row must be an object";
+        }
+        const row = raw as Record<string, unknown>;
+        const key = nonEmptyString(row.key);
+        if (key === undefined) return "render page row requires a non-empty key";
+        const value = nonEmptyString(row.value);
+        if (value === undefined) return "render page row requires a non-empty value";
+        if (value.length > 24) return `render page row value exceeds 24 chars: ${value}`;
+        const tone = enumValue(row.tone, ROW_TONES);
+        if (tone === undefined) return "render page row requires tone green|amber|dim";
+        rows.push({ key, value, tone });
+      }
+      return { screen, state, rows };
+    }
   }
 }
 
@@ -271,7 +329,7 @@ export function parseCdcLine(line: string): CdcParseResult {
     }
     case "render": {
       const zone = enumValue(object.zone, ZONES);
-      if (zone === undefined) return invalid("render requires zone status|ticker|creature|activity");
+      if (zone === undefined) return invalid("render requires zone status|ticker|creature|activity|page");
       const id = nonEmptyString(object.id);
       if (id === undefined) return invalid("render requires a non-empty id");
       const payload = parseZonePayload(zone, object);
@@ -281,13 +339,15 @@ export function parseCdcLine(line: string): CdcParseResult {
     case "event": {
       const name = nonEmptyString(object.name);
       if (name === undefined) return invalid("event requires a non-empty name");
+      // §4: named adoption events carry no text.
       const text = nonEmptyString(object.text);
-      if (text === undefined) return invalid("event requires a non-empty text");
-      return { ok: true, message: { type: "event", name, text } };
+      return text === undefined
+        ? { ok: true, message: { type: "event", name } }
+        : { ok: true, message: { type: "event", name, text } };
     }
     case "echo": {
       const zone = enumValue(object.zone, ZONES);
-      if (zone === undefined) return invalid("echo requires zone status|ticker|creature|activity");
+      if (zone === undefined) return invalid("echo requires zone status|ticker|creature|activity|page");
       const id = nonEmptyString(object.id);
       if (id === undefined) return invalid("echo requires a non-empty id");
       return { ok: true, message: { type: "echo", zone, id } };
@@ -340,7 +400,7 @@ export function serializeCdcMessage(message: CdcMessage): string {
       break;
     case "event":
       object.name = message.name;
-      object.text = message.text;
+      if (message.text !== undefined) object.text = message.text;
       break;
     case "echo":
       object.zone = message.zone;

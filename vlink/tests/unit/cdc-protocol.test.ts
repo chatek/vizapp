@@ -159,8 +159,50 @@ describe("CDC malformed input", () => {
 
   test("validates event and echo fields", () => {
     expect(parseCdcLine('{"v":1,"type":"event","name":"","text":"hi"}').ok).toBe(false);
-    expect(parseCdcLine('{"v":1,"type":"event","name":"build"}').ok).toBe(false);
+    // §4: named adoption events carry no text — an event without text is valid.
+    expect(parseCdcLine('{"v":1,"type":"event","name":"build"}')).toEqual({
+      ok: true,
+      message: { type: "event", name: "build" },
+    });
     expect(parseCdcLine('{"v":1,"type":"echo","zone":"status"}').ok).toBe(false);
+  });
+
+  test("parses and serializes §4 page renders (screen/state/rows contract)", () => {
+    const line = parseCdcLine(
+      '{"v":1,"type":"render","zone":"page","id":"p1","screen":"pets","state":"list","rows":[{"key":"vlink","value":"usb · this is me!","tone":"green"},{"key":"millie","value":"wifi · awake","tone":"green"}]}',
+    );
+    expect(line.ok).toBe(true);
+    if (line.ok) {
+      expect(line.message).toEqual({
+        type: "render",
+        zone: "page",
+        id: "p1",
+        payload: {
+          screen: "pets",
+          state: "list",
+          rows: [
+            { key: "vlink", value: "usb · this is me!", tone: "green" },
+            { key: "millie", value: "wifi · awake", tone: "green" },
+          ],
+        },
+      });
+    }
+    // Bad screen, bad state, 5 rows, >24-char value, bad row tone: all rejected.
+    expect(parseCdcLine('{"v":1,"type":"render","zone":"page","id":"p","screen":"home","state":"list","rows":[]}').ok).toBe(false);
+    expect(parseCdcLine('{"v":1,"type":"render","zone":"page","id":"p","screen":"pets","state":"list "}').ok).toBe(false);
+    expect(
+      parseCdcLine(
+        '{"v":1,"type":"render","zone":"page","id":"p","screen":"today","state":"quiet","rows":[{"key":"a","value":"x","tone":"green"},{"key":"b","value":"x","tone":"green"},{"key":"c","value":"x","tone":"green"},{"key":"d","value":"x","tone":"green"},{"key":"e","value":"x","tone":"green"}]}',
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCdcLine('{"v":1,"type":"render","zone":"page","id":"p","screen":"pets","state":"list","rows":[{"key":"a","value":"01234567890123456789012345","tone":"green"}]}').ok,
+    ).toBe(false);
+    expect(
+      parseCdcLine('{"v":1,"type":"render","zone":"page","id":"p","screen":"pets","state":"list","rows":[{"key":"a","value":"x","tone":"red"}]}').ok,
+    ).toBe(false);
+    // adopt-start/adopt-end round-trip without text.
+    expect(serializeCdcMessage({ type: "event", name: "adopt-start" })).toBe('{"v":1,"type":"event","name":"adopt-start"}');
   });
 
   test("ignores unknown extra fields (forward compatibility)", () => {

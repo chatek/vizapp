@@ -10,13 +10,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CdcBridge } from "../../src/cdc/cdc-bridge.ts";
+import { CdcBridge, type CdcBridgeFacts } from "../../src/cdc/cdc-bridge.ts";
 import type { CdcLineListener, CdcTransport } from "../../src/cdc/cdc-transport.ts";
 import { serializeCdcMessage } from "../../src/cdc/cdc-protocol.ts";
 import { VLinkRuntime } from "../../src/runtime.ts";
 import type {
   CommandResult,
   Logger,
+  MatterNodeInfo,
   NatsMessage,
   NatsStatus,
   NatsSubscription,
@@ -574,6 +575,146 @@ describe("CdcBridge NATS → device", () => {
     const deep = parseJson<CommandResult>((await deepPromise).data);
     expect(deep.ok).toBe(false);
     expect(deep.error?.code).toBe("SUBJECT_INVALID");
+  });
+});
+
+describe("CdcBridge §4 page sender", () => {
+  const health = {
+    v: 1,
+    instanceId: "test-host",
+    state: "ready",
+    fabricId: FABRIC,
+    natsUrl: "nats://127.0.0.1:14222",
+    natsConnected: true,
+    cdcConnected: true,
+    matterMode: "sim",
+    matterReady: true,
+    bleAvailable: true,
+    nodeCount: 0,
+    startedAt: 0,
+    uptimeMs: 1,
+  } as const;
+
+  function pageFacts(nodes: MatterNodeInfo[]): CdcBridgeFacts {
+    return {
+      listNodes: async () => nodes,
+      health: () => health,
+    };
+  }
+
+  /** Parse a written line as JSON (page renders are serialized CdcRenderMessage). */
+  function writtenJson(line: string): { zone: string; id: string; screen?: string; state?: string } {
+    return JSON.parse(line);
+  }
+
+  test("hello pushes pets + roads pages, echo-gated; re-push on change only", async () => {
+    const facts = pageFacts([
+      { fabricId: FABRIC, nodeId: "node-000000000000002a", nodeName: "millie", endpointIds: [1], connected: true },
+    ]);
+    bridge = new CdcBridge({
+      transport: cdc,
+      nats,
+      fabricId: FABRIC,
+      instanceId: "test-host",
+      logger: silentLogger,
+      queue: "vlink",
+      echoTimeoutMs: 25,
+      facts,
+    });
+    await bridge.start();
+    // One live agent heartbeat BEFORE the hello: the AGENT road reads
+    // "listening" (the syncPages pass triggered by hello must see it).
+    nats.deliver("agents.hb.vizmaster.chance.vizmaster", encoder.encode("{}"));
+    cdc.receive(deviceLine({ type: "hello", device: "vlink-c6", fw: "1.2.3", mac: MAC }));
+
+    const petsLine = await cdc.nextWrite((line) => line.includes('"zone":"page"') && line.includes('"screen":"pets"'));
+    const pets = writtenJson(petsLine);
+    expect(pets.state).toBe("list");
+    expect(petsLine).toContain('"key":"vlink"');
+    expect(petsLine).toContain('"key":"millie"');
+    expect(petsLine).toContain("usb · saying hi…");
+    expect(petsLine).toContain("wifi · awake");
+    // Echo it: no timeout warning path taken.
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: pets.id }));
+
+    const roadsLine = await cdc.nextWrite((line) => line.includes('"zone":"page"') && line.includes('"screen":"roads"'));
+    const roads = writtenJson(roadsLine);
+    expect(roads.state).toBe("talking");
+    expect(roadsLine).toContain('"key":"USB-C","value":"plugged in"');
+    expect(roadsLine).toContain('"key":"AGENT","value":"listening"');
+    expect(roadsLine).toContain('"key":"BLUETOOTH"');
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: roads.id }));
+
+    // A tick makes the widget itself alive → pets page changes → re-pushed.
+    cdc.receive(deviceLine({ type: "tick", uptimeS: 1, heapFree: 1000 }));
+    const petsLine2 = await cdc.nextWrite(
+      (line) => line.includes('"zone":"page"') && line.includes('"screen":"pets"') && line.includes("this is me!"),
+    );
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(petsLine2).id }));
+  });
+
+  test("adopt window arms on commission start and clears on settle with a pets refresh", async () => {
+    bridge = new CdcBridge({
+      transport: cdc,
+      nats,
+      fabricId: FABRIC,
+      instanceId: "test-host",
+      logger: silentLogger,
+      queue: "vlink",
+      echoTimeoutMs: 25,
+      facts: pageFacts([]),
+    });
+    await startWithHello();
+    // Drain the initial page pushes.
+    await cdc.nextWrite((line) => line.includes('"screen":"pets"'));
+    await cdc.nextWrite((line) => line.includes('"screen":"roads"'));
+
+    bridge.onCommissionStart();
+    expect(cdc.written.at(-1)).toBe(serializeCdcMessage({ type: "event", name: "adopt-start" }));
+
+    // While armed, roads re-renders as adopting (BLUETOOTH calling…).
+    const adoptingLine = await cdc.nextWrite(
+      (line) => line.includes('"screen":"roads"') && line.includes('"state":"adopting"'),
+    );
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(adoptingLine).id }));
+
+    bridge.onCommissionSettled();
+    expect(cdc.written.at(-1)).toBe(serializeCdcMessage({ type: "event", name: "adopt-end" }));
+    // Followed by a pets page push (§4: family list refresh on success).
+    const petsRefresh = await cdc.nextWrite((line) => line.includes('"screen":"pets"'));
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(petsRefresh).id }));
+  });
+
+  test("NATS display.page command round-trips through the §4 codec", async () => {
+    await startWithHello();
+    const reply = nextReplySubject();
+    const replyPromise = nats.nextPublish((message) => message.subject === reply);
+    nats.deliver(
+      `iot.cmd.matter.${FABRIC}.${NODE}.1.display.page`,
+      displayCommandPayload("page", {
+        screen: "today",
+        state: "quiet",
+        rows: [{ key: "TODAY", value: "all quiet", tone: "green" }],
+      }),
+      reply,
+    );
+    const renderLine = await cdc.nextWrite((line) => line.includes('"zone":"page"'));
+    expect(renderLine).toContain('"screen":"today"');
+    cdc.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(renderLine).id }));
+    const result = parseJson<CommandResult>((await replyPromise).data);
+    expect(result.ok).toBe(true);
+
+    // An invalid state is rejected before the wire.
+    const badReply = nextReplySubject();
+    const badPromise = nats.nextPublish((message) => message.subject === badReply);
+    nats.deliver(
+      `iot.cmd.matter.${FABRIC}.${NODE}.1.display.page`,
+      displayCommandPayload("page", { screen: "pets", state: "nonsense", rows: [] }),
+      badReply,
+    );
+    const bad = parseJson<CommandResult>((await badPromise).data);
+    expect(bad.ok).toBe(false);
+    expect(bad.error?.code).toBe("PAYLOAD_INVALID");
   });
 });
 

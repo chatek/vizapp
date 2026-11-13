@@ -56,7 +56,7 @@ The device has no Matter node id; it uses a MAC-derived synthetic identity:
   forward compat), echoes with the render `id` like any render, and repaints
   immediately if that page is currently displayed. A page render is data
   sync, not a creature command: it does NOT drive the `working` overlay.
-  Host-side senders are future work; the device side is live. Per-screen
+  The host bridge pushes pets/roads on change (§7 cadence); the device side is live. Per-screen
   state enums: pets `empty|list`; roads `fresh|talking|adopting|free`;
   today `attention|quiet|empty`; adopt `calling|secret|homeword|home`.
   On `today`, the 4th row renders as the full-width note `> said: "…"`

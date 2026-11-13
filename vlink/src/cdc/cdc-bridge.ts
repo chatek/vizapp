@@ -21,10 +21,12 @@ import type {
   JsonObject,
   JsonValue,
   Logger,
+  MatterNodeInfo,
   NatsMessage,
   NatsSubscription,
   NatsTransport,
   VLinkErrorPayload,
+  VLinkHealth,
 } from "../types.ts";
 import type { CdcTransport } from "./cdc-transport.ts";
 import {
@@ -33,6 +35,10 @@ import {
   serializeCdcMessage,
   type CdcButtonMessage,
   type CdcHostMessage,
+  type CdcPagePayload,
+  type CdcPageRow,
+  type CdcPageScreen,
+  type CdcRowTone,
   type CdcZonePayload,
 } from "./cdc-protocol.ts";
 
@@ -44,8 +50,13 @@ const DEFAULT_SUPERVISE_MS = 5_000;
 const DEFAULT_LINK_SILENCE_MS = 45_000;
 /** A heartbeat older than this no longer counts the agent as live. */
 const DEFAULT_HB_TTL_MS = 15_000;
-const DISPLAY_ACTIONS = ["status", "ticker", "activity", "notify"] as const;
-const RENDER_ZONES = ["status", "ticker", "activity"] as const;
+
+/** Pet moods (§4 pets screen, mockup vocabulary): telemetry within this window = awake (3 device ticks). */
+const PET_AWAKE_MS = 90_000;
+/** Past awake but within this window the pet "misses you"; beyond it, asleep (the firmware's own 5-min boredom clock). */
+const PET_MISSES_MS = 300_000;
+const DISPLAY_ACTIONS = ["status", "ticker", "activity", "notify", "page"] as const;
+const RENDER_ZONES = ["status", "ticker", "activity", "page"] as const;
 type DisplayAction = (typeof DISPLAY_ACTIONS)[number];
 type RenderZone = (typeof RENDER_ZONES)[number];
 
@@ -77,6 +88,18 @@ export interface CdcBridgeOptions {
   heartbeatTtlMs?: number;
   /** How long to wait for the device `echo` before `DEVICE_TIMEOUT`. */
   echoTimeoutMs?: number;
+  /** Bridge facts for the §4 page renderer; absent disables page sync entirely. */
+  facts?: CdcBridgeFacts;
+}
+
+/**
+ * Bridge facts the page renderer derives the pets/roads screens from (§4):
+ * the runtime's own `listNodes`/`health` (BridgeOperations), injected so the
+ * bridge stays transport-shaped and testable against fakes.
+ */
+export interface CdcBridgeFacts {
+  listNodes(): Promise<MatterNodeInfo[]>;
+  health(): VLinkHealth;
 }
 
 export interface CdcBridgeStatus {
@@ -88,7 +111,8 @@ export interface CdcBridgeStatus {
 interface PendingRender {
   startedAt: number;
   node: string;
-  action: DisplayAction;
+  /** Display action, or `"page"` for a bridge-initiated page push (no NATS requestor). */
+  action: DisplayAction | "page";
   requestId: string | undefined;
   resolve(result: CommandResult): void;
   timer: ReturnType<typeof setTimeout>;
@@ -99,7 +123,7 @@ type ParsedDisplaySubject = { ok: true; action: DisplayAction } | { ok: false; e
 interface DisplayResultFields {
   ok: boolean;
   node?: string;
-  action?: DisplayAction;
+  action?: DisplayAction | "page";
   requestId?: string;
   error?: VLinkErrorPayload;
 }
@@ -119,7 +143,7 @@ function displayResult(startedAt: number, fields: DisplayResultFields): CommandR
   };
 }
 
-function deviceTimeout(startedAt: number, node: string, action: DisplayAction, requestId: string | undefined, why: string): CommandResult {
+function deviceTimeout(startedAt: number, node: string, action: DisplayAction | "page", requestId: string | undefined, why: string): CommandResult {
   return displayResult(startedAt, { ok: false, node, action, requestId, error: { code: "DEVICE_TIMEOUT", message: why } });
 }
 
@@ -130,6 +154,15 @@ function errorText(error: unknown): string {
 function nonEmptyString(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
+
+/**
+ * A pet's display name (§4 pets screen): the operator-assigned alias, else the
+ * short node id — kid voice, but never fabricated: the name is real data.
+ */
+function petName(node: MatterNodeInfo): string {
+  return node.nodeName && node.nodeName.length > 0 ? node.nodeName : node.nodeId.replace(/^node-0+/, "").slice(0, 8);
+}
+
 
 export class CdcBridge {
   private readonly transport: CdcTransport;
@@ -157,6 +190,16 @@ export class CdcBridge {
   private hbTimer: Interval | undefined;
   private lastStatusText: string | undefined;
   private lastStatusAmber: boolean | undefined;
+  /** Bridge facts for page rendering; undefined disables the page sender. */
+  private readonly facts: CdcBridgeFacts | undefined;
+  /** Last node list snapshot (by nodeId) with the time it was observed — the pet-mood clock. */
+  private readonly nodeSeen = new Map<string, number>();
+  /** Last pets page payload pushed, for on-change dedupe (the syncStatus pattern). */
+  private lastPetsPage: string | undefined;
+  /** Last roads page payload pushed, for on-change dedupe. */
+  private lastRoadsPage: string | undefined;
+  /** Commission in flight (an adopt window is armed on the device). */
+  private commissioning = false;
 
   constructor(options: CdcBridgeOptions) {
     this.transport = options.transport;
@@ -170,6 +213,7 @@ export class CdcBridge {
     this.linkSilenceMs = positiveOr(options.linkSilenceMs, DEFAULT_LINK_SILENCE_MS);
     this.statusIntervalMs = positiveOr(options.statusIntervalMs, this.superviseMs);
     this.heartbeatTtlMs = positiveOr(options.heartbeatTtlMs, DEFAULT_HB_TTL_MS);
+    this.facts = options.facts;
   }
 
   /** True between start() and stop() — lets the router know display commands have an owner. */
@@ -201,6 +245,10 @@ export class CdcBridge {
     this.hbSubscription = await this.subscribeHeartbeats();
     this.hbTimer = setInterval(() => this.syncStatus(), this.statusIntervalMs);
     this.hbTimer.unref?.();
+
+    // §4 page sync rides the same timer as the status line: one cadence, but
+    // every push is still on-change only (the syncStatus dedupe pattern).
+    void this.syncPages();
   }
 
   async stop(): Promise<void> {
@@ -220,6 +268,10 @@ export class CdcBridge {
     this.hbSeen.clear();
     this.lastStatusText = undefined;
     this.lastStatusAmber = undefined;
+    this.nodeSeen.clear();
+    this.lastPetsPage = undefined;
+    this.lastRoadsPage = undefined;
+    this.commissioning = false;
 
     if (this.transport.isOpen()) {
       this.writeMessage({ type: "bye" });
@@ -339,6 +391,10 @@ export class CdcBridge {
         break;
       case "tick":
         this.publishAttribute("heartbeat", { uptimeS: message.uptimeS, heapFree: message.heapFree });
+        // The widget itself is a pet: a tick proves it is alive. Recorded
+        // only — NOT a push trigger (lead ruling: change-driven + ack-anchored,
+        // no tick-driven pushes); the next sync pass flips the "this is me!" row.
+        this.nodeSeen.set(this.nodeId, Date.now());
         break;
     }
   }
@@ -363,6 +419,13 @@ export class CdcBridge {
   private sendAck(): void {
     if (!this.transport.isOpen()) return;
     this.writeMessage({ type: "ack", fabric: this.fabricId, instance: this.instanceId });
+    // The ack is the convergence point (lead ruling): an ack — on open, on
+    // hello, on a re-ack after a mid-session re-hello — means the device is
+    // fresh, so both pages re-seed. Dedupe keys reset first; the echo-gate
+    // absorbs a board that is not looking.
+    this.lastPetsPage = undefined;
+    this.lastRoadsPage = undefined;
+    void this.syncPages();
   }
 
   /**
@@ -404,6 +467,144 @@ export class CdcBridge {
   /** Test hook: run one status-sync pass immediately (timer paths are covered by lifecycle tests). */
   syncStatusForTest(): void {
     this.syncStatus();
+  }
+
+  // -------------------------------------------------------------------------
+  // §4 page sync — pets/roads from bridge facts (adopt arming is below)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Re-derive pets + roads pages from the injected bridge facts and push each
+   * when it CHANGES (the syncStatus dedupe pattern; tasking rule: on-change
+   * only, never on a timer's stale repeat). Cadence: the status-interval timer
+   * and every device `hello`.
+   */
+  private async syncPages(): Promise<void> {
+    if (!this.started || this.facts === undefined) return;
+    let nodes: MatterNodeInfo[];
+    try {
+      nodes = await this.facts.listNodes();
+    } catch (error) {
+      this.logger.warn("cdc page sync: listNodes failed", { error: errorText(error) });
+      return;
+    }
+    if (!this.started || !this.transport.isOpen()) return;
+    const now = Date.now();
+    for (const node of nodes) this.nodeSeen.set(node.nodeId, now);
+    for (const [nodeId, seenAt] of [...this.nodeSeen]) {
+      if (!nodes.some((node) => node.nodeId === nodeId) && nodeId !== this.nodeId) this.nodeSeen.delete(nodeId);
+    }
+
+    const petsPage = this.buildPetsPage(nodes, now);
+    const petsKey = JSON.stringify(petsPage);
+    if (petsKey !== this.lastPetsPage) {
+      this.lastPetsPage = petsKey;
+      this.pushPage(petsPage);
+    }
+    const roadsPage = this.buildRoadsPage(nodes);
+    if (roadsPage !== undefined) {
+      const roadsKey = JSON.stringify(roadsPage);
+      if (roadsKey !== this.lastRoadsPage) {
+        this.lastRoadsPage = roadsKey;
+        this.pushPage(roadsPage);
+      }
+    }
+  }
+
+  /** The pets screen (§4): the family list. Row value ≤ 24 chars on the wire. */
+  private buildPetsPage(nodes: MatterNodeInfo[], now: number): CdcPagePayload {
+    const rows: CdcPageRow[] = [];
+    if (this.nodeId !== undefined) {
+      rows.push({ key: "vlink", value: this.nodeSeen.has(this.nodeId) ? "usb · this is me!" : "usb · saying hi…", tone: "green" });
+    }
+    for (const node of nodes.slice(0, this.nodeId !== undefined ? 3 : 4)) {
+      rows.push({
+        key: petName(node),
+        value: node.connected ? "wifi · awake" : this.petMood(node.nodeId, now),
+        tone: node.connected ? "green" : "dim",
+      });
+    }
+    if (rows.length === 0) return { screen: "pets", state: "empty", rows: [] };
+    return { screen: "pets", state: "list", rows: rows.slice(0, 4) };
+  }
+
+  /** A disconnected pet's mood from its last-seen time (mockup vocabulary: awake → misses you → asleep). */
+  private petMood(nodeId: string, now: number): string {
+    const seenAt = this.nodeSeen.get(nodeId);
+    if (seenAt !== undefined && now - seenAt <= PET_AWAKE_MS) return "wifi · awake";
+    if (seenAt !== undefined && now - seenAt <= PET_MISSES_MS) return "wifi · misses you";
+    return "wifi · asleep";
+  }
+
+  /** The roads screen (§4): the transport ladder as a live checklist. */
+  private buildRoadsPage(nodes: MatterNodeInfo[]): CdcPagePayload | undefined {
+    if (this.facts === undefined) return undefined;
+    let health: VLinkHealth;
+    try {
+      health = this.facts.health();
+    } catch {
+      return undefined;
+    }
+    const natsUp = health.natsConnected;
+    const agentListening = natsUp && this.hbSeen.size > 0;
+    const state = this.commissioning ? "adopting" : natsUp ? "talking" : "fresh";
+    const rows: CdcPageRow[] = [
+      { key: "USB-C", value: this.transport.isOpen() ? "plugged in" : "--", tone: this.transport.isOpen() ? "green" : "dim" },
+      { key: "AGENT", value: natsUp ? (agentListening ? "listening" : "saying hi…") : "--", tone: agentListening ? "green" : "amber" },
+      { key: "BLUETOOTH", value: health.bleAvailable ? (this.commissioning ? "calling…" : "ready") : "--", tone: health.bleAvailable ? "green" : "dim" },
+      { key: "WI-FI", value: nodes.some((node) => node.connected) ? `${nodes.length} pets on` : "--", tone: "green" },
+    ];
+    return { screen: "roads", state, rows };
+  }
+
+  /** Send one page render and register the echo wait (2 s → logged timeout: no requestor to reply to). */
+  private pushPage(payload: CdcPagePayload): void {
+    if (!this.transport.isOpen() || this.nodeId === undefined) return;
+    const renderId = `page-${++this.renderCounter}`;
+    const message: CdcHostMessage = { type: "render", zone: "page", id: renderId, payload };
+    // Round-trip through the parser: the same wire validation the firmware
+    // side enforces — never send a payload our own §4 codec would reject.
+    const roundTrip = parseCdcLine(serializeCdcMessage(message));
+    if (!roundTrip.ok) {
+      this.logger.warn("cdc page sync: refusing to send a payload that does not parse", { error: roundTrip.error });
+      return;
+    }
+    this.writeMessage(message);
+    void this.awaitPageEcho(renderId);
+  }
+
+  /** Echo wait for a bridge-initiated push; there is no NATS requestor, so only log the outcome. */
+  private async awaitPageEcho(renderId: string): Promise<void> {
+    const { promise, resolve } = Promise.withResolvers<CommandResult>();
+    const timer = setTimeout(() => {
+      this.pending.delete(renderId);
+      resolve(deviceTimeout(Date.now(), this.nodeId ?? "", "page", undefined, `device did not echo page render ${renderId} within ${this.echoTimeoutMs}ms`));
+    }, this.echoTimeoutMs);
+    timer.unref?.();
+    this.pending.set(renderId, { startedAt: Date.now(), node: this.nodeId ?? "", action: "page", requestId: undefined, resolve, timer });
+    const result = await promise;
+    if (!result.ok) this.logger.warn("cdc page render not echoed", { renderId, error: result.error?.message });
+  }
+
+  /** Arm/clear the §4 adoption window around the commission flow (adopt-start / adopt-end). */
+  private setAdoptionWindow(open: boolean): void {
+    if (!this.started || !this.transport.isOpen()) return;
+    this.commissioning = open;
+    this.writeMessage({ type: "event", name: open ? "adopt-start" : "adopt-end" });
+  }
+
+  /** Called by the runtime right before a commission command dispatches. */
+  onCommissionStart(): void {
+    this.setAdoptionWindow(true);
+    // The roads screen re-renders as `adopting` (BLUETOOTH "calling…") while armed.
+    void this.syncPages();
+  }
+
+  /** Called by the runtime after a commission lands (success or failure). */
+  onCommissionSettled(): void {
+    this.setAdoptionWindow(false);
+    // §4: on success the host follows with a pets page push so the family list refreshes.
+    void this.syncPages();
   }
 
   private publishButton(message: CdcButtonMessage): void {
@@ -627,7 +828,20 @@ export class CdcBridge {
         }
         return tone === undefined ? { fraction } : { fraction, tone };
       }
-    }
+      case "page": {
+        // §4 page payloads are agent-authorable data sync: validate through
+        // the same wire codec the firmware applies (screen enum, per-screen
+        // state, ≤4 rows, value ≤24 chars), so nothing the protocol would
+        // reject is ever sent.
+        const roundTrip = parseCdcLine(
+          serializeCdcMessage({ type: "render", zone: "page", id: "validate", payload: args as unknown as CdcPagePayload }),
+        );
+        if (!roundTrip.ok) return `display page payload invalid: ${roundTrip.error}`;
+        const parsed = roundTrip.message;
+        if (parsed.type !== "render" || parsed.zone !== "page") return "display page payload did not round-trip";
+        return parsed.payload as CdcPagePayload;
+      }
+  }
   }
 
   /** Register the echo wait; resolves ok on `echo`, `DEVICE_TIMEOUT` after 2 s. */

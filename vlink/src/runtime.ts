@@ -223,6 +223,9 @@ export class VLinkRuntime implements BridgeOperations {
           instanceId: this.config.instanceId,
           logger: this.logger,
           queue: this.config.commandQueue,
+          // §4 page sync: the runtime is the facts source (listNodes with
+          // aliases, health) — the same BridgeOperations the router consumes.
+          facts: { listNodes: () => this.listNodes(), health: () => this.health() },
         });
       }
       try {
@@ -407,6 +410,17 @@ export class VLinkRuntime implements BridgeOperations {
   }
 
   async commission(request: MatterCommissionRequest): Promise<MatterNodeInfo> {
+    // §4: arm the adoption window before dispatch; the board shows the armed
+    // adopt page while the commissioning handshake runs (cleared on settle).
+    this.cdc?.onCommissionStart();
+    try {
+      return await this.doCommission(request);
+    } finally {
+      this.cdc?.onCommissionSettled();
+    }
+  }
+
+  private async doCommission(request: MatterCommissionRequest): Promise<MatterNodeInfo> {
     const node = await this.matterOrThrow().commission(request);
     const stored: MatterNodeInfo = {
       ...node,
