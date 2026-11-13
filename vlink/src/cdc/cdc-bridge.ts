@@ -558,7 +558,7 @@ export class CdcBridge {
     const rows: CdcPageRow[] = [
       { key: "USB-C", value: this.transport.isOpen() ? "plugged in" : "--", tone: this.transport.isOpen() ? "green" : "dim" },
       { key: "AGENT", value: natsUp ? (agentListening ? "listening" : "saying hi…") : "--", tone: agentListening ? "green" : "amber" },
-      { key: "BLUETOOTH", value: health.bleAvailable ? (this.commissioning ? "calling…" : "ready") : "--", tone: health.bleAvailable ? "green" : "dim" },
+      { key: "BLUETOOTH", value: this.commissioning ? "calling…" : (health.bleAvailable ? "ready" : "--"), tone: this.commissioning ? "amber" : (health.bleAvailable ? "green" : "dim") },
       { key: "WI-FI", value: nodes.some((node) => node.connected) ? `${nodes.length} pets on` : "--", tone: "green" },
     ];
     return { screen: "roads", state, rows };
