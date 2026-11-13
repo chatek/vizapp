@@ -561,7 +561,12 @@ if [ -n "$MEMBER" ]; then
   fi
   git cat-file -e '$MEMBER_SHA^{commit}'
   git checkout --quiet --force --detach '$MEMBER_SHA'
-  rm -rf app/build
+# ★ 2026-11-13: vizmaster 21642a5 renamed app/build -> release/out across its
+# toolchain (handoff.json.paths, bundler, build-info, integrator). The stale
+# app/build literals in this driver broke provenance emission on the first
+# post-rename member run. These paths are the member repo's contract — keep
+# them in sync with its release/handoff.json paths.artifactDir.
+rm -rf release/out
   test \"\$(git rev-parse HEAD)\" = '$MEMBER_SHA'
   test -z \"\$(git status --porcelain --untracked-files=no)\""
   printf '    member checkout %s ok (clean tracked tree)\n' "${MEMBER_SHA:0:12}"
@@ -824,7 +829,7 @@ INTEGRATE
 # ONLY. No source rewrites, no anchor patching, no package.json mutation, and the member
 # repo's own integrator is deliberately NOT run (it still patches the anchors contract v2
 # retired — docs/MEMBER_BUILD.md step 4).
-node \"\$HOME/$REMOTE_ROOT/member-integrate-v2.cjs\" \"\$HOME/$REMOTE_REPO\" $MEMBER app/build/payload"
+node \"\$HOME/$REMOTE_ROOT/member-integrate-v2.cjs\" \"\$HOME/$REMOTE_REPO\" $MEMBER release/out/payload"
   else
     INTEGRATE_STEPS="# v2 carrier: payload -> product/payload (the static extraResources row), pipeline
 # render of product/profile.active.json, defaultProject.ts + vizshare into electron/main.
@@ -841,7 +846,7 @@ export ELECTRON_MIRROR="$MIRROR"
 cd "\$HOME/$REMOTE_MEMBER"
 node -v; npm -v
 npm ci --no-audit --no-fund
-rm -rf app/build
+rm -rf release/out
 # Workspace dependencies first: the dashboard imports @vizmaster/schema, whose exports point
 # at dist/ — without this the dashboard build dies on "'Cannot find module' @vizmaster/schema"
 # (measured on the first member run, rc=1). --if-present keeps the hook optional for a member
@@ -850,7 +855,7 @@ npm run schema:build --if-present
 # Provenance BEFORE integrate: integrate deliberately dirties the vclaw checkout, and
 # build-info reads that checkout's tracked state (vclawDirty). Emitting afterwards would
 # stamp vclawDirty: true on an otherwise clean build and fail the mounted-dmg assert.
-VCLAW_SRC="\$HOME/$REMOTE_REPO" node scripts/build-info.mjs --out app/build
+VCLAW_SRC="\$HOME/$REMOTE_REPO" node scripts/build-info.mjs --out release/out
 # Payload = tracked dashboard/ + dashboard/dist + the BUILD.json above (fail-closed on a
 # missing provenance). --with-dist is what makes the packaged payload usable.
 node scripts/bundle-vizmaster.mjs --with-dist
