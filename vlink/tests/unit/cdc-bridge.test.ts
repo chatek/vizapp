@@ -5,7 +5,7 @@
  * ack/bye lifecycle. Zero hardware.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -720,6 +720,112 @@ describe("CdcBridge §4 page sender", () => {
     const bad = parseJson<CommandResult>((await badPromise).data);
     expect(bad.ok).toBe(false);
     expect(bad.error?.code).toBe("PAYLOAD_INVALID");
+  });
+
+  test("a swallowed echo re-pushes the page on the next sync pass; an echoed one does not", async () => {
+    // A transport that records writes but never delivers echoes back: the
+    // board "missed" every push.
+    const silentCdc = new FakeCdcTransport(true);
+    const echoCdc = new FakeCdcTransport(true);
+
+    for (const [transport, expectRepush] of [
+      [silentCdc, true],
+      [echoCdc, false],
+    ] as const) {
+      const localBridge = new CdcBridge({
+        transport,
+        nats,
+        fabricId: FABRIC,
+        instanceId: "test-host",
+        logger: silentLogger,
+        queue: "vlink",
+        echoTimeoutMs: 25,
+        facts: pageFacts([]),
+      });
+      // Fake timers BEFORE the push: the echo-timeout setTimeout the bridge
+      // registers must be fake for advanceTimersByTime to fire it.
+      vi.useFakeTimers();
+      try {
+        await localBridge.start();
+        transport.receive(deviceLine({ type: "hello", device: "vlink-c6", fw: "1.2.3", mac: MAC }));
+        // First push: pets page (empty node list).
+        const first = await transport.nextWrite((line) => line.includes('"screen":"pets"'));
+        const firstId = writtenJson(first).id;
+        if (!expectRepush) {
+          // Echo BOTH pages (pets then roads): an unechoed roads push would
+          // legitimately re-push under the retry rule and confuse the count.
+          const roads = await transport.nextWrite((line) => line.includes('"screen":"roads"'));
+          transport.receive(deviceLine({ type: "echo", zone: "page", id: firstId }));
+          transport.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(roads).id }));
+        }
+        // Deterministically expire the 25 ms echo window, then flush the
+        // awaitPageEcho continuation (key clear happens on its microtask).
+        vi.advanceTimersByTime(30);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        const writesBefore = transport.written.length;
+        // Second sync pass with the SAME facts: dedupe should suppress…
+        // unless the swallowed echo cleared the key (the retry rule).
+        await localBridge.syncPagesForTest();
+        if (expectRepush) {
+          expect(transport.written.length).toBeGreaterThan(writesBefore);
+          const rePush = transport.written.find(
+            (line, index) => index >= writesBefore && line.includes('"screen":"pets"') && writtenJson(line).id !== firstId,
+          );
+          expect(rePush).toBeDefined();
+        } else {
+          expect(transport.written.length).toBe(writesBefore);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+      await localBridge.stop();
+    }
+  });
+
+  test("pets truncation: exactly 3 fits; 4+ shows 'and N more' in the last row", async () => {
+    const mkNodes = (count: number): MatterNodeInfo[] =>
+      Array.from({ length: count }, (_, i) => ({
+        fabricId: FABRIC,
+        nodeId: `node-00000000000000${(i + 1).toString(16).padStart(2, "0")}`,
+        nodeName: `pet-${i + 1}`,
+        endpointIds: [1],
+        connected: true,
+      }));
+
+    for (const [count, expectMore] of [
+      [3, null],
+      [4, 1],
+      [5, 2],
+      [6, 3],
+    ] as const) {
+      const localCdc = new FakeCdcTransport(true);
+      const localBridge = new CdcBridge({
+        transport: localCdc,
+        nats,
+        fabricId: FABRIC,
+        instanceId: "test-host",
+        logger: silentLogger,
+        queue: "vlink",
+        echoTimeoutMs: 25,
+        facts: pageFacts(mkNodes(count)),
+      });
+      await localBridge.start();
+      localCdc.receive(deviceLine({ type: "hello", device: "vlink-c6", fw: "1.2.3", mac: MAC }));
+      const petsLine = await localCdc.nextWrite((line) => line.includes('"screen":"pets"'));
+      if (expectMore === null) {
+        // Exactly 3 pets + self-row: all 4 rows are pet rows, no "more" row.
+        expect(petsLine).not.toContain("and ");
+        expect(petsLine).toContain('"key":"pet-3"');
+      } else {
+        expect(petsLine).toContain(`"value":"and ${expectMore} more"`);
+        // The 3rd pet is replaced by the "more" row: pet-3 must NOT appear.
+        expect(petsLine).not.toContain('"key":"pet-3"');
+        expect(petsLine).toContain('"key":"pet-2"');
+      }
+      // Echo and settle.
+      localCdc.receive(deviceLine({ type: "echo", zone: "page", id: writtenJson(petsLine).id }));
+      await localBridge.stop();
+    }
   });
 });
 

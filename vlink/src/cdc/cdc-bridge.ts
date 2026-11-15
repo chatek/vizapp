@@ -499,21 +499,21 @@ export class CdcBridge {
     const petsKey = JSON.stringify(petsPage);
     if (petsKey !== this.lastPetsPage) {
       this.lastPetsPage = petsKey;
-      this.pushPage(petsPage);
+      this.pushPage(petsPage, "pets");
     }
     const roadsPage = this.buildRoadsPage(nodes);
     if (roadsPage !== undefined) {
       const roadsKey = JSON.stringify(roadsPage);
       if (roadsKey !== this.lastRoadsPage) {
         this.lastRoadsPage = roadsKey;
-        this.pushPage(roadsPage);
+        this.pushPage(roadsPage, "roads");
       }
     }
   }
 
-  /** Test hook: run one page-sync pass immediately (timer paths are covered by lifecycle tests). */
-  syncPagesForTest(): void {
-    void this.syncPages();
+  /** Test hook: run one page-sync pass immediately and await it (timer paths are covered by lifecycle tests). */
+  syncPagesForTest(): Promise<void> {
+    return this.syncPages();
   }
 
   /** The pets screen (§4): the family list. Row value ≤ 24 chars on the wire. */
@@ -522,12 +522,22 @@ export class CdcBridge {
     if (this.nodeId !== undefined) {
       rows.push({ key: "vlink", value: this.nodeSeen.has(this.nodeId) ? "usb · this is me!" : "usb · saying hi…", tone: "green" });
     }
-    for (const node of nodes.slice(0, this.nodeId !== undefined ? 3 : 4)) {
+    // Lead ruling (2026-11-15): the 4-row firmware limit stops being silent —
+    // with more pets than fit, the LAST visible row becomes "and N more"
+    // (kid-voice wording exact), replacing the 3rd pet row. N = 0 means it
+    // fits: the 3rd pet row shows normally.
+    const petRows = this.nodeId !== undefined ? 3 : 4;
+    const overflow = nodes.length - petRows;
+    const shown = overflow > 0 ? nodes.slice(0, petRows - 1) : nodes.slice(0, petRows);
+    for (const node of shown) {
       rows.push({
         key: petName(node),
         value: node.connected ? "wifi · awake" : this.petMood(node.nodeId, now),
         tone: node.connected ? "green" : "dim",
       });
+    }
+    if (overflow > 0) {
+      rows.push({ key: "pets", value: `and ${overflow} more`, tone: "dim" });
     }
     // Lead ruling: state is "empty" iff the NODE list is empty — the widget's
     // own self-row does not make a family. Both states are §4 enum members.
@@ -565,7 +575,7 @@ export class CdcBridge {
   }
 
   /** Send one page render and register the echo wait (2 s → logged timeout: no requestor to reply to). */
-  private pushPage(payload: CdcPagePayload): void {
+  private pushPage(payload: CdcPagePayload, screen: "pets" | "roads"): void {
     if (!this.transport.isOpen() || this.nodeId === undefined) return;
     const renderId = `page-${++this.renderCounter}`;
     const message: CdcHostMessage = { type: "render", zone: "page", id: renderId, payload };
@@ -577,11 +587,11 @@ export class CdcBridge {
       return;
     }
     this.writeMessage(message);
-    void this.awaitPageEcho(renderId);
+    void this.awaitPageEcho(renderId, payload, screen);
   }
 
   /** Echo wait for a bridge-initiated push; there is no NATS requestor, so only log the outcome. */
-  private async awaitPageEcho(renderId: string): Promise<void> {
+  private async awaitPageEcho(renderId: string, payload: CdcPagePayload, screen: "pets" | "roads"): Promise<void> {
     const { promise, resolve } = Promise.withResolvers<CommandResult>();
     const timer = setTimeout(() => {
       this.pending.delete(renderId);
@@ -590,8 +600,17 @@ export class CdcBridge {
     timer.unref?.();
     this.pending.set(renderId, { startedAt: Date.now(), node: this.nodeId ?? "", action: "page", requestId: undefined, resolve, timer });
     const result = await promise;
-    if (!result.ok) this.logger.warn("cdc page render not echoed", { renderId, error: result.error?.message });
+    if (result.ok) return;
+    this.logger.warn("cdc page render not echoed", { renderId, error: result.error?.message });
+    // A swallowed echo means the board may have missed the push, but the
+    // dedupe key was already consumed — the board would keep stale page data
+    // until the next fact change. Clear the key so the next sync pass
+    // re-pushes (the ack-anchored reseed remains the belt-and-braces).
+    const key = JSON.stringify(payload);
+    if (screen === "pets" && this.lastPetsPage === key) this.lastPetsPage = undefined;
+    if (screen === "roads" && this.lastRoadsPage === key) this.lastRoadsPage = undefined;
   }
+
 
   /** Arm/clear the §4 adoption window around the commission flow (adopt-start / adopt-end). */
   private setAdoptionWindow(open: boolean): void {
