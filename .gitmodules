@@ -1,0 +1,3 @@
+[submodule "vendors/gooey-pi"]
+	path = vendors/gooey-pi
+	url = https://REDACTED_INTERNAL_FORGE/chatek/gooey-pi.git
