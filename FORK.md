@@ -28,12 +28,10 @@ manifest key is read as `vclaw` with a fallback to the legacy `gooeypi`, so pack
 
 ## Building
 
-**macOS is the flow in scope of [`docs/BUILD.md`](docs/BUILD.md)** (remote primary, local
-fallback). The Linux and Windows recipes below run on their native hosts, on demand, and are
-not alternatives to the remote macOS flow. The release flow publishes **macOS artefacts only**
-([`docs/RELEASE_FLOW.md`](docs/RELEASE_FLOW.md)); no CI job builds or publishes any platform.
-What this fork hands to another lane — a published Forgejo release URL and nothing else — is
-[`docs/BOUNDARIES.md`](docs/BOUNDARIES.md).
+**macOS QA packaging is the flow in scope of [`docs/BUILD.md`](docs/BUILD.md)** and
+[`docs/BUILD_LOCAL.md`](docs/BUILD_LOCAL.md). The Linux and Windows recipes below run on
+their native hosts, on demand. Official releases are cut manually by the maintainer; no CI
+job builds or publishes any platform today.
 
 **Toolchain is pinned**: `.nvmrc` = **node 24.15.0**, `engines.npm` = **npm 12.0.2**. Install both rather than
 trusting "new enough" — the repo's gate only enforces **minimums**, so a newer node passes while the pinned npm says
@@ -50,17 +48,14 @@ npm run build
 
 ### macOS
 
-macOS builds have two flows — **remote primary**, **local fallback** — and one entry point:
-[`docs/BUILD.md`](docs/BUILD.md), which carries the commands, the drivers and the evidence rule.
-Do not run electron-builder by hand here.
+macOS packaging has one entry point: [`docs/BUILD.md`](docs/BUILD.md), which carries the
+commands, the drivers and the QA-artefact rule. Do not run electron-builder by hand here.
 
-Only the remote host's `.app` is evidence; a local `--dir` build prints
-`ARTEFACT(not-evidence)` and must never be shipped. Cross-arch local builds are refused because
-`node-pty`, `zeromq`, and `koffi` are host-arch. The dmg/zip path is
-[`docs/RELEASE_BUILD_HOST.md`](docs/RELEASE_BUILD_HOST.md); signing needs an Apple Developer ID
-and there is none in this estate, so only unsigned `--qa` installers exist. This is **two per-arch
-bundles**, which is what upstream ships; there is no universal target here (`after-pack.cjs`
-refuses one).
+A local `--dir` build prints `ARTEFACT(not-evidence)` and must never be shipped.
+Cross-arch local builds are refused because `node-pty`, `zeromq`, and `koffi` are
+host-arch. Signing needs an Apple Developer ID and none is configured, so only unsigned
+`--qa` installers exist. This is **two per-arch bundles**, which is what upstream ships;
+there is no universal target here (`after-pack.cjs` refuses one).
 
 ### Linux
 
@@ -78,22 +73,24 @@ and it matches `scripts/release/prepare-github-release.mjs`): `x86_64` and `aarc
 
 Configured (`nsis`, `zip`, `appx`; MSIX identity `VClaw`) and verified by `verify-cross-platform-package.mjs`
 including Authenticode signer assertions, but **buildable only on Windows**. The GitHub-hosted
-`.github/workflows/release.yml` carries a `windows-2022` job gated by repository variables, but the release flow
-does not run that workflow ([`docs/RELEASE_FLOW.md`](docs/RELEASE_FLOW.md)), so a Windows installer is a local
-recipe today, not a published asset. Two setup items for a fork: rename the repo variables
+`.github/workflows/release.yml` carries a `windows-2022` job gated by repository variables, but no
+release pipeline runs it today, so a Windows installer is a local recipe, not a published asset. Two
+setup items for a fork: rename the repo variables
 `GOEYPI_WINDOWS_CERT_*` → `VCLAW_WINDOWS_CERT_*` (the workflow already reads the new names), and provide the signing
 certificate for the signed leg.
 
 ### Headless limits (measured)
 
-* `npm run package:mac` runs the full `release:verify` aggregate, whose `test:e2e:hermetic` half needs a display, so
-  a headless run passes `--skip-verify` after `release:verify:package` has run on that commit — there is no CI run to
-  rely on. `verify-package.mjs` itself is static and does run over ssh (see `docs/RELEASE_BUILD_HOST.md`); the
-  default `--dir` flow (`docs/BUILD_REMOTE.md`) needs no display at all.
-* The Playwright e2e suite needs a display: fine on Linux under `xvfb-run` — not on a headless macOS box.
-* Signed/notarized macOS artefacts need an **Apple Developer ID**; there are 0 codesigning identities on the build
-  host and on the workstation, and no CI secrets to hold one. Until an identity exists the builds here are unsigned
-  QA bundles, published marked `unsigned` with releases defaulting to draft.
+* `npm run package:mac` runs the full `release:verify` aggregate, whose `test:e2e:hermetic`
+  half needs a display, so a headless run passes `--skip-verify` after
+  `release:verify:package` has run on that commit — there is no CI run to rely on.
+  `verify-package.mjs` itself is static and does not need a display; the default `--dir`
+  flow (`docs/BUILD_LOCAL.md`) needs no display at all.
+* The Playwright e2e suite needs a display: fine on Linux under `xvfb-run` — not on a
+  headless macOS box.
+* Signed/notarized macOS artefacts need an **Apple Developer ID**; no signing identity is
+  configured and no CI secrets hold one. Until an identity exists the builds here are
+  unsigned QA bundles, published marked `unsigned`.
 
 ## Verification status
 
@@ -105,7 +102,7 @@ certificate for the signed leg.
 | macOS arm64 + x64 builds | built; identity, resources and fuses inspected |
 | Linux x64 + arm64 installers | all eight built; binary `vclaw`, `vclaw.desktop`, deb `Package: vclaw`, rpm `NAME=vclaw` |
 | Linux e2e under xvfb | **56/66**, and **none of the 7 failures is this fork's**: 1 is a virtual-screen clamp, 6 are the suite's own Linux assumptions (a darwin-only heading, a hard-coded `⌘N`, and `SHELL=/bin/zsh`) |
-| macOS e2e | **not run** — needs a GUI runner; there is no CI leg (no Forgejo Actions, and the release flow runs no workflows) |
+| macOS e2e | **not run** — needs a GUI runner; no CI leg runs it |
 
 ## Notes on the base (found while forking)
 
@@ -122,11 +119,10 @@ certificate for the signed leg.
 
 ## Member integration seam contract (v1)
 
-Member apps (first: **VizMaster**) build a branded vertical from a **pinned `main` commit**: they snapshot
-this tree, copy in their payload, and perform anchored insertions into the files below (the consumer this
-contract was extracted from: `VizMaster/scripts/integrate-vcclaw.mjs`, measured 2026-10-22). There are no
-member branches and no member-owned files in this repo — the contract is what keeps pinned builds
-integrable across upstream merges.
+Member apps build a branded vertical from a **pinned `main` commit**: they snapshot
+this tree, copy in their payload, and perform anchored insertions into the files below.
+There are no member branches and no member-owned files in this repo — the contract is what
+keeps pinned builds integrable across upstream merges.
 
 | seam (v1) | file | anchor |
 |---|---|---|
@@ -145,8 +141,8 @@ manifest key `vclaw` with legacy `gooeypi` fallback (`electron/main/plugins/cata
 `tests/member-seams.test.ts` in the normal suite). An upstream merge that breaks an anchor turns THIS
 repo red at merge time, instead of breaking a member's build at their next pin bump.
 
-The full member-build runbook — what/why/how, with the pinned-snapshot flow, the identity-override
-warning, and the estate build rules — is **`docs/MEMBER_BUILD.md`**.
+The full member-build runbook — what/why/how, with the pinned-snapshot flow and the
+identity-override warning — is **`docs/MEMBER_BUILD.md`**.
 
 **Change rules:** an anchor may be renamed only by bumping the contract version (see
 `scripts/release/member-seams.mjs` → `MEMBER_SEAMS_V1`) and recording the rename in this file in the
@@ -188,7 +184,7 @@ A product profile is:
   "defaultProject": { "name": "VizMaster", "from": "product/payload", "to": "~/VizMaster", "version": "0.0.0+unrendered" } }
 ```
 
-The member keeps the generic identity (`com.vclaw.desktop` / `VClaw`) by operator ruling
+The member keeps the generic identity (`com.vclaw.desktop` / `VClaw`) by design decision
 (2026-11-05) so it upgrades in place over a generic install and shares one userData directory and
 updater channel. `version` is a placeholder: `package.mjs` renders the payload's release id from
 `BUILD.json` into the staged `resources/product.json`, and refuses a member build without it.
@@ -204,7 +200,7 @@ an artifact whose name and profile disagree** — a member-named build carrying 
 the reverse. `--member <id>` is shorthand and must match the profile id.
 
 Where the payload lives: `product/payload` — always shipped (README-only for the generic product),
-which is the contract-v2 carrier. The integrator copies the bundled payload there and
+which is the fixed contract-v2 payload location. The integrator copies the bundled payload there and
 `defaultProject.from` must be `product/payload`; `package.mjs --member` refuses any other value and
 fails before packaging if `product/payload/dist`, the payload content, or the payload `BUILD.json`
 release id is missing, so a missing or early integrate cannot seed an empty project silently. The
@@ -214,8 +210,7 @@ legacy `vendor/<member>` + `{from: 'vendor/vizmaster', to: 'vizmaster'}` route i
 
 1. **Apple Developer ID** + notarization secrets — blocks signed/notarized macOS distribution.
 2. **Windows**: repo-variable rename + signing certificate (see above).
-3. **CI for this fork — not available**: Forgejo Actions cannot build this repo (no darwin runner;
-   the instance cannot fetch actions from github.com), and publishing is the manual workstation flow
-   in `docs/RELEASE_FLOW.md`.
+3. **CI for this fork — not available**: no CI job builds or publishes any platform; releases
+   are cut manually by the maintainer.
 4. **Icon** — replace the inherited butterfly.
 5. **Upstream merge policy** is *track-and-merge*; keep the diff reviewed against upstream releases.

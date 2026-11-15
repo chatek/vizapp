@@ -8,7 +8,8 @@
  * capability. Responses never allow credentials.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { VizSharePayloadError, parseSubmission, type VizShowApi } from './api'
+import { VizSharePayloadError, decodePoster, parseDraft, parseDraftCompletion, parseSubmission, type VizShowApi } from './api'
+import { latestBuildTrace, type VizBuildTrace } from './build-trace'
 import { OidcError, ReauthRequiredError, type OidcClient } from './oidc'
 
 /**
@@ -24,6 +25,9 @@ export const SHARE_ORIGINS = [
   'http://127.0.0.1:5173',
 ] as const
 export const SUBMIT_BODY_LIMIT = 2 * 1024 * 1024
+/** Same id alphabet `parseSubmission` enforces for `tutorialId`. */
+const TUTORIAL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+const DRAFT_SUBMIT_PATH = /^\/v1\/drafts\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/submit$/
 
 export interface CaptureRect {
   x: number
@@ -35,7 +39,7 @@ export interface CaptureRect {
 export interface VizShareBrokerOptions {
   port: number
   oidc: Pick<OidcClient, 'status' | 'beginSignIn' | 'completeSignIn'>
-  api: Pick<VizShowApi, 'listMine' | 'submitViz' | 'withdraw'>
+  api: Pick<VizShowApi, 'listMine' | 'submitViz' | 'withdraw' | 'createDraftOnly' | 'uploadPoster' | 'submitDraft'>
   openExternal: (url: string) => Promise<void>
   isCapValid: (cap: string) => boolean
   /** File-delivered same-user agent capability; replaces Origin only for the two API routes. */
@@ -44,6 +48,19 @@ export interface VizShareBrokerOptions {
   isCaptureCapValid?: (cap: string) => boolean
   /** Electron webContents.capturePage; returns null when the cap has no page. */
   capturePage: (cap: string, rect: CaptureRect) => Promise<string | null>
+  /**
+   * Latest local build trace for a tutorial id (BUILD.json → prompt excerpt +
+   * tools), or null when no build matches. Defaults to the real reader
+   * (`latestBuildTrace`); injectable for tests. Must never throw.
+   */
+  getBuildTrace?: (tutorialId: string) => Promise<VizBuildTrace | null>
+  /**
+   * C1 (§4.6): carrier-gated pane capture for `/v1/draft`. Given a buildId,
+   * returns a poster data URL captured from the live Browser pane serving that
+   * build, or null when no pane shows it / the hook is unwired — the draft
+   * then leaves the poster for review-time capture. Must never throw.
+   */
+  captureBuildPoster?: (buildId: string) => Promise<string | null>
 }
 
 export type VizShareRequestListener = (request: IncomingMessage, response: ServerResponse) => void
@@ -96,10 +113,14 @@ export function createVizShareBroker(options: VizShareBrokerOptions): VizShareRe
 
     const method = request.method ?? 'GET'
     const agentCap = headerValue(request, 'x-vizshare-cap')
+    // C1 rescope (§4.2): the agent capability reaches exactly POST /v1/draft
+    // and GET /v1/mine. /v1/submit is origin-gated renderer traffic only —
+    // it completes the consent-bearing chain, which must stay human — and
+    // joins /callback and /v1/capture as agent-unreachable surfaces.
     const agentDirect =
       agentCap !== null &&
       options.isAgentCapValid?.(agentCap) === true &&
-      ((url.pathname === '/v1/submit' && method === 'POST') ||
+      ((url.pathname === '/v1/draft' && method === 'POST') ||
         (url.pathname === '/v1/mine' && method === 'GET'))
 
     // Browser requests keep the Origin allow-list and CORS response. A valid
@@ -182,13 +203,86 @@ export function createVizShareBroker(options: VizShareBrokerOptions): VizShareRe
       sendJson(response, 200, { shows: Array.isArray(records) ? records : [] })
       return
     }
+    if (url.pathname === '/v1/build-trace') {
+      requireMethod(response, method, 'GET')
+      if (method !== 'GET') return
+      const tutorialId = url.searchParams.get('tutorialId') ?? ''
+      if (!TUTORIAL_ID.test(tutorialId)) {
+        sendJson(response, 400, { error: 'invalid_request' })
+        return
+      }
+      const trace = await (options.getBuildTrace ?? latestBuildTrace)(tutorialId)
+      sendJson(response, 200, { trace })
+      return
+    }
+    if (url.pathname === '/v1/draft') {
+      requireMethod(response, method, 'POST')
+      if (method !== 'POST') return
+      // parseDraft refuses any body carrying consent or poster (§4.7): the
+      // agent's non-delegability is mechanical, not behavioural.
+      const draft = parseDraft(await readJson(request))
+      // Same traceability channel as /v1/submit: the DESKTOP attaches the
+      // matching build's prompt excerpt, overriding any claim, so the
+      // recorded `promptExcerpt` is a local-build fact.
+      const trace = await (options.getBuildTrace ?? latestBuildTrace)(draft.tutorialId)
+      if (trace !== null) draft.promptExcerpt = trace.promptExcerpt
+      const created = await options.api.createDraftOnly(draft)
+      // Best-effort poster (§4.6): when the carrier wired the pane hook and
+      // it returns a data URL, attach it immediately; any failure leaves the
+      // poster for review-time capture from the live scene.
+      let poster: 'attached' | 'pending-review' = 'pending-review'
+      let revision = created.revision
+      if (options.captureBuildPoster !== undefined) {
+        let dataUrl: string | null = null
+        try {
+          dataUrl = await options.captureBuildPoster(draft.buildId)
+        } catch {
+          dataUrl = null
+        }
+        if (dataUrl !== null) {
+          try {
+            const uploaded = await options.api.uploadPoster(created.id, decodePoster(dataUrl), `W/"${created.revision}"`)
+            poster = 'attached'
+            revision = uploaded.revision
+          } catch {
+            // The draft exists; a failed upload must not fail the response.
+          }
+        }
+      }
+      sendJson(response, 200, { id: created.id, state: 'draft', poster, revision })
+      return
+    }
     if (url.pathname === '/v1/submit') {
       requireMethod(response, method, 'POST')
       if (method !== 'POST') return
       const submission = parseSubmission(await readJson(request))
+      // Traceability channel (see ./build-trace.ts): the DESKTOP attaches the
+      // matching build's prompt excerpt, overriding whatever the renderer
+      // claimed, so the recorded `promptExcerpt` is a local-build fact. No
+      // matching build (a hand-written lesson) leaves the payload untouched.
+      const trace = await (options.getBuildTrace ?? latestBuildTrace)(submission.tutorialId)
+      if (trace !== null) submission.promptExcerpt = trace.promptExcerpt
       const receipt = headerValue(request, 'x-consent-receipt')
       const result = await options.api.submitViz(submission, receipt ?? undefined)
       sendJson(response, 200, { id: result.id, state: 'submitted' })
+      return
+    }
+    // C1 (§4.5): the human completion of an agent-created draft. Renderer-only
+    // by construction — the agentDirect allow-list above never names it, so
+    // the page cap + Origin gate are the only way in, and the consent union
+    // reaches the record exclusively through a human tap.
+    if (DRAFT_SUBMIT_PATH.test(url.pathname)) {
+      requireMethod(response, method, 'POST')
+      if (method !== 'POST') return
+      const id = DRAFT_SUBMIT_PATH.exec(url.pathname)?.[1]
+      if (id === undefined) {
+        sendJson(response, 400, { error: 'invalid_request' })
+        return
+      }
+      const completion = parseDraftCompletion(await readJson(request))
+      const receipt = headerValue(request, 'x-consent-receipt')
+      const result = await options.api.submitDraft(id, completion, receipt ?? undefined)
+      sendJson(response, 200, { id, state: 'submitted', revision: result.revision })
       return
     }
     if (url.pathname === '/v1/withdraw') {

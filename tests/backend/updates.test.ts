@@ -18,15 +18,15 @@ afterEach(() => {
 
 describe('automatic update service', () => {
   it('uses explicit system messages for manual update checks', () => {
-    expect(manualUpdateNotification({ phase: 'not-available' })).toMatchObject({ type: 'info', message: 'No VClaw Update Available' })
-    expect(manualUpdateNotification({ phase: 'available', version: '0.2.0' })).toMatchObject({ type: 'info', message: 'VClaw Update Available' })
-    expect(manualUpdateNotification({ phase: 'downloaded', version: '0.2.0' })).toMatchObject({ type: 'info', message: 'VClaw Update Available' })
+    expect(manualUpdateNotification({ phase: 'not-available' })).toMatchObject({ type: 'info', message: 'No Vizmaster Update Available' })
+    expect(manualUpdateNotification({ phase: 'available', version: '0.2.0' })).toMatchObject({ type: 'info', message: 'Vizmaster Update Available' })
+    expect(manualUpdateNotification({ phase: 'downloaded', version: '0.2.0' })).toMatchObject({ type: 'info', message: 'Vizmaster Update Available' })
   })
 
   it('explains that builds without an update service cannot check', () => {
     expect(manualUpdateNotification({ phase: 'unsupported', message: 'Automatic updates are available in installed builds.' })).toEqual({
       type: 'info',
-      message: 'VClaw Updates Unavailable',
+      message: 'Vizmaster Updates Unavailable',
       detail: 'Automatic updates are available in installed builds.',
     })
   })
@@ -44,7 +44,7 @@ describe('automatic update service', () => {
 
     finishCheck()
     await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce())
-    expect(notify).toHaveBeenCalledWith({ type: 'info', message: 'No VClaw Update Available' })
+    expect(notify).toHaveBeenCalledWith({ type: 'info', message: 'No Vizmaster Update Available' })
 
     checkForUpdates()
     expect(check).toHaveBeenCalledTimes(2)
@@ -211,6 +211,6 @@ describe('automatic update service', () => {
     const updater = new FakeUpdater()
     const service = new UpdateService(updater as unknown as UpdateAdapter, { enabled: false })
     expect(service.isEnabled()).toBe(false)
-    expect(manualUpdateNotification(service.getState())).toMatchObject({ type: 'info', message: 'VClaw Updates Unavailable' })
+    expect(manualUpdateNotification(service.getState())).toMatchObject({ type: 'info', message: 'Vizmaster Updates Unavailable' })
   })
 })

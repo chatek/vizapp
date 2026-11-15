@@ -39,18 +39,18 @@ export interface ManualUpdateNotification {
 export function manualUpdateNotification(state: AppUpdateState): ManualUpdateNotification {
   if (state.phase === 'error') return {
     type: 'error',
-    message: 'VClaw Update Check Failed',
+    message: 'Vizmaster Update Check Failed',
     detail: state.message,
   }
   if (state.phase === 'unsupported') return {
     type: 'info',
-    message: 'VClaw Updates Unavailable',
+    message: 'Vizmaster Updates Unavailable',
     detail: state.message ?? 'Automatic updates are available in installed builds.',
   }
   const available = state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded'
   return {
     type: 'info',
-    message: available ? 'VClaw Update Available' : 'No VClaw Update Available',
+    message: available ? 'Vizmaster Update Available' : 'No Vizmaster Update Available',
   }
 }
 
@@ -65,7 +65,7 @@ export function createManualUpdateCheck(
     inFlight = true
     void check()
       .then((state) => notify(manualUpdateNotification(state)))
-      .catch((error) => notify({ type: 'error', message: 'VClaw Update Check Failed', detail: errorMessage(error) }))
+      .catch((error) => notify({ type: 'error', message: 'Vizmaster Update Check Failed', detail: errorMessage(error) }))
       .finally(() => { inFlight = false })
   }
 }

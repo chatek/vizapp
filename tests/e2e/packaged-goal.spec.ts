@@ -8,7 +8,7 @@ import { join } from 'node:path'
 // status done + a standalone render, and the Browser pane surfaces it.
 //
 // Driven with Playwright's Electron support exactly like tests/e2e/app.spec.ts, but
-// against the packaged VClaw.app (not a dev checkout), so what is exercised is the
+// against the packaged Vizmaster.app (not a dev checkout), so what is exercised is the
 // artefact: bundled omp discovery, seeded ~/.vizmaster/default, the .omp/tools
 // buildVizShow discovery, and the vizshow loopback server.
 //
@@ -17,7 +17,7 @@ import { join } from 'node:path'
 // the same keys any real first-run user supplies through provider settings.
 
 const APP = process.env.VCLAW_E2E_APP
-  ?? join(homedir(), 'Documents/Chatek/apps/vchat.email/vclaw-desktop/release-remote/arm64/VClaw-1.1.18-unpacked/VClaw.app/Contents/MacOS/VClaw')
+  ?? join(homedir(), 'Documents/Chatek/apps/vchat.email/vclaw-desktop/release-remote/arm64/VClaw-1.1.18-unpacked/Vizmaster.app/Contents/MacOS/Vizmaster')
 const AUTH_SOURCE = join(homedir(), '.pi', 'agent', 'auth.json')
 
 test('clean home → packaged app → one prompt → vizshow build appears and is served', async ({ }, testInfo) => {

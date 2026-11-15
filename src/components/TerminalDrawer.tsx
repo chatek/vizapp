@@ -284,7 +284,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function 
         onExitRef.current?.()
       })
     } else {
-      terminal.writeln('\x1b[38;5;141mVClaw terminal\x1b[0m')
+      terminal.writeln('\x1b[38;5;141mVizmaster terminal\x1b[0m')
       terminal.writeln('\x1b[90mA live PTY will connect when the desktop bridge and project are available.\x1b[0m')
       terminal.write('\r\n\x1b[32m➜\x1b[0m \x1b[36mprime-work\x1b[0m \x1b[90mgit:(main)\x1b[0m ')
     }
@@ -363,7 +363,7 @@ export const TerminalDrawer = forwardRef<TerminalDrawerHandle, TerminalDrawerPro
       return { tabId, label: tab.label ?? `${tab.shellName} ${tab.number}`, cwd, ...value }
     },
     runCommand: (command, label, onExit) => {
-      if (tabsRef.current.length >= MAX_TERMINAL_TABS) throw new Error(`VClaw supports at most ${MAX_TERMINAL_TABS} concurrent terminals.`)
+      if (tabsRef.current.length >= MAX_TERMINAL_TABS) throw new Error(`Vizmaster supports at most ${MAX_TERMINAL_TABS} concurrent terminals.`)
       const tab = createTab(nextNumberRef.current++, shell, command, label, onExit)
       setTabs((current) => [...current, tab])
       setActiveTabId(tab.id)
@@ -380,7 +380,7 @@ export const TerminalDrawer = forwardRef<TerminalDrawerHandle, TerminalDrawerPro
 
   const addTerminal = () => {
     if (tabs.length >= MAX_TERMINAL_TABS) {
-      onError?.(`VClaw supports at most ${MAX_TERMINAL_TABS} concurrent terminals.`)
+      onError?.(`Vizmaster supports at most ${MAX_TERMINAL_TABS} concurrent terminals.`)
       return
     }
     const tab = createTab(nextNumberRef.current++, shell)

@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   static getDerivedStateFromError(): ErrorBoundaryState { return { failed: true } }
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
-    console.error('VClaw rendering failed:', error, info.componentStack)
+    console.error('Vizmaster rendering failed:', error, info.componentStack)
     this.props.onCatch?.(error, info)
   }
 

@@ -123,7 +123,7 @@ export function SettingsPage({ settings, meta, providerCatalog, voice, pets, onC
             </>
           )}
         >
-          <p>This signs you out of websites opened in VClaw and removes history, cache, cookies, and saved permissions. This cannot be undone.</p>
+          <p>This signs you out of websites opened in Vizmaster and removes history, cache, cookies, and saved permissions. This cannot be undone.</p>
           {resetError ? <p className="settings-error" role="alert">{resetError}</p> : null}
         </Modal>
       ) : null}

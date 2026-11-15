@@ -8,34 +8,26 @@ When changing an existing production file above the threshold, avoid increasing 
 
 This threshold does not apply to tests, generated files, vendored code, lockfiles, fixtures, or data assets. Correctness, security boundaries, and maintainable ownership take precedence over line count.
 
+## Working language
+
+Write code, comments, commit messages, issues, and pull-request descriptions in English.
+
 ## Desktop builds
 
-macOS builds and installer packaging have one entry point; start at [`docs/BUILD.md`](docs/BUILD.md).
+Building and packaging have one entry point: start at [`docs/BUILD.md`](docs/BUILD.md).
 
-- **Remote is primary.** `scripts/release/build-remote.sh` builds on
-  `build@build-host.example` (procedure: `docs/BUILD_REMOTE.md`).
-- **Local is a fallback only.** `scripts/release/build-local.sh` refuses unless
-  `VCLAW_ALLOW_LOCAL_BUILD=1`, and only when that host is unavailable
-  (procedure: `docs/BUILD_LOCAL.md`).
-- **Only the remote host's artefact is evidence.** A local build prints
-  `ARTEFACT(not-evidence)`; never attach one to a release or treat it as equivalent.
-- The dmg/zip path (`package.mjs`) is documented in `docs/RELEASE_BUILD_HOST.md` and runs on
-  that same host; it needs the repo-pinned npm 12 there, and only `--qa` (unsigned) is possible.
-- **Publishing is a workstation job, not CI.** `scripts/release/release-forgejo.sh` builds on the
-  host, tags, publishes a Forgejo release on `chatek/vclaw-desktop` (draft unless `--publish`) and
-  re-fetches to verify — `docs/RELEASE_FLOW.md` §3.
-- **No CI build path exists.** Forgejo Actions cannot build this repo (no darwin runner; the
-  instance cannot fetch actions from github.com). Do not document or plan one.
-- **Nobody signs today** (0 codesigning identities on the host and the workstation). Releases
-  are marked `unsigned` and default to draft.
-- `main` is the only long-lived branch; `origin/vizmaster` is legacy and retiring.
-- **The handoff is a published Forgejo release URL on `chatek/vclaw-desktop`**, and this repo's
-  responsibility ends there. Lane ownership, what a lane may ask of another, and the
-  anti-patterns are [`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) — read it before describing any
-  release as blocked, or asking another lane for anything.
+- **Local development** is `npm run dev` plus the checks in
+  [`docs/validation.md`](docs/validation.md) — the same gates CI runs.
+- **Local packaging** for QA is the `npm run package:<platform>:local-qa` family and the
+  `--dir` flow in [`docs/BUILD_LOCAL.md`](docs/BUILD_LOCAL.md). These artefacts are
+  unsigned and for smoke-testing only; never present one as a release.
+- **Official releases are cut by the maintainer**, not by CI. There is no automated release
+  pipeline in this repository; do not document or plan one without also adding the workflow
+  that runs it.
+- **Nobody signs today.** No Developer ID or Authenticode credentials are configured, so
+  builds are `--qa` only and releases are marked `unsigned`.
 
 Do not add another release-packaging procedure to a document: link to `docs/BUILD.md` instead.
-Do not add another lane map: link to `docs/BOUNDARIES.md`.
 
 ## Cloud Agent environment
 
@@ -65,9 +57,8 @@ xvfb-run -a npm run test:e2e:hermetic # build + hermetic Electron e2e
 
 Some xterm/PTY-driven e2e cases in `tests/e2e/app.spec.ts` are timing-sensitive
 under headless `xvfb` and can fail where they pass on the macOS runner declared for the
-`hermetic-e2e` job in `.github/workflows/ci.yml`. Nothing in this estate relies on that job —
-it is not a build path ([`docs/BOUNDARIES.md`](docs/BOUNDARIES.md) §5) — so a headless failure
-is a local limitation to report, never a gate to argue with.
+`hermetic-e2e` job in `.github/workflows/ci.yml`. Treat a headless failure as a local
+limitation to report, not a gate to argue with.
 
 ## pstack
 

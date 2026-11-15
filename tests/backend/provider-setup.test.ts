@@ -52,7 +52,7 @@ describe('stanza rendering and merge semantics', () => {
     baseUrl: 'https://llm.vclawhub.com/v1',
     api: 'openai-completions',
     keyCommand: '!cat /keys/vclaw.key',
-    models: [{ id: 'deepseek/deepseek-flash', name: 'VClaw Door', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 1_048_576, maxTokens: 8192 }],
+    models: [{ id: 'deepseek/deepseek-flash', name: 'Vizmaster Door', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 1_048_576, maxTokens: 8192 }],
   }
 
   it('renders the agent-sdk two-space stanza shape', () => {
@@ -63,7 +63,7 @@ describe('stanza rendering and merge semantics', () => {
       '    apiKey: "!cat /keys/vclaw.key"',
       '    models:',
       '      - id: deepseek/deepseek-flash',
-      '        name: VClaw Door',
+      '        name: Vizmaster Door',
       '        api: openai-completions',
       '        reasoning: true',
       '        input: [text]',
@@ -96,7 +96,7 @@ describe('stanza rendering and merge semantics', () => {
   })
 })
 
-describe('option 1 — VClaw LLM', () => {
+describe('option 1 — Vizmaster LLM', () => {
   it('writes the door stanza, the 0600 key file, and never a plaintext key in models.yml', async () => {
     const { home, cleanup } = tempHome()
     cleanupFns.push(cleanup)
@@ -200,12 +200,12 @@ describe('door status and usage vocabulary', () => {
   })
 
   it('maps 401 to the estate vocabulary', async () => {
-    expectedDoor = { connected: false, problem: 'VClaw key invalid or missing' }
+    expectedDoor = { connected: false, problem: 'Vizmaster key invalid or missing' }
     await withStubServer((_url, sendStatus) => sendStatus(401))
   })
 
   it('maps 402 to the wallet-cap message', async () => {
-    expectedDoor = { connected: false, problem: 'Wallet cap or balance exhausted — check the VClaw usage row' }
+    expectedDoor = { connected: false, problem: 'Wallet cap or balance exhausted — check the Vizmaster usage row' }
     await withStubServer((_url, sendStatus) => sendStatus(402))
   })
 
@@ -220,14 +220,14 @@ describe('door status and usage vocabulary', () => {
     const provider = service(home, { urls: { llmBaseUrl: 'http://127.0.0.1:1/v1' }, requestTimeoutMs: 250 })
     await provider.setupVclawLlm(KEY_STORE_SK_SECRET)
     const result = await provider.vclawDoorStatus()
-    expect(result).toEqual({ connected: false, problem: 'VClaw LLM is unreachable — try again shortly' })
+    expect(result).toEqual({ connected: false, problem: 'Vizmaster LLM is unreachable — try again shortly' })
   })
 
   it('says no key is stored before any setup', async () => {
     const { home, cleanup } = tempHome()
     cleanupFns.push(cleanup)
     const result = await service(home).vclawDoorStatus()
-    expect(result).toEqual({ connected: false, problem: 'No VClaw API key is stored yet' })
+    expect(result).toEqual({ connected: false, problem: 'No Vizmaster API key is stored yet' })
   })
 })
 

@@ -5,7 +5,7 @@ type Message = string | { one: string; other: string }
 type MessageValues = Record<string, string | number>
 
 const englishCatalog = {
-  'common.reload': 'Reload VClaw',
+  'common.reload': 'Reload Vizmaster',
   'nav.projects': 'Projects',
   'nav.activity': 'Activity',
   'nav.scheduled': 'Scheduled',
@@ -37,7 +37,7 @@ const englishCatalog = {
   'appearance.theme.catppuccin-mocha': 'Catppuccin Mocha',
   'appearance.language.title': 'Language',
   'appearance.language.label': 'Interface language',
-  'appearance.language.description': 'Choose the language used in VClaw.',
+  'appearance.language.description': 'Choose the language used in Vizmaster.',
   'appearance.language.system': 'System default',
   'appearance.language.english': 'English',
   'appearance.language.chinese': 'Simplified Chinese',
@@ -109,7 +109,7 @@ const simplifiedChineseCatalog: Partial<Record<MessageKey, Message>> = {
   'appearance.theme.catppuccin-mocha': 'Catppuccin 摩卡',
   'appearance.language.title': '语言',
   'appearance.language.label': '界面语言',
-  'appearance.language.description': '选择 VClaw 界面所使用的语言。',
+  'appearance.language.description': '选择 Vizmaster 界面所使用的语言。',
   'appearance.language.system': '跟随系统',
   'appearance.language.english': '英语',
   'appearance.language.chinese': '简体中文',

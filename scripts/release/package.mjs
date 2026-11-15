@@ -166,7 +166,12 @@ try {
 
   // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
   // asserts the two agree, and this is the one place that makes them agree by construction.
-  const artifactName = profile.id === 'vclaw' ? 'VClaw-${version}-${arch}.${ext}' : `VClaw-\${version}-${profile.id}-\${arch}.\${ext}`
+  // Windows carries an explicit platform segment (VClaw-<version>-win-<arch>) so it cannot be
+  // confused with a future linux x64 artifact of the same version; mac needs none (it is the
+  // only dmg/zip-app producer). This matches package.json's build.win.artifactName and the
+  // asset lists prepare-github-release.mjs expects.
+  const platformSegment = platform === 'win' ? '-win' : ''
+  const artifactName = profile.id === 'vclaw' ? `VClaw-\${version}${platformSegment}-\${arch}.\${ext}` : `VClaw-\${version}-${profile.id}${platformSegment}-\${arch}.\${ext}`
   // Per-platform key, not the top-level one: package.json sets build.mac.artifactName, and a
   // platform artifactName WINS over the generic one — so `--config.artifactName` was silently
   // ignored and every member build kept the plain ${productName}-${version}-${arch} name.

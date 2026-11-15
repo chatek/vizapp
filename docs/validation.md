@@ -1,6 +1,6 @@
 # Validation guide
 
-This page explains how to reproduce and interpret VClaw's validation gates. It is not a status report. A passing command or workflow is evidence only for the exact commit, runner, inputs, and credentials that produced it; do not infer that the current branch is green from this document.
+This page explains how to reproduce and interpret Vizmaster's validation gates. It is not a status report. A passing command or workflow is evidence only for the exact commit, runner, inputs, and credentials that produced it; do not infer that the current branch is green from this document.
 
 ## Protected `main` validation contract
 
@@ -25,7 +25,7 @@ GitHub merge queues are not available to this public repository while it is owne
 An authorized maintainer can verify the active legacy branch protection and exact required-context set with:
 
 ```sh
-gh api repos/chatek/vclaw-desktop/branches/main/protection \
+gh api repos/<owner>/<repo>/branches/main/protection \
   --jq '{strict: .required_status_checks.strict, contexts: .required_status_checks.contexts, reviews: .required_pull_request_reviews}'
 ```
 
@@ -34,12 +34,12 @@ gh api repos/chatek/vclaw-desktop/branches/main/protection \
 | Concern | Authoritative definition |
 |---|---|
 | Pull-request, `main`, and manual CI | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
-| Tagged release publication | [RELEASE_FLOW.md](RELEASE_FLOW.md) §3 (workstation → Forgejo release). `.github/workflows/release.yml` is GitHub-hosted and the release flow does not run it. |
+| Tagged release publication | Not automated. Releases are cut manually by the maintainer; [`.github/workflows/release.yml`](../.github/workflows/release.yml) documents the intended publish workflow but no pipeline runs it today. |
 | Scheduled production-dependency audit | [`.github/workflows/audit.yml`](../.github/workflows/audit.yml) |
 | Aggregate commands and toolchain policy | [`package.json`](../package.json) and [`.nvmrc`](../.nvmrc) |
 | Resolved dependency graph | [`package-lock.json`](../package-lock.json) |
 | Dependency-install lifecycle | [`package.json`](../package.json) and [`install-app-deps.mjs`](../scripts/release/install-app-deps.mjs) |
-| Desktop build flows (remote primary, local fallback) | [`docs/BUILD.md`](BUILD.md), [`docs/BUILD_REMOTE.md`](BUILD_REMOTE.md), [`scripts/release/build-remote.sh`](../scripts/release/build-remote.sh), and [`scripts/release/build-local.sh`](../scripts/release/build-local.sh) |
+| Desktop build and packaging flows | [`docs/BUILD.md`](BUILD.md), [`docs/BUILD_LOCAL.md`](BUILD_LOCAL.md), and [`scripts/release/build-local.sh`](../scripts/release/build-local.sh) |
 | Package and post-package guarantees | [`scripts/release/package.mjs`](../scripts/release/package.mjs), [`verify-package.mjs`](../scripts/release/verify-package.mjs), and [`verify-cross-platform-package.mjs`](../scripts/release/verify-cross-platform-package.mjs) |
 | Audit policy and accepted risk | [`docs/security.md`](security.md), [`audit-production.mjs`](../scripts/release/audit-production.mjs), and [`audit-exceptions.json`](../scripts/release/audit-exceptions.json) |
 | Vendored agent SDK (shipped as an injected harness extension) | [`vendor/vclawhub-agent-<version>.md`](../vendor/), `artifacts.vclawhub-agent` in [`dependency-pins.json`](../scripts/release/dependency-pins.json), and [`vendor-agent-pins.mjs`](../scripts/release/vendor-agent-pins.mjs) |
@@ -111,7 +111,7 @@ Use focused tests while developing, then choose the aggregate that matches the c
 
 Packaging is native: run each platform command on its matching operating system and architecture. The public `package:mac`, `package:linux`, and `package:win` commands use distribution mode; macOS and Windows distribution checks require their external signing configuration. A successful local-QA command must not be described as a public trust check.
 
-Local packaging is also **not release evidence**. macOS app builds of record run on the remote host — start at [`BUILD.md`](BUILD.md). [`build-local.sh`](../scripts/release/build-local.sh) is an explicitly opt-in fallback and prints `ARTEFACT(not-evidence)`; a local `package:*:local-qa` installer never becomes a release artefact.
+Local packaging is also **not release evidence**. Official releases are cut by the maintainer from a controlled build environment — start at [`BUILD.md`](BUILD.md). [`build-local.sh`](../scripts/release/build-local.sh) is an explicitly opt-in QA path and prints `ARTEFACT(not-evidence)`; a local `package:*:local-qa` installer never becomes a release artefact.
 
 ## Dependency audit policy
 
@@ -130,12 +130,11 @@ A passing audit therefore does not mean the production graph carries no known ad
 
 ## Public release validation
 
-There is **no CI release pipeline here**: Forgejo Actions cannot build this repo (no darwin
-runner, and the instance cannot reach github.com to fetch actions). The GitHub-hosted
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) is not the release path —
-it publishes GitHub Releases and R2 staging, while this estate publishes a Forgejo release from
-the workstation — and the release flow does not run it. The table below is the workflow as
-committed, kept because the workflow and this table are held equal by
+There is **no CI release pipeline here**: no automated job builds or publishes a release.
+The GitHub-hosted [`.github/workflows/release.yml`](../.github/workflows/release.yml) documents
+the intended publish workflow, but no pipeline runs it today; releases are cut manually by
+the maintainer. The table below is the workflow as committed, kept because the workflow and
+this table are held equal by
 [`tests/validation-documentation.test.ts`](../tests/validation-documentation.test.ts).
 
 | Release job | Responsibility |
@@ -150,28 +149,24 @@ committed, kept because the workflow and this table are held equal by
 | `package-member` | When a member id is supplied on a manual dispatch, fetch that member repo at a pinned SHA, bundle its payload, integrate the overlay, and build/sign/notarize the member artifact. Independent stream: its artifacts go to the asset host, never into the GitHub Release, so it does not gate `release-packages`. |
 | `release-packages` | Reject failed prerequisites, collect the enabled platform artifacts, generate checksums, attest provenance, and publish or resume the GitHub Release with write permission scoped to this final job. |
 
-How a release is actually validated, in order:
+How a release artefact is validated, in order:
 
-1. `bash scripts/release/release-forgejo.sh --arm64 --x64 --dry-run` — clean tree, `HEAD` at
-   the `origin` tip, `build-remote.sh --check`, the build itself, provenance re-read from
-   `release-remote/<arch>/BUILD.json` (every arch agreeing on the commit), the signing probe,
-   and staging. Only the remote host's artefact counts; provenance format in
-   [BUILD_REMOTE.md](BUILD_REMOTE.md).
-2. Host and local gates from the build: `verify.txt`, then unzip + `lipo -archs` + the `omp`
-   digest against `SHA256SUMS.txt` ([BUILD_REMOTE.md](BUILD_REMOTE.md)).
-3. For the dmg/zip flow, `verify-package.mjs --mode qa` (static: archive integrity, contained
-   app, native unpack allowlist, arch, fuses, size budgets, artifact name ↔ profile) plus the
-   packaged smoke (`--packaged-smoke`, rc=0 and the marker) — the only runtime proof available
-   over ssh.
+1. The maintainer's release procedure: a clean tree at the released commit, the build
+   itself, and provenance re-read from the emitted `BUILD.json` (every arch agreeing on the
+   commit) before anything is staged.
+2. Gates from the build: `verify.txt`, then unzip + `lipo -archs` + the `omp` digest
+   against `SHA256SUMS.txt`.
+3. For the dmg/zip flow, `verify-package.mjs --mode qa` (static: archive integrity,
+   contained app, native unpack allowlist, arch, fuses, size budgets, artifact name ↔
+   profile) plus the packaged smoke (`--packaged-smoke`, rc=0 and the marker).
 4. Publish-time re-fetch: served sizes equal the staged ones and `SHA256SUMS.txt` is
    byte-identical to the local file; the release body carries the evidence triple
-   ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3, §4).
+   (commit, output digests, pinned OMP digest when bundled).
 
 What that does **not** establish: Developer ID signing, notarisation/stapling, Gatekeeper
-acceptance, or Authenticode identity. The jobs above that check those things need credentials
-this estate does not hold; there are 0 codesigning identities on the host and on the workstation,
-so every artefact is `unsigned`, releases default to draft, and `--public` refuses.
-`test:e2e:hermetic` needs a display and does not run on the headless host — say so rather than
+acceptance, or Authenticode identity. The jobs above that check those things need signing
+credentials that are not configured; every artefact is `unsigned` and `--public` refuses.
+`test:e2e:hermetic` needs a display and does not run headless — say so rather than
 implying it ran.
 
 ## Recording evidence

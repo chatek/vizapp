@@ -100,7 +100,7 @@ export class PetService {
       id: 'orb',
       petId: 'orb',
       displayName: 'Orb',
-      description: 'A fluid voice orb that shifts with VClaw activity.',
+      description: 'A fluid voice orb that shifts with Vizmaster activity.',
       source: 'built-in',
       kind: 'orb',
     }

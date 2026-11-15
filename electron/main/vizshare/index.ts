@@ -8,10 +8,12 @@
  * webContents is destroyed. The renderer never receives a token.
  *
  * Same-user OMP agents cannot be Electron webContents, so the broker also
- * writes a single agent capability to `userData/vizshare-agent-cap`
- * (0600, atomic replace). Agents on the same OS user can read that file and
- * call the same loopback API; no renderer Origin is accepted for them, and the
- * capability disappears when the broker stops.
+ * writes its agent capability to `userData/vizshare-agent-cap` AND (C1) to
+ * `~/.vizmaster/vizshare-agent-cap` (0600, atomic replace) — the payload-side
+ * tools own that home directory. Agents on the same OS user can read either
+ * file and call the same loopback API (scoped to POST /v1/draft and
+ * GET /v1/mine); no renderer Origin is accepted for them, and both files
+ * disappear when the broker stops.
  *
  * The fork calls `startVizShare({ app, session, shell, safeStorage })` once,
  * from `bootstrap` after the state store is open; see scripts/integrate-vcclaw.mjs.
@@ -24,6 +26,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { once } from 'node:events'
+import { homedir } from 'node:os'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -66,6 +69,8 @@ export interface VizShareHandle {
   redirectUri: string
   /** 0600 JSON capability file for same-user OMP agents. */
   agentCapabilityPath: string
+  /** C1 (§4.3): the second 0600 capability at ~/.vizmaster/vizshare-agent-cap. */
+  agentCapabilityHomePath: string
   close(): Promise<void>
 }
 
@@ -110,6 +115,11 @@ export async function startVizShare(options: VizShareStartOptions): Promise<VizS
   const agentCapabilityPath = join(options.app.getPath('userData'), 'vizshare-agent-cap')
   const agentCap = randomBytes(32).toString('base64url')
   await writeAgentCapability(agentCapabilityPath, { version: 1, pid: process.pid, port, cap: agentCap })
+  // C1 (§4.3): OMP tools run in the agent's Node process, never an Electron
+  // webContents, and the userData path is carrier-app-name-dependent — so the
+  // same capability is also delivered at ~/.vizmaster/vizshare-agent-cap.
+  const agentCapabilityHomePath = join(homedir(), '.vizmaster', 'vizshare-agent-cap')
+  await writeAgentCapability(agentCapabilityHomePath, { version: 1, pid: process.pid, port, cap: agentCap })
   const oidc = new OidcClient({
     fetch: fetchImpl,
     redirectUri,
@@ -182,11 +192,13 @@ export async function startVizShare(options: VizShareStartOptions): Promise<VizS
     port,
     redirectUri,
     agentCapabilityPath,
+    agentCapabilityHomePath,
     close: async () => {
       options.app.removeListener('web-contents-created', onWebContentsCreated)
       caps.clear()
       contentsByCap.clear()
       await rm(agentCapabilityPath, { force: true })
+      await rm(agentCapabilityHomePath, { force: true })
       await closeServer(server)
     },
   }

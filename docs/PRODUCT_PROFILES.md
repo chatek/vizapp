@@ -105,8 +105,8 @@ One JSON file, embedded in the package, **the only place a product differs**:
 The generic product ships the same file with `id: "vclaw"`,
 `harnesses: ["omp", "prime", "pi"]`, and **no** `defaultProject` — the narrowing is a property of a
 member product, not of the app (decided 2026-11-01, §9). Always shipping a profile — rather than "absent means generic" — keeps one code
-path, covered by `tests/product-profile.test.ts` on every checkout (there is no CI build path in
-this estate; see [`BOUNDARIES.md`](BOUNDARIES.md) §5).
+path, covered by `tests/product-profile.test.ts` on every checkout (there is no CI build
+path; releases are cut manually by the maintainer).
 
 **Resolution order, fail-closed:**
 
@@ -235,8 +235,8 @@ contract-version bump and a `FORK.md` note in the same commit, per the existing 
 3. `ProjectService.ensureProject()` + `default-project.ts` + tombstone handling, then a fixture
    profile in the hermetic E2E — which closes report #2 and gives VizMaster a build that needs no
    anchored `ensureDefaultProject` at all.
-4. Contract v2: retire the three seams, note it in `FORK.md`, tell `vizmaster-lead` their integrator
-   loses three edits (they keep the module anchor).
+4. Contract v2: retire the three seams, note it in `FORK.md`, and tell the member integrator
+   it loses three edits (it keeps the module anchor).
 
 ## 11. What landed (and the three places the sketch was wrong)
 

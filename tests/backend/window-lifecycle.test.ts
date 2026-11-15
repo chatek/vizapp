@@ -37,15 +37,15 @@ describe('application window lifecycle', () => {
     )
 
     expect(startupFailureDialog(migration)).toMatchObject({
-      title: 'VClaw state migration failed',
+      title: 'Vizmaster state migration failed',
       detail: expect.stringMatching(/startup stopped.*retry.*prime-work-state-v4\.json.*prime-work-state\.json.*migrated-v4-backup.*do not delete/i),
     })
-    expect(startupFailureDialog(new UnsupportedStateVersionError(99, '/tmp/state.json'))?.title).toBe('VClaw update required')
+    expect(startupFailureDialog(new UnsupportedStateVersionError(99, '/tmp/state.json'))?.title).toBe('Vizmaster update required')
     // A packaged profile that fails validation quits the app (fail-closed), so this dialog
     // is the ONLY place the reason is named — assert it names the failing field.
     const profileError = new ProductProfileError('defaultProject.to', 'must stay inside the home directory')
     expect(startupFailureDialog(profileError)).toMatchObject({
-      title: 'VClaw product profile invalid',
+      title: 'Vizmaster product profile invalid',
       detail: expect.stringContaining('defaultProject.to'),
     })
     expect(startupFailureDialog(new Error('ordinary startup failure'))).toBeNull()
@@ -112,32 +112,32 @@ describe('application window lifecycle', () => {
 
     expect(activeShutdownWork(runtimes, true)).toEqual({ runningAgents: 4, activeSchedules: true })
     expect(shutdownPrompt({ runningAgents: 4, activeSchedules: true })).toEqual({
-      message: 'Close VClaw while an agent is running?',
-      detail: '4 agent runs are still in progress and will be stopped. Scheduled automations will not run while VClaw is closed.',
+      message: 'Close Vizmaster while an agent is running?',
+      detail: '4 agent runs are still in progress and will be stopped. Scheduled automations will not run while Vizmaster is closed.',
     })
     expect(shutdownPrompt({ runningAgents: 1, activeSchedules: false })).toEqual({
-      message: 'Close VClaw while an agent is running?',
+      message: 'Close Vizmaster while an agent is running?',
       detail: 'An agent run is still in progress and will be stopped.',
     })
     expect(shutdownPrompt({ runningAgents: 0, activeSchedules: true })).toEqual({
-      message: 'Close VClaw?',
-      detail: 'Scheduled automations will not run while VClaw is closed.',
+      message: 'Close Vizmaster?',
+      detail: 'Scheduled automations will not run while Vizmaster is closed.',
     })
   })
 
   it('defaults to cancel and uses the non-blocking dialog', async () => {
     const window = { isDestroyed: () => false } as unknown as BrowserWindow
-    const prompt = { message: 'Close VClaw?', detail: 'Scheduled automations will not run while VClaw is closed.' }
+    const prompt = { message: 'Close Vizmaster?', detail: 'Scheduled automations will not run while Vizmaster is closed.' }
     electron.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 })
 
     await expect(confirmAppClose(window, prompt)).resolves.toBe(false)
     expect(electron.dialog.showMessageBox).toHaveBeenCalledWith(window, {
       type: 'warning',
-      buttons: ['Cancel', 'Close VClaw'],
+      buttons: ['Cancel', 'Close Vizmaster'],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: 'VClaw',
+      title: 'Vizmaster',
       ...prompt,
     })
 

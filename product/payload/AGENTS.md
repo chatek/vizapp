@@ -16,7 +16,7 @@ insight, charts, and the write-ups around them.
   - `skills/viz-review/` — review a finished visualization before delivery.
 - `code/` — where runnable code lives. `code/examples/svg_line_chart.py` is a
   working stdlib-only reference; put new scripts beside it.
-- `lessons/` — member-authored lessons (yours to read, not part of any delivery).
+- `src/lessons/` — member-authored lessons (yours to read, not part of any delivery).
 
 ## Working rules
 
@@ -29,6 +29,6 @@ insight, charts, and the write-ups around them.
    against the source data.
 4. **Keep numbers reproducible.** Every figure in a report must name the file
    and filter that produced it.
-5. `lessons/`, `node_modules/`, and `.git/` in this folder are member-owned.
+5. `src/lessons/`, `node_modules/`, and `.git/` in this folder are member-owned.
    Read lessons for context when relevant; never modify or delete them, and
    never place deliverables inside those directories.

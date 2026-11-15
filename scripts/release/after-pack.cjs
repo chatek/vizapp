@@ -12,37 +12,52 @@ function archName(arch) {
   return ARCH_NAMES[arch] || `unknown(${arch})`
 }
 
-// VClaw bundles OMP (resources/harness/bin/omp, wired through
-// mac.extraResources from ../vendors/oh-my-pi/releases/<pin>/omp-darwin-${arch}).
-// Verify, before fuses are flipped: the binary is present, its sha256 matches the
-// release set's SHA256SUMS.txt, and its Mach-O slice matches the build arch. A wrong
-// or stale binary here would be launched by discovery order #3 ahead of any host OMP.
+// VClaw bundles OMP (resources/harness/bin/omp, wired through the platform
+// extraResources from ../vendors/oh-my-pi/releases/<pin>/: omp-darwin-${arch} on mac,
+// omp-windows-${arch}.exe on win). Verify, before fuses are flipped: the binary is
+// present, its sha256 matches the release set's SHA256SUMS.txt, and (mac only) its
+// Mach-O slice matches the build arch. A wrong or stale binary here would be launched
+// by discovery order #3 ahead of any host OMP.
 function verifyBundledOmp(context) {
-  if (context.electronPlatformName !== 'darwin') return
+  const platform = context.electronPlatformName
+  if (platform !== 'darwin' && platform !== 'win32') return
   const arch = archName(context.arch)
   if (arch === 'universal') {
     throw new Error('bundled omp: universal mac builds are not supported — build --arm64 and --x64 separately')
   }
-  const appResources = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
-  const bundled = join(appResources, 'harness', 'bin', 'omp')
-  if (!fs.existsSync(bundled)) {
-    throw new Error('bundled omp: resources/harness/bin/omp is missing — was mac.extraResources applied?')
+  const isMac = platform === 'darwin'
+  const productFilename = context.packager.appInfo.productFilename
+  // Windows appOutDir is the unpacked root (resources/ sits directly inside it);
+  // mac nests under <name>.app/Contents. Both candidates are checked, mirroring
+  // verifyDashboardPayload's defensive layout probing.
+  const candidates = isMac
+    ? [join(context.appOutDir, `${productFilename}.app`, 'Contents', 'Resources', 'harness', 'bin', 'omp')]
+    : [
+        join(context.appOutDir, 'resources', 'harness', 'bin', 'omp.exe'),
+        join(context.appOutDir, productFilename, 'resources', 'harness', 'bin', 'omp.exe'),
+      ]
+  const bundled = candidates.find((p) => fs.existsSync(p))
+  if (!bundled) {
+    throw new Error(`bundled omp: resources/harness/bin/${isMac ? 'omp' : 'omp.exe'} is missing — was ${isMac ? 'mac' : 'win'}.extraResources applied?`)
   }
+  const ompName = isMac ? `omp-darwin-${arch}` : `omp-windows-${arch}.exe`
   const releaseDir = join(__dirname, '..', '..', '..', 'vendors', 'oh-my-pi', 'releases', 'v18.16.0')
   const sums = fs.readFileSync(join(releaseDir, 'SHA256SUMS.txt'), 'utf8')
-  const line = sums.split('\n').find((l) => l.trimEnd().endsWith(`omp-darwin-${arch}`))
-  if (!line) throw new Error(`bundled omp: no SHA256SUMS entry for omp-darwin-${arch}`)
+  const line = sums.split('\n').find((l) => l.trimEnd().endsWith(ompName))
+  if (!line) throw new Error(`bundled omp: no SHA256SUMS entry for ${ompName}`)
   const expected = line.trim().split(/\s+/)[0].toLowerCase()
   const actual = crypto.createHash('sha256').update(fs.readFileSync(bundled)).digest('hex')
   if (actual !== expected) {
     throw new Error(`bundled omp: sha256 mismatch — expected ${expected.slice(0, 12)}…, got ${actual.slice(0, 12)}…`)
   }
-  const lipo = execFileSync('lipo', ['-archs', bundled], { encoding: 'utf8' })
-  if (!lipo.split(/\s+/).includes(arch === 'x64' ? 'x86_64' : 'arm64')) {
-    throw new Error(`bundled omp: Mach-O does not contain the ${arch} slice (lipo: ${lipo.trim()})`)
+  if (isMac) {
+    const lipo = execFileSync('lipo', ['-archs', bundled], { encoding: 'utf8' })
+    if (!lipo.split(/\s+/).includes(arch === 'x64' ? 'x86_64' : 'arm64')) {
+      throw new Error(`bundled omp: Mach-O does not contain the ${arch} slice (lipo: ${lipo.trim()})`)
+    }
+    fs.chmodSync(bundled, 0o755)
   }
-  fs.chmodSync(bundled, 0o755)
-  console.log(`  after-pack: bundled omp verified (sha256 ${actual.slice(0, 12)}…, ${arch})`)
+  console.log(`  after-pack: bundled omp verified (${isMac ? 'darwin' : 'win32'} ${arch}, sha256 ${actual.slice(0, 12)}…)`)
 }
 
 // vizmaster (2026-11-07, packaging review §8 gap 1, P0): the DASHBOARD payload is

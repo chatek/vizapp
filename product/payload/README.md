@@ -1,10 +1,11 @@
 # VizMaster project payload
 
-This directory is the product payload the desktop app seeds as its ONE project on
-first run. The product profile (`product/vizmaster.json`, mirrored into
-`product/profile.json` for development) points `defaultProject.from` here, and the
-seeder copies it to the machine folder `~/.vizmaster/default` — the app's only
-project. `BUILD.json` is stamped next to this content at seed time; the three
+This directory is the product payload the desktop app seeds as its ONE project
+on first run. The member profile in the VClaw carrier checkout
+(`product/vizmaster.json`) points `defaultProject.from` at the packaged
+payload, and the carrier's profile-driven seeder (`seedDefaultProject`) copies
+it to the machine folder `~/.vizmaster/default` — the app's only project.
+`BUILD.json` is stamped next to this content at bundle time; the three
 subdirectories below are user-owned once seeded and are never overwritten by an
 upgrade.
 
@@ -21,9 +22,12 @@ upgrade.
 
 ## Build-time notes
 
-The checked-in copy carries this README alone; a member build replaces the
-directory contents with the member bundle before packaging
-(`scripts/release/package.mjs` stages the chosen profile, and
-`defaultProject.version` is rendered from the payload's `BUILD.json`). Anything
-the seeder must not touch — `node_modules/`, `.git/`, `lessons/` — is filtered at
-copy time by `electron/main/default-project.ts`.
+The checked-in copy carries this README alone; a member build bundles the
+member payload first (`npm run bundle:vcclaw` — `scripts/bundle-vizmaster.mjs`
+merges this content into the built app tree), then
+`scripts/integrate-vcclaw.mjs` copies the bundle into the VClaw carrier as
+`product/payload`. The same script renders the carrier's
+`product/profile.active.json` from `product/vizmaster.json`, stamping
+`defaultProject.version` from the payload's `BUILD.json` so the packaged
+profile names the release actually built — never a hand-typed literal. What
+the seeder must not touch (`node_modules/`, `.git/`) is filtered at copy time.

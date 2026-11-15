@@ -252,10 +252,10 @@ export function shutdownPrompt(work: ActiveShutdownWork): ShutdownPrompt | null 
       ? 'An agent run is still in progress and will be stopped.'
       : `${work.runningAgents} agent runs are still in progress and will be stopped.`)
   }
-  if (work.activeSchedules) details.push('Scheduled automations will not run while VClaw is closed.')
+  if (work.activeSchedules) details.push('Scheduled automations will not run while Vizmaster is closed.')
   if (details.length === 0) return null
   return {
-    message: work.runningAgents > 0 ? 'Close VClaw while an agent is running?' : 'Close VClaw?',
+    message: work.runningAgents > 0 ? 'Close Vizmaster while an agent is running?' : 'Close Vizmaster?',
     detail: details.join(' '),
   }
 }
@@ -263,11 +263,11 @@ export function shutdownPrompt(work: ActiveShutdownWork): ShutdownPrompt | null 
 export async function confirmAppClose(window: BrowserWindow | null, prompt: ShutdownPrompt): Promise<boolean> {
   const options = {
     type: 'warning' as const,
-    buttons: ['Cancel', 'Close VClaw'],
+    buttons: ['Cancel', 'Close Vizmaster'],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    title: 'VClaw',
+    title: 'Vizmaster',
     ...prompt,
   }
   const { response } = window && !window.isDestroyed()
@@ -293,7 +293,7 @@ function requestShutdown(window: BrowserWindow | null, prompt: ShutdownPrompt): 
     shutdownApproved = true
     app.quit()
   }).catch((error: unknown) => {
-    console.error(`VClaw close confirmation failed: ${boundedErrorMessage(error)}`)
+    console.error(`Vizmaster close confirmation failed: ${boundedErrorMessage(error)}`)
   }).finally(() => { confirmingShutdown = false })
 }
 
@@ -512,13 +512,13 @@ export function startupFailureDialog(error: unknown): StartupFailureDialog | nul
     // The build's variant identity failed validation: the app refuses to start rather
     // than degrade into the generic product, so this dialog is the only place the
     // reason is named. Without it a packaged profile error quits silently.
-    return { title: 'VClaw product profile invalid', detail: boundedErrorMessage(error, 2_048) }
+    return { title: 'Vizmaster product profile invalid', detail: boundedErrorMessage(error, 2_048) }
   }
   if (error instanceof StateMigrationError) {
-    return { title: 'VClaw state migration failed', detail: boundedErrorMessage(error, 2_048) }
+    return { title: 'Vizmaster state migration failed', detail: boundedErrorMessage(error, 2_048) }
   }
   if (error instanceof StateCompatibilityError) {
-    return { title: 'VClaw update required', detail: boundedErrorMessage(error, 2_048) }
+    return { title: 'Vizmaster update required', detail: boundedErrorMessage(error, 2_048) }
   }
   return null
 }
@@ -570,13 +570,13 @@ export async function settleShutdown(
   const watchdogMs = options.watchdogMs ?? 10_000
   const settled = Promise.allSettled(steps).then((results) => {
     for (const result of results) {
-      if (result.status === 'rejected') log(`VClaw shutdown step failed: ${boundedErrorMessage(result.reason)}`)
+      if (result.status === 'rejected') log(`Vizmaster shutdown step failed: ${boundedErrorMessage(result.reason)}`)
     }
   })
   let timer: NodeJS.Timeout | undefined
   const watchdog = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      log(`VClaw shutdown did not finish within ${watchdogMs} ms; quitting anyway`)
+      log(`Vizmaster shutdown did not finish within ${watchdogMs} ms; quitting anyway`)
       resolve()
     }, watchdogMs)
     timer.unref?.()
@@ -598,7 +598,7 @@ function requestWindow(reason: 'activation' | 'second instance' | 'menu bar' | '
     }
     afterOpen?.(window)
   }).catch((error: unknown) => {
-    if (!shutdownStarted) console.error(`VClaw failed to open a window after ${reason}: ${boundedErrorMessage(error)}`)
+    if (!shutdownStarted) console.error(`Vizmaster failed to open a window after ${reason}: ${boundedErrorMessage(error)}`)
   })
 }
 
@@ -937,7 +937,7 @@ async function bootstrap(): Promise<void> {
       kind: 'skill', location: 'system', path: scheduleSkillPath, enabled: true,
     }, {
       id: 'vclaw-ask-user', name: 'Ask user',
-      description: 'Ask focused multiple-choice questions in the VClaw app across Prime, OMP, and Pi.',
+      description: 'Ask focused multiple-choice questions in the Vizmaster app across Prime, OMP, and Pi.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, {
       id: 'prime-work-browser', name: 'Browser',
@@ -949,7 +949,7 @@ async function bootstrap(): Promise<void> {
     harness: 'omp',
     builtInSkills: async () => [{
       id: 'omp-work-schedules', name: 'Scheduled tasks',
-      description: 'OMP extension for durable project and thread schedules managed by VClaw.',
+      description: 'OMP extension for durable project and thread schedules managed by Vizmaster.',
       kind: 'extension', location: 'system', path: ompScheduleExtensionPath, enabled: true,
     }, {
       id: 'omp-work-browser', name: 'Browser',
@@ -957,7 +957,7 @@ async function bootstrap(): Promise<void> {
       kind: 'extension', location: 'system', path: ompBrowserExtensionPath, enabled: stateStore.getSettings().browserEnabled,
     }, {
       id: 'vclaw-ask-user', name: 'Ask user',
-      description: 'OMP extension for asking focused multiple-choice questions in the VClaw app.',
+      description: 'OMP extension for asking focused multiple-choice questions in the Vizmaster app.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, await computerUseSkill()],
   })
@@ -967,7 +967,7 @@ async function bootstrap(): Promise<void> {
     harness: 'pi',
     builtInSkills: async () => [{
       id: 'omp-work-schedules', name: 'Scheduled tasks',
-      description: 'Pi extension for durable project and thread schedules managed by VClaw.',
+      description: 'Pi extension for durable project and thread schedules managed by Vizmaster.',
       kind: 'extension', location: 'system', path: ompScheduleExtensionPath, enabled: true,
     }, {
       id: 'omp-work-browser', name: 'Browser',
@@ -975,7 +975,7 @@ async function bootstrap(): Promise<void> {
       kind: 'extension', location: 'system', path: ompBrowserExtensionPath, enabled: stateStore.getSettings().browserEnabled,
     }, {
       id: 'vclaw-ask-user', name: 'Ask user',
-      description: 'Pi extension for asking focused multiple-choice questions in the VClaw app.',
+      description: 'Pi extension for asking focused multiple-choice questions in the Vizmaster app.',
       kind: 'extension', location: 'system', path: ompAskUserExtensionPath, enabled: stateStore.getSettings().askUserEnabled,
     }, await computerUseSkill()],
   })
@@ -1098,7 +1098,7 @@ async function bootstrap(): Promise<void> {
     ]
     for (const [name, bridge, token] of claims) {
       try { bridge.revoke(token) } catch (error) {
-        console.error(`VClaw failed to revoke ${name} runtime capability: ${boundedErrorMessage(error)}`)
+        console.error(`Vizmaster failed to revoke ${name} runtime capability: ${boundedErrorMessage(error)}`)
       }
     }
   }
@@ -1233,7 +1233,7 @@ async function bootstrap(): Promise<void> {
     }
   })
   installApplicationMenu({
-    appName: 'VClaw',
+    appName: 'Vizmaster',
     updatesEnabled: updates.isEnabled(),
     closeWindow: () => {
       const window = mainWindow
@@ -1243,7 +1243,7 @@ async function bootstrap(): Promise<void> {
     checkForUpdates: createManualUpdateCheck(() => updates.check(), async (notification) => {
       await dialog.showMessageBox({
         type: notification.type,
-        title: 'VClaw',
+        title: 'Vizmaster',
         message: notification.message,
         detail: notification.detail,
       })
@@ -1344,7 +1344,7 @@ else void app.whenReady().then(async () => {
 }).catch((error: unknown) => {
   const failureDialog = startupFailureDialog(error)
   if (failureDialog) dialog.showErrorBox(failureDialog.title, failureDialog.detail)
-  if (!shutdownStarted) console.error(`VClaw failed to start: ${boundedErrorMessage(error)}`)
+  if (!shutdownStarted) console.error(`Vizmaster failed to start: ${boundedErrorMessage(error)}`)
   app.quit()
 })
 
@@ -1392,6 +1392,6 @@ app.on('before-quit', (event) => {
     stopChildProcesses(),
   ]).then(async () => {
     // Await the drain so the final persist lands before the process exits.
-    try { await store?.beginShutdown() } catch (error) { console.error(`VClaw store shutdown failed: ${boundedErrorMessage(error)}`) }
+    try { await store?.beginShutdown() } catch (error) { console.error(`Vizmaster store shutdown failed: ${boundedErrorMessage(error)}`) }
   }).finally(() => app.quit())
 })

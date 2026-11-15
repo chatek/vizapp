@@ -521,7 +521,7 @@ describe('release preflight', () => {
     const profile = {
       profileVersion: 1,
       id: 'vizmaster',
-      identity: { productName: 'VClaw', appId: 'com.vclaw.desktop' },
+      identity: { productName: 'Vizmaster', appId: 'com.vclaw.desktop' },
       harnesses: ['omp'],
       projects: 'single',
       defaultProject: { name: 'VizMaster', from: 'product/payload', to: '~/VizMaster', version: '0.0.0+unrendered' },
@@ -531,7 +531,7 @@ describe('release preflight', () => {
     expect(rendered.defaultProject?.version).toBe('1.0.0+20261105.abc1234')
     expect(rendered.defaultProject?.from).toBe('product/payload')
     expect(rendered.id).toBe('vizmaster')
-    expect(rendered.identity).toEqual({ productName: 'VClaw', appId: 'com.vclaw.desktop' })
+    expect(rendered.identity).toEqual({ productName: 'Vizmaster', appId: 'com.vclaw.desktop' })
     expect(profile.defaultProject.version).toBe('0.0.0+unrendered')
     expect(() => renderStagedProfile(profile, '')).toThrow(/payload release id/)
     const generic = { profileVersion: 1, id: 'vclaw', harnesses: ['omp'], source: 'development' }
@@ -1708,7 +1708,7 @@ describe('post-package verification helpers', () => {
     expect(packageJson.author).toEqual({ name: 'GooeyPi contributors', email: '42459108+am-will@users.noreply.github.com' })
     expect(packageJson.description).toBe('A desktop workspace for Pi, OMP, and Prime Agent')
     expect(packageJson.homepage).toBe('https://github.com/am-will/gooey-pi')
-    expect(packageJson.build.productName).toBe('VClaw')
+    expect(packageJson.build.productName).toBe('Vizmaster')
     expect(packageJson.build.appId).toBe('com.vclaw.desktop')
     expect(packageJson.desktopName).toBe('vclaw.desktop')
     expect(packageJson.build.linux.synopsis).toBe(packageJson.description)

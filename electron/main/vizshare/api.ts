@@ -69,6 +69,55 @@ export interface VizShareSubmission {
   poster: { dataUrl: string }
 }
 
+/**
+ * The agent-initiated draft body (the `/v1/draft` wire shape, §3.1 of the
+ * C1 spec): `parseSubmission` minus consent and poster — neither can come
+ * from an agent — plus `buildId`, which joins the record to the local build
+ * for poster capture. `promptExcerpt` is desktop-attached, never a tool claim.
+ */
+export interface VizShowDraft {
+  buildId: string
+  tutorialId: string
+  kind: VizKind
+  params: Record<string, VizParam>
+  frame?: number
+  reproducible: boolean
+  title: string
+  blurb: string
+  tags: string[]
+  subject: string
+  grade?: number
+  lang: string
+  promptExcerpt?: string
+}
+
+/**
+ * Final human edits patched onto a draft at completion (§4.5). Every field is
+ * optional; each mirrors the bounds `parseSubmission` enforces. The registry's
+ * `mergePatch` pins `id`, `author` and `status`, so none of those ride the
+ * wire — and `provenance` is stripped server-side before the merge.
+ */
+export interface VizDraftEdits {
+  title?: string
+  blurb?: string
+  tags?: string[]
+  subject?: string
+  grade?: number
+  lang?: string
+  frame?: number
+}
+
+/**
+ * The `/v1/drafts/:id/submit` body (§4.5): the consent union the human just
+ * granted, optional final edits, and an optional poster — required iff the
+ * record still lacks one (the sheet knows from `/v1/mine`).
+ */
+export interface VizDraftCompletion {
+  consent: VizConsent
+  edits?: VizDraftEdits
+  poster?: { dataUrl: string }
+}
+
 export interface VizPoster {
   mime: 'image/png' | 'image/jpeg' | 'image/webp'
   bytes: Buffer
@@ -258,6 +307,102 @@ export function decodePoster(dataUrl: string): VizPoster {
   return { mime, bytes, sha256: createHash('sha256').update(bytes).digest('hex') }
 }
 
+/**
+ * Validate the agent's untrusted draft body. Mirrors `parseSubmission` minus
+ * consent and poster, plus `buildId`. A body carrying a `consent` or `poster`
+ * key is refused — consent cannot be granted by an agent and a poster is a
+ * fact of a rendered surface, so the non-delegability is mechanical.
+ */
+export function parseDraft(value: unknown): VizShowDraft {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) fail('The draft body must be a JSON object')
+  const body = value as Record<string, unknown>
+  if ('consent' in body) fail('consent cannot be granted by an agent')
+  if ('poster' in body) fail('a poster cannot be attached by an agent')
+  const buildId = readString(body, 'buildId', 1, 64)
+  if (!TUTORIAL_ID.test(buildId)) fail('buildId contains unsupported characters')
+  const tutorialId = readString(body, 'tutorialId', 1, 64)
+  if (!TUTORIAL_ID.test(tutorialId)) fail('tutorialId contains unsupported characters')
+  if (typeof body.kind !== 'string' || !KINDS.includes(body.kind as VizKind)) fail('kind must be elucim, vectorplay or three')
+  const kind = body.kind as VizKind
+  const params = readParams(body.params)
+  const frame = readOptionalInteger(body, 'frame', 0, Number.MAX_SAFE_INTEGER)
+  if (kind === 'elucim' && frame === undefined) fail('frame is required for an elucim Viz')
+  const reproducible = readBoolean(body, 'reproducible')
+  const title = readString(body, 'title', 8, 80)
+  const blurb = readString(body, 'blurb', 40, 280)
+  const tags = readTags(body.tags)
+  const subject = readString(body, 'subject', 1, 64)
+  const grade = readOptionalInteger(body, 'grade', 1, 12)
+  const lang = readString(body, 'lang', 2, 12)
+  if (!LANG.test(lang)) fail('lang must be a language tag such as "en" or "en-GB"')
+
+  return {
+    buildId,
+    tutorialId,
+    kind,
+    params,
+    ...(frame === undefined ? {} : { frame }),
+    reproducible,
+    title,
+    blurb,
+    tags,
+    subject,
+    ...(grade === undefined ? {} : { grade }),
+    lang,
+  }
+}
+
+function readEdits(value: unknown): VizDraftEdits {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) fail('edits must be an object')
+  const record = value as Record<string, unknown>
+  const title = 'title' in record && record.title !== undefined ? readString(record, 'title', 8, 80) : undefined
+  const blurb = 'blurb' in record && record.blurb !== undefined ? readString(record, 'blurb', 40, 280) : undefined
+  const tags = 'tags' in record && record.tags !== undefined ? readTags(record.tags) : undefined
+  const subject = 'subject' in record && record.subject !== undefined ? readString(record, 'subject', 1, 64) : undefined
+  const grade = readOptionalInteger(record, 'grade', 1, 12)
+  const lang = readOptionalString(record, 'lang', 12)
+  if (lang !== undefined && !LANG.test(lang)) fail('lang must be a language tag such as "en" or "en-GB"')
+  const frame = readOptionalInteger(record, 'frame', 0, Number.MAX_SAFE_INTEGER)
+  return {
+    ...(title === undefined ? {} : { title }),
+    ...(blurb === undefined ? {} : { blurb }),
+    ...(tags === undefined ? {} : { tags }),
+    ...(subject === undefined ? {} : { subject }),
+    ...(grade === undefined ? {} : { grade }),
+    ...(lang === undefined ? {} : { lang }),
+    ...(frame === undefined ? {} : { frame }),
+  }
+}
+
+/**
+ * Validate the renderer's untrusted draft-completion body (§4.5). The consent
+ * union is required — an agent can never supply it — and the poster, when
+ * present, is decoded now so an invalid or oversized one is a form error, not
+ * a half-completed chain. Unknown fields are dropped. The ShareSheet sends
+ * `poster` as `{ dataUrl }`; the vizshare client's wire shape is the bare
+ * string — both are accepted, the bytes are validated identically.
+ */
+export function parseDraftCompletion(value: unknown): VizDraftCompletion {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) fail('The completion body must be a JSON object')
+  const body = value as Record<string, unknown>
+  const consent = readConsent(body.consent)
+  const edits = 'edits' in body && body.edits !== undefined ? readEdits(body.edits) : undefined
+  let poster: { dataUrl: string } | undefined
+  if ('poster' in body && body.poster !== undefined) {
+    const raw = body.poster
+    let dataUrl: string
+    if (typeof raw === 'string') dataUrl = raw
+    else if (typeof raw === 'object' && raw !== null && !Array.isArray(raw) && typeof (raw as { dataUrl?: unknown }).dataUrl === 'string') {
+      dataUrl = (raw as { dataUrl: string }).dataUrl
+    } else {
+      fail('poster must be a data URL or { dataUrl }')
+    }
+    decodePoster(dataUrl)
+    poster = { dataUrl }
+  }
+  return { consent, ...(edits === undefined ? {} : { edits }), ...(poster === undefined ? {} : { poster }) }
+}
+
 function draftBody(submission: VizShareSubmission): Record<string, unknown> {
   return {
     tutorialId: submission.tutorialId,
@@ -278,6 +423,28 @@ function draftBody(submission: VizShareSubmission): Record<string, unknown> {
   }
 }
 
+/**
+ * The `/v1/draft` body: no consent (granted by the human at submit), no
+ * poster (uploaded separately when a rendered surface supplies one), no
+ * provenance or handle (server-stamped / registry-derived).
+ */
+function agentDraftBody(draft: VizShowDraft): Record<string, unknown> {
+  return {
+    tutorialId: draft.tutorialId,
+    kind: draft.kind,
+    params: draft.params,
+    ...(draft.frame === undefined ? {} : { frame: draft.frame }),
+    reproducible: draft.reproducible,
+    title: draft.title,
+    blurb: draft.blurb,
+    tags: draft.tags,
+    subject: draft.subject,
+    ...(draft.grade === undefined ? {} : { grade: draft.grade }),
+    lang: draft.lang,
+    ...(draft.promptExcerpt === undefined ? {} : { promptExcerpt: draft.promptExcerpt }),
+  }
+}
+
 export interface VizShowApiOptions {
   fetch: VizShareFetch
   /** Called per request: the OIDC client refreshes within its 60 s window. */
@@ -287,12 +454,18 @@ export interface VizShowApiOptions {
 
 export interface VizShowApi {
   createDraft(submission: VizShareSubmission): Promise<{ id: string; revision: number }>
+  createDraftOnly(draft: VizShowDraft): Promise<{ id: string; revision: number }>
   uploadPoster(id: string, poster: VizPoster, ifMatch?: string): Promise<{ revision: number }>
   submit(id: string, ifMatch?: string, consentReceipt?: string): Promise<{ revision: number }>
   listMine(): Promise<unknown>
   withdraw(id: string, revision?: number): Promise<{ revision: number }>
   submitViz(
     submission: VizShareSubmission,
+    consentReceipt?: string,
+  ): Promise<{ id: string; state: 'submitted'; revision: number }>
+  submitDraft(
+    id: string,
+    completion: VizDraftCompletion,
     consentReceipt?: string,
   ): Promise<{ id: string; state: 'submitted'; revision: number }>
 }
@@ -317,6 +490,22 @@ class VizShowApiClient implements VizShowApi {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(draftBody(submission)),
+    })
+    const created = result.body
+    const id =
+      typeof created === 'object' && created !== null && 'id' in created && typeof created.id === 'string'
+        ? created.id
+        : undefined
+    if (id === undefined) throw new VizShowApiError(502, 'invalid_response', 'The registry did not return a VizShow id')
+    return { id, revision: revisionFrom(result.headers, 1) }
+  }
+
+  /** C1: the agent's consent-free draft creation; `submitViz` is untouched. */
+  async createDraftOnly(draft: VizShowDraft): Promise<{ id: string; revision: number }> {
+    const result = await this.request('/api/vizshows', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(agentDraftBody(draft)),
     })
     const created = result.body
     const id =
@@ -382,6 +571,37 @@ class VizShowApiClient implements VizShowApi {
     await this.uploadPoster(id, poster, 'W/"1"')
     const { revision } = await this.submit(id, 'W/"2"', consentReceipt)
     return { id, state: 'submitted', revision }
+  }
+
+  /**
+   * C1 (§4.5): the human completion chain for an agent-created draft.
+   * Resolves the current revision from `/v1/mine` (the `withdraw` lookup
+   * pattern), PATCHes the consent union plus final edits, uploads the poster
+   * when the body still carries one, then submits — each step If-Match'd from
+   * the prior response's revision. The receipt rides only the final submit
+   * request, exactly as `submitViz` does.
+   */
+  async submitDraft(
+    id: string,
+    completion: VizDraftCompletion,
+    consentReceipt?: string,
+  ): Promise<{ id: string; state: 'submitted'; revision: number }> {
+    const mine = await this.listMine()
+    const records = Array.isArray(mine) ? (mine as Array<{ id?: unknown; revision?: unknown }>) : []
+    const current = records.find((record) => record.id === id)?.revision
+    if (typeof current !== 'number') throw new VizShowApiError(404, 'not_found', `VizShow ${id} was not found`)
+    const patch = await this.request(`/api/vizshows/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'if-match': `W/"${current}"` },
+      body: JSON.stringify({ consent: completion.consent, ...(completion.edits ?? {}) }),
+    })
+    let revision = revisionFrom(patch.headers, current + 1)
+    if (completion.poster !== undefined) {
+      const uploaded = await this.uploadPoster(id, decodePoster(completion.poster.dataUrl), `W/"${revision}"`)
+      revision = uploaded.revision
+    }
+    const submitted = await this.submit(id, `W/"${revision}"`, consentReceipt)
+    return { id, state: 'submitted', revision: submitted.revision }
   }
 
   private async request(

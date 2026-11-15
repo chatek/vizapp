@@ -22,12 +22,12 @@ export const VPAY_API_BASE_URL = 'https://api.vclawhub.com'
 
 /** Estate failure vocabulary for the LLM door (docs/VCLAW_LLM.md §3.5). */
 const DOOR_PROBLEM_BY_STATUS: Record<number, string> = {
-  401: 'VClaw key invalid or missing',
-  402: 'Wallet cap or balance exhausted — check the VClaw usage row',
+  401: 'Vizmaster key invalid or missing',
+  402: 'Wallet cap or balance exhausted — check the Vizmaster usage row',
   413: 'Prompt too large (8 MiB door limit)',
 }
-const DOOR_PROBLEM_UNREACHABLE = 'VClaw LLM is unreachable — try again shortly'
-const DOOR_PROBLEM_NO_KEY = 'No VClaw API key is stored yet'
+const DOOR_PROBLEM_UNREACHABLE = 'Vizmaster LLM is unreachable — try again shortly'
+const DOOR_PROBLEM_NO_KEY = 'No Vizmaster API key is stored yet'
 
 export interface ProviderStanzaModel {
   readonly id: string
@@ -48,7 +48,7 @@ export interface ProviderStanza {
 }
 
 /**
- * Option 1 — the VClaw LLM door. Model ids are the door's hosted order from
+ * Option 1 — the Vizmaster LLM door. Model ids are the door's hosted order from
  * kevproxy/config/kevproxy-vclawhub.example.yaml (routing.hostedOrder) and are
  * PROVISIONAL until GET /v1/models is reachable (docs/VCLAW_LLM.md §7).
  */
@@ -57,8 +57,8 @@ export const VCLAW_LLM_STANZA_SPEC: Omit<ProviderStanza, 'keyCommand'> = {
   baseUrl: VCLAW_LLM_BASE_URL,
   api: 'openai-completions',
   models: [
-    { id: 'deepseek/deepseek-flash', name: 'VClaw · DeepSeek Flash (door default, provisional)', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 1_048_576, maxTokens: 8192 },
-    { id: 'glm/glm-5.3-flash', name: 'VClaw · GLM-5.3-Flash (provisional)', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 131_072, maxTokens: 8192 },
+    { id: 'deepseek/deepseek-flash', name: 'Vizmaster · DeepSeek Flash (door default, provisional)', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 1_048_576, maxTokens: 8192 },
+    { id: 'glm/glm-5.3-flash', name: 'Vizmaster · GLM-5.3-Flash (provisional)', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 131_072, maxTokens: 8192 },
   ],
 }
 
@@ -229,9 +229,9 @@ const VCLAW_KEY_PATTERN = /^sk-[A-Za-z0-9_-]{8,128}$/
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:/+-]{1,256}$/
 
 export function validateVclawLlmKey(value: unknown): string {
-  if (typeof value !== 'string') throw new TypeError('VClaw API key must be a string')
+  if (typeof value !== 'string') throw new TypeError('Vizmaster API key must be a string')
   const key = value.trim()
-  if (!VCLAW_KEY_PATTERN.test(key)) throw new TypeError('VClaw API key must be an sk-… token (8–128 characters after sk-)')
+  if (!VCLAW_KEY_PATTERN.test(key)) throw new TypeError('Vizmaster API key must be an sk-… token (8–128 characters after sk-)')
   return key
 }
 
@@ -451,7 +451,7 @@ export class ProviderSetupService {
    */
   async vclawUsage(): Promise<VclawUsageStatus> {
     const key = await this.readStoredKey(VCLAW_PROVIDER_ID)
-    if (!key) return { status: 'unavailable', reason: 'Add your VClaw API key to read wallet usage.' }
+    if (!key) return { status: 'unavailable', reason: 'Add your Vizmaster API key to read wallet usage.' }
     const principal = this.vpayPrincipal
     if (!principal) return { status: 'unavailable', reason: 'Wallet reads need an authenticated vpay principal; the LLM key cannot read balances.' }
     let response: Response

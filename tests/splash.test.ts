@@ -603,7 +603,7 @@ describe('index.html splash overlay', () => {
     expect(html).toContain('@keyframes vclaw-splash-kenburns')
     expect(html).toContain('prefers-reduced-motion')
     expect(html).toContain('VizMaster')
-    expect(html).toContain('powered by VClaw')
+    expect(html).toContain('powered by Vizmaster')
   })
 
   test('the overlay paints without scripts: only the bundle script tag exists', () => {
