@@ -14,7 +14,7 @@ Work is split into three lanes, plus one thing no lane owns. They share exactly 
 | **Build lane** — `vclaw-desktop` (this repo), `chatek/vclaw-desktop` | the repo's code and its branch doctrine (**operator note, 2026-11-05:** `main` stays the generic product and the only branch the parent repo records; `vizmaster` is the long-running member vertical, its own world — supersedes the earlier "main is the only long-lived branch" ruling, kept as dated history); the build drivers (`scripts/release/build-remote.sh`, `package.mjs`); the seam contract (`scripts/release/member-seams.mjs`); member profiles (`product/<member>.json`); the publisher (`scripts/release/release-forgejo.sh`); the **provenance format** | the unsigned `.dmg` + `.app` `.zip` per arch, `BUILD-<arch>.json`, `SHA256SUMS.txt`, `tuple.json` on a release page | **the Forgejo releases page.** Once the URL answers anonymously, the build is done | the member repo, the member's integrator, the consumer's publisher, the landing site, vchat3 |
 | **VizMaster lane** — `vizmaster-lead` | the member repo (`chatek/vizmaster`), its integrator/overlay, its intake gates, its own host and updater channel, the landing render | a published VizMaster build on `assets.vizmaster.app` and the rendered landing | its own `releases/` tree and site | this repo. It holds **no** files here, offers **no** build inputs, and is never asked to run a build |
 | **Deploy lane** — vchat3 | `services/vchat3-node/` in the parent repo `chance/vchat.email`: `node-deploy.sh` (GATE1 → GATE2 → GATE1b → GATE3 → stage → verify → swap), `rollback.sh`, the pre-push gates | the running node, proven by `PUSHED → PULLED → gates → DONE rc=0` | the deployed service | desktop builds. A desktop release does not deploy vchat3, and a vchat3 deploy does not ship the app |
-| **Estate signing** | **nobody.** 0 codesigning identities exist on the builder (`_MAC_HOST_`) and on the workstation, and no lane may obtain one on its own | nothing today | — | — |
+| **Estate signing** | **nobody.** 0 codesigning identities exist on the builder (`build-host`) and on the workstation, and no lane may obtain one on its own | nothing today | — | — |
 
 ### Why the build lane stops at the releases page
 
@@ -40,7 +40,7 @@ both remotes for exactly this reason. Everything else about vchat3 belongs to th
 **A handoff is a release URL, and only a release URL.**
 
 1. The build lane publishes (see [RELEASE_FLOW.md](RELEASE_FLOW.md) §3) and hands over
-   `https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop/releases/tag/<tag>`.
+   `https://forgejo.internal.example/chatek/vclaw-desktop/releases/tag/<tag>`.
 2. A **valid** handoff is a release that answers **anonymously** — the page 200 and every
    `…/releases/download/<tag>/<asset>` 200/206 with no token — and carries, per arch, the `.dmg`
    and the `.app` `.zip` plus `BUILD-<arch>.json`, a merged `SHA256SUMS.txt` and `tuple.json`.
@@ -82,7 +82,7 @@ to need that, the request is wrong, not the boundary.
 | letting a consumer dictate provenance format | two manifests for one artefact means the release stops being self-describing | change the driver here, in a reviewed commit; consumers read `BUILD-<arch>.json` + `tuple.json` |
 | reading `dirty` **absence** as `dirty: true` | older manifests omit the key; absence is *unknown*, and every consumer that guessed "dirty" refused a clean build | read the key when present, print `unknown` when absent, and never hardcode the refusal |
 | reading a mirror as evidence | `chatek/*` are regular repos now; a mirror's tip can be frozen for weeks while the record repo moves | fetch the **record** remote and resolve the sha there; mirror tips are NOT-EVIDENCE |
-| shipping a local build, or calling one "the build" | the local flow prints `ARTEFACT(not-evidence)` and exists to answer packaging questions | build on `_MAC_HOST_` ([BUILD.md](BUILD.md)) |
+| shipping a local build, or calling one "the build" | the local flow prints `ARTEFACT(not-evidence)` and exists to answer packaging questions | build on `build-host` ([BUILD.md](BUILD.md)) |
 | producing a member artefact without the payload assert | the generic tree ships a README-only payload, so a "member" build can look fine and seed nothing | `--member` with a real payload; the pre-packaging assert refuses the placeholder ([MEMBER_BUILD.md](MEMBER_BUILD.md)) |
 | documenting or planning a CI build path | Forgejo Actions has no darwin runner and the instance cannot fetch actions from github.com | the workstation publisher ([RELEASE_FLOW.md](RELEASE_FLOW.md) §3) |
 | editing another lane's files to unblock yourself | that lane's in-flight work is not yours to commit, revert or re-format | message the lane; leave unrelated dirty files alone |
@@ -92,7 +92,7 @@ to need that, the request is wrong, not the boundary.
 - **Forgejo Actions cannot build this repo** — no `darwin` runner, and the instance cannot fetch
   actions from github.com (`000` timeout; `api.github.com` answers 200). There is no CI build
   path to plan.
-- **The builder cannot reach the remotes.** `_MAC_HOST_` reaches neither Forgejo nor github.com,
+- **The builder cannot reach the remotes.** `build-host` reaches neither Forgejo nor github.com,
   so source travels as a git bundle over `tailscale ssh` and publishing happens on the
   workstation.
 - **`tailscale ssh` masks remote exit codes** — drivers and any lane reading a remote build must

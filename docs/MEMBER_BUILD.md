@@ -114,7 +114,7 @@ Reference implementation (measured working 2026-10-22, fork `e2a1f48`): VizMaste
    before a release, not during one.
 
 Estate rules that bind every member build: macOS app builds of record run **only on the
-remote build host** (`_MAC_HOST_`, `docs/BUILD_REMOTE.md`) — local unsigned `--dir` builds are
+remote build host** (`build-host`, `docs/BUILD_REMOTE.md`) — local unsigned `--dir` builds are
 smoke/QA only and print `ARTEFACT(not-evidence)` (`docs/BUILD_LOCAL.md`); the two-flow entry
 point is `docs/BUILD.md`. **Nobody signs today**: 0 codesigning identities exist on the host and
 on the workstation, there are no CI secrets to hold one, and Forgejo Actions cannot build this

@@ -30,7 +30,7 @@
 # its output is not evidence. There is no automatic switch between them.
 #
 # Env overrides (all optional):
-#   BUILD_HOST        ssh destination (default BUILD_USER_REDACTED)
+#   BUILD_HOST        ssh destination (default build@build-host.example)
 #   REMOTE_ROOT       build root, relative to the remote $HOME (default build/vclaw)
 #   LOCAL_OUT         local collect directory (default <repo>/release-remote)
 #   ELECTRON_MIRROR   mirror electron-builder downloads from
@@ -56,7 +56,7 @@
 #                   artefact is never mistaken for one built by the member's pipeline.
 set -Eeuo pipefail
 
-HOST="${BUILD_HOST:-BUILD_USER_REDACTED}"
+HOST="${BUILD_HOST:-build@build-host.example}"
 REMOTE_ROOT="${REMOTE_ROOT:-build/vclaw}"
 MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
 MIRROR_TIMEOUT="${ELECTRON_MIRROR_TIMEOUT:-15}"

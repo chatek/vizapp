@@ -1,6 +1,6 @@
 # Remote build — VClaw desktop, `electron-builder --mac dmg zip` flow
 
-The macOS app is built **only** on `BUILD_USER_REDACTED`; a local
+The macOS app is built **only** on `build@build-host.example`; a local
 `release/` tree is a throwaway, not evidence. This file is the authoritative procedure for the
 flow that bundles OMP into the app and emits, per arch, an **unsigned `.dmg`** (mountable
 installer) and the **`.app` `.zip`** from one pack: `electron-builder --mac dmg zip --<arch>
@@ -46,7 +46,7 @@ build is never evidence for a release. The local path is a separate, explicitly 
 | disk | 198 GiB free on `/System/Volumes/Data` | 198 GiB free before the build |
 | code-signing identities | 0 → `--config.mac.identity=null` in the driver | same |
 
-## Windows host — `BUILD_USER_REDACTED` (win11 KVM guest on _HYPER_)
+## Windows host — `build@win-build-host.example` (win11 KVM guest on hypervisor)
 
 Windows artefacts of record are built **only** inside this guest, by the same evidence rule as
 the mac host: `package.mjs` refuses `--platform win` unless it runs on `win32`, so this guest is
@@ -54,8 +54,8 @@ the only machine that can produce them. Measured 2026-11-13:
 
 | | facts |
 |---|---|
-| what it is | Windows 11 **Pro** (unactivated — see note), KVM guest `win11` on `HYPERVISOR_REDACTED`, 8 vCPU / 16 GiB, qcow2 on btrfs |
-| access | `ssh BUILD_USER_REDACTED` (tailscale MagicDNS, key auth; `BUILD_ALIAS_REDACTED` alias in the workstation's `~/.ssh/config`) |
+| what it is | Windows 11 **Pro** (unactivated — see note), KVM guest `win11` on `hypervisor.example`, 8 vCPU / 16 GiB, qcow2 on btrfs |
+| access | `ssh build@win-build-host.example` (tailscale MagicDNS, key auth; `hypervisor-alias` alias in the workstation's `~/.ssh/config`) |
 | node / npm / git | system node **v26.13.1**/npm 11.20.0 (npm needed `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`), git **2.56.0.windows.4**; **build toolchain** = pinned node **v24.15.0**+npm 12.0.2 off-system at `~\build\toolchain\node-v24.15.0-win-x64\` (npmmirror), Python 3.12, VS Build Tools 2022 (C++ workload), VC++ 2015+ runtime |
 | omp on the guest | omp/18.20.0 via bun — GLM configured (`glm-5.3` default, `glm-5.3-flash` smol) — usable for build-driving agents |
 | activation note | the provisioned MAK key was rejected by Microsoft (`0xC004F050`, revoked volume key) — the box runs unactivated, which does not affect building; a real retail key is an open errand |
@@ -67,7 +67,7 @@ the only machine that can produce them. Measured 2026-11-13:
 ```powershell
 # 0. prerequisites (one-time): see the toolchain notes below
 # 1. clone (Forgejo IS reachable from the guest; github.com is not — 401)
-git clone https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop.git C:\Users\chance\dev\vclaw-desktop
+git clone https://forgejo.internal.example/chatek/vclaw-desktop.git C:\Users\build\dev\vclaw-desktop
 # 2. install WITHOUT scripts (the postinstall forces a node-pty rebuild — see trap 4)
 npm ci --no-audit --no-fund --ignore-scripts
 # 3. copy node-pty prebuilts into the build path
@@ -103,7 +103,7 @@ sha256 `d4132931…e9029546`, plus appx/msix/zip/latest.yml — pulled to the wo
    on win32 (two local patches; upstream-worthy).
 6. **Windows sleep suspends the VM mid-build** (`pmsuspended` at the hypervisor, twice):
    `powercfg /setactive SCHEME_MIN; powercfg /change standby-timeout-ac 0; powercfg /h off`
-   inside the guest. Recovery from suspend: `virsh dompmwakeup win11` on _HYPER_.
+   inside the guest. Recovery from suspend: `virsh dompmwakeup win11` on the hypervisor.
 7. **`--skip-verify` justification:** the coverage thresholds fail on this commit ON MAC TOO
    (measured 2026-11-13 at `73e62c3`) — the aggregate is red upstream, not a Windows defect;
    the documented skip applies, and package verification + verify-cross-platform-package
@@ -120,11 +120,11 @@ discovered late:
   downloads therefore need `ELECTRON_MIRROR`, and the OMP binaries can never be fetched from a
   GitHub release URL on this host.
 * **The host's tailnet does not contain the Forgejo box.** `tailscale status` on the host lists
-  42 peers and no `vmaker-pi`; `REDACTED_INTERNAL_FORGE` resolves to the same fake-ip
+  42 peers and no `vmaker-pi`; `forgejo.internal.example` resolves to the same fake-ip
   `198.18.0.11` and `curl -v` dies in the TLS handshake:
   `LibreSSL SSL_connect: SSL_ERROR_SYSCALL`. Measured — so this host **cannot clone from
   Forgejo**, even though the workstation can (`curl -o /dev/null -w %{http_code}` → `200`,
-  `TAILNET_IP_REDACTED`). Source therefore arrives as a **git bundle streamed over `tailscale ssh`**,
+  `192.0.2.10`). Source therefore arrives as a **git bundle streamed over `tailscale ssh`**,
   which is also why the driver never needs a GitHub or Forgejo credential.
 
 ## Directory layout on the host
@@ -149,7 +149,7 @@ are not in git on purpose (215 MB + 228 MB).
 ## One-time setup (run once per host)
 
 ```bash
-H=BUILD_USER_REDACTED
+H=build@build-host.example
 
 # 1. node 24.15.0 — from the official tarball, into ~/build/toolchain.
 #    Do NOT use homebrew's node v25.8.0 as the build node: `.nvmrc` pins 24.15.0 and
@@ -168,7 +168,7 @@ tailscale ssh $H 'mkdir -p ~/build/vclaw/vclaw-desktop ~/build/vclaw/vendors/oh-
 
 # 3. the OMP release set — streamed from the workstation, digests checked on both sides
 #    (equivalently from Forgejo on a machine that can reach it:
-#     https://REDACTED_INTERNAL_FORGE/chatek/oh-my-pi/releases/download/v18.16.0/)
+#     https://forgejo.internal.example/chatek/oh-my-pi/releases/download/v18.16.0/)
 ```
 
 Nothing in the driver touches `brew`, sudo, npm globals, `PATH` files or shell rc files:
@@ -184,11 +184,11 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
 {
   "schema": 1,
   "builtAt": "2026-11-04T18:06:31Z",
-  "host": "BUILD_USER_REDACTED",
+  "host": "build@build-host.example",
   "dirty": false,
   "source": {
     "repo": "vclaw-desktop",
-    "remote": "https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop",
+    "remote": "https://forgejo.internal.example/chatek/vclaw-desktop",
     "branch": "vizmaster",
     "commit": "ee212d9810741a7d8094fa8ef99907d2222f1902",
     "worktree": { "clean": true, "from": "git bundle at ee212d9810741a7d8094fa8ef99907d2222f1902" }
@@ -197,7 +197,7 @@ Every build writes one, next to the dmg and the zip (arm64 shown; x64 differs on
   "product": { "id": "vclaw", "name": "VClaw", "appId": "com.vclaw.desktop" },
   "artifact": { "file": "VClaw-1.1.17-arm64.zip", "bytes": 242783591, "sha256": "ae93b58f713475efa9a1b83f13146e64467c9088f4fda4d69d23c67adb7850c9" },
   "dmg": { "file": "VClaw-1.1.17-arm64.dmg", "bytes": 250630884, "sha256": "3b5aef726b4be5523e0affcc7e7bc6b370052f70b5d9c035aac1e2d0e41bf89e", "hdiutilVerify": "VALID" },
-  "app": { "path": "/Users/chance/build/vclaw/vclaw-desktop/release/mac-arm64/VClaw.app", "executable": "VClaw", "executableSlices": "arm64" },
+  "app": { "path": "/Users/build/vclaw/vclaw-desktop/release/mac-arm64/VClaw.app", "executable": "VClaw", "executableSlices": "arm64" },
   "omp": { "release": "v18.16.0", "binary": "omp-darwin-arm64", "sha256": "d4a10d97488d6054d2b18198bd24f461079952c7e0fb75ba66336ca0df0cb99e", "slices": "arm64" },
   "electron": "43.4.0",
   "signing": null,
@@ -515,7 +515,7 @@ at it would ship arm64 Electron. Cross-arch builds get their Electron from `ELEC
 | symptom | cause | action |
 |---|---|---|
 | `⨯ connect EADDRNOTAVAIL 198.18.0.11:443 - Local (0.0.0.0:0)` | electron-builder downloading from github.com; the Clash TUN fake-ip is not routed | export `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` (the driver always does), or build the host arch where `electronDist` applies |
-| `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to REDACTED_INTERNAL_FORGE:443` | the host is not in the Forgejo box's tailnet; the name resolves to `198.18.0.11` | do not clone from Forgejo on this host — the driver streams a bundle |
+| `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to forgejo.internal.example:443` | the host is not in the Forgejo box's tailnet; the name resolves to `198.18.0.11` | do not clone from Forgejo on this host — the driver streams a bundle |
 | `node -v` → `v25.8.0` and the build then behaves differently from the validated toolchain | homebrew node on `PATH` | prepend `~/build/toolchain/node-v24.15.0-darwin-arm64/bin`; the driver refuses to start if that node is missing or not `v24.15.0` |
 | `Error: bundled omp: resources/harness/bin/omp is missing — was mac.extraResources applied?` | the release set is not at `../vendors/oh-my-pi/releases/v18.16.0/` relative to the checkout | create the sibling `vendors/` tree |
 | electron-builder `⨯ Application entry file "out/main/index.js" … was not found in this archive` | `out/` was never built — `npm ci` alone does not produce it | run `npm run build:bundle` first; the driver does, and asserts `out/main/index.js` |
@@ -669,7 +669,7 @@ the short keys remain for display and for the in-tree `:326` prefix check.
 
 **Member-repo source of truth.** Reproducible with one command per side — `git ls-remote
 <remote> refs/heads/main` against the member clone's remotes (`origin` = GitHub
-`chatek/vizmaster`, `forgejo` = `https://REDACTED_INTERNAL_FORGE/chatek/vizmaster`). Measured 2026-11-05: the Forgejo
+`chatek/vizmaster`, `forgejo` = `https://forgejo.internal.example/chatek/vizmaster`). Measured 2026-11-05: the Forgejo
 mirror answers `a77a74ef` (its 2026-10-26 tip, unchanged) while GitHub's main keeps advancing
 (`813c2c7` at the time of writing, `31dd4a5` minutes earlier) — so the mirror is not merely behind,
 it is frozen, and the gap grows. A payload cut from the mirror would carry a stamp naming code that is not there,

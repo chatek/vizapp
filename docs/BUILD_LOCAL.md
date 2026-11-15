@@ -9,7 +9,7 @@ are throwaway, so these numbers describe the toolchain, not a shippable build.
 
 **The primary flow is [`docs/BUILD_REMOTE.md`](BUILD_REMOTE.md) with
 [`scripts/release/build-remote.sh`](../scripts/release/build-remote.sh).** That host —
-`BUILD_USER_REDACTED` — is the **only sanctioned builder**. This document
+`build@build-host.example` — is the **only sanctioned builder**. This document
 describes a **local fallback for when that host is unavailable**, and artefacts produced
 here are **not evidence** (repo rule, `AGENTS.md`): they may prove the tree packages and the
 bundled `omp` verifies, and nothing about the release.
@@ -177,7 +177,7 @@ the `lipo` slice, so the failure is loud — what it does *not* catch is a *corr
 the wrong arch, which trap 5 turns into a broken bundle. Both binaries are published at
 
 ```
-https://REDACTED_INTERNAL_FORGE/chatek/oh-my-pi/releases/download/v18.16.0/
+https://forgejo.internal.example/chatek/oh-my-pi/releases/download/v18.16.0/
 ```
 
 Expected values (2026-11-04): arm64 `215,642,256` B

@@ -17,7 +17,7 @@ import { join } from 'node:path'
 // the same keys any real first-run user supplies through provider settings.
 
 const APP = process.env.VCLAW_E2E_APP
-  ?? '/Users/chance/Documents/Chatek/apps/vchat.email/vclaw-desktop/release-remote/arm64/VClaw-1.1.18-unpacked/VClaw.app/Contents/MacOS/VClaw'
+  ?? join(homedir(), 'Documents/Chatek/apps/vchat.email/vclaw-desktop/release-remote/arm64/VClaw-1.1.18-unpacked/VClaw.app/Contents/MacOS/VClaw')
 const AUTH_SOURCE = join(homedir(), '.pi', 'agent', 'auth.json')
 
 test('clean home → packaged app → one prompt → vizshow build appears and is served', async ({ }, testInfo) => {

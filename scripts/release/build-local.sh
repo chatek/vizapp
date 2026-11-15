@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LOCAL FALLBACK build of the VClaw desktop app (-dir, unsigned, arm64/x64).
 #
-# The sanctioned builder is the remote host BUILD_HOST_REDACTED; use
+# The sanctioned builder is the remote host build-host.example; use
 # scripts/release/build-remote.sh and docs/BUILD_REMOTE.md for every real release.
 # This script exists only for when that host is unavailable. Its output is NOT
 # evidence: it proves the tree packages and the bundled omp verifies, nothing more.
@@ -288,7 +288,7 @@ fi
 if [ "${VCLAW_ALLOW_LOCAL_BUILD:-}" != "1" ]; then
   cat >&2 <<'REFUSED'
 build-local: REFUSED — the sanctioned builder is the remote host
-             BUILD_HOST_REDACTED (docs/BUILD_REMOTE.md).
+             build-host.example (docs/BUILD_REMOTE.md).
 
              Remote build:  bash scripts/release/build-remote.sh --arm64 --x64
              Preflight only: bash scripts/release/build-local.sh --check

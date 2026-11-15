@@ -4,7 +4,7 @@
 This file is the host-side **`.dmg`/`.zip`** variant (`package.mjs`, signing, notarisation).
 The default `--dir` flow that bundles OMP is [BUILD_REMOTE.md](BUILD_REMOTE.md) — it also owns
 the host facts table, which is measured more recently than this page. Both flows run on
-`BUILD_USER_REDACTED` and only an artefact produced there is evidence.
+`build@build-host.example` and only an artefact produced there is evidence.
 
 Publishing the result is **not** done here and not in CI:
 [RELEASE_FLOW.md](RELEASE_FLOW.md) §Publish.
@@ -24,7 +24,7 @@ The installer flow needs the same machine, checkout and release set as the `--di
 ## Procedure
 
 ```bash
-H=BUILD_USER_REDACTED
+H=build@build-host.example
 
 # 1. source + release set on the host (idempotent; also proves the host still matches)
 bash scripts/release/build-remote.sh --check

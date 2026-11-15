@@ -13,7 +13,7 @@ This threshold does not apply to tests, generated files, vendored code, lockfile
 macOS builds and installer packaging have one entry point; start at [`docs/BUILD.md`](docs/BUILD.md).
 
 - **Remote is primary.** `scripts/release/build-remote.sh` builds on
-  `BUILD_USER_REDACTED` (procedure: `docs/BUILD_REMOTE.md`).
+  `build@build-host.example` (procedure: `docs/BUILD_REMOTE.md`).
 - **Local is a fallback only.** `scripts/release/build-local.sh` refuses unless
   `VCLAW_ALLOW_LOCAL_BUILD=1`, and only when that host is unavailable
   (procedure: `docs/BUILD_LOCAL.md`).

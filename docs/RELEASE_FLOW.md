@@ -39,7 +39,7 @@ it never becomes a release asset.
  pick the commit on main (clean worktree)
       │
       ▼
- scripts/release/build-remote.sh --arm64 --x64        host: _MAC_HOST_, 0 signing identities
+ scripts/release/build-remote.sh --arm64 --x64        host: build-host, 0 signing identities
       ├─ git bundle over tailscale ssh                (the host cannot clone from Forgejo)
       ├─ npm ci + npm run build:bundle                (npm ci alone leaves out/ absent)
       ├─ electron-builder --mac --<arch> --dir        ELECTRON_MIRROR required: no github.com
@@ -136,7 +136,7 @@ as in the lane checkout:
 ```bash
 git clone --shared --no-checkout . /tmp/proof/vclaw-desktop
 git -C /tmp/proof/vclaw-desktop checkout -B <branch> <HEAD>   # a branch whose tip IS that commit
-git -C /tmp/proof/vclaw-desktop remote set-url origin https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop
+git -C /tmp/proof/vclaw-desktop remote set-url origin https://forgejo.internal.example/chatek/vclaw-desktop
 ln -s "$PWD/../vendors" /tmp/proof/vendors                    # the OMP release set, one level above
 RELEASE_REPO_ROOT=/tmp/proof/vclaw-desktop \
   bash scripts/release/release-forgejo.sh --arm64 --member vizmaster --member-repo … --member-sha … --member-integrate v2

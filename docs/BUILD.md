@@ -1,7 +1,7 @@
 # Building VClaw desktop
 
 **Remote is primary; local is a fallback.** Every macOS artefact of record is built on the
-remote host `BUILD_USER_REDACTED`. A build produced on a workstation is
+remote host `build@build-host.example`. A build produced on a workstation is
 never evidence for a release, whatever it is named. This page is the entry point; each flow
 below has exactly one procedure document.
 
@@ -17,7 +17,7 @@ one lane may ask of another are [BOUNDARIES.md](BOUNDARIES.md).
 ## Artefact-of-record rule
 
 - **Windows artefacts follow the same rule on their own host:** only a build produced inside the
-  `_WIN_HOST_` win11 guest (see the windows flow row above) is evidence for a Windows release;
+  `win-build-host` win11 guest (see the windows flow row above) is evidence for a Windows release;
   `package.mjs` refuses `--platform win` unless `process.platform === 'win32'`, so no other
   machine can produce it.
 - **Only the remote host's artefact is evidence.** Report it as the triple (source commit,

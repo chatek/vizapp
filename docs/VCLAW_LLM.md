@@ -35,7 +35,7 @@ your task:
   wallet/balance/receipt reads belong to `https://api.vclawhub.com/v1/vpay` (recorded as
   finding B3). Keep the two hosts strictly separated in code.
 - **Staged reality (measured 2026-11-05):** the name resolves to an nginx **401** gate today;
-  the documented Cloudflare→tunnel→`ORIGIN_IP_REDACTED:4003` path and the vpay hookup are **pending
+  the documented Cloudflare→tunnel→`192.0.2.20:4003` path and the vpay hookup are **pending
   (M2/M6 of the build plan)**. Build to the CONTRACT below; do not code against the current
   401, and do not "fix" the endpoint from the client.
 
