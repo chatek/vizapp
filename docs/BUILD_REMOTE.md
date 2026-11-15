@@ -56,17 +56,61 @@ the only machine that can produce them. Measured 2026-11-13:
 |---|---|
 | what it is | Windows 11 **Pro** (unactivated — see note), KVM guest `win11` on `HYPERVISOR_REDACTED`, 8 vCPU / 16 GiB, qcow2 on btrfs |
 | access | `ssh BUILD_USER_REDACTED` (tailscale MagicDNS, key auth; `BUILD_ALIAS_REDACTED` alias in the workstation's `~/.ssh/config`) |
-| node / npm / git | node **v26.13.1**, npm **11.20.0** (needed `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` for npm.ps1), git **2.56.0.windows.4** |
+| node / npm / git | system node **v26.13.1**/npm 11.20.0 (npm needed `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`), git **2.56.0.windows.4**; **build toolchain** = pinned node **v24.15.0**+npm 12.0.2 off-system at `~\build\toolchain\node-v24.15.0-win-x64\` (npmmirror), Python 3.12, VS Build Tools 2022 (C++ workload), VC++ 2015+ runtime |
 | omp on the guest | omp/18.20.0 via bun — GLM configured (`glm-5.3` default, `glm-5.3-flash` smol) — usable for build-driving agents |
 | activation note | the provisioned MAK key was rejected by Microsoft (`0xC004F050`, revoked volume key) — the box runs unactivated, which does not affect building; a real retail key is an open errand |
 | DNS | estate servers (119.29.29.29, 8.8.8.8, 223.5.5.5, 8.8.4.4) on the Ethernet adapter; Tailscale adapter keeps MagicDNS |
 | network caveat | outbound CDN throughput is poor (~100 KB/s class to Microsoft/herdr.dev); stage large payloads via the LAN/tailnet (measured: ISO 9.1 GB at ~110 MB/s via ct17 rsync) |
 
-**Windows build procedure (first run pending):** `git clone` the repo into the guest (git+
-node already verified working), `npm ci`, then `npm run package:win:local-qa` (QA mode;
-`package:win` public mode additionally needs Windows signing credentials,
-`validateWindowsReleaseCredentials`). Report the same triple as the mac flow. The mac-doc traps
-translate in spirit: trust the tool's own verdict line, not the ssh exit code.
+**Windows build procedure (PROVEN 2026-11-13/14 — first full run, QA, commit `160c431`):**
+
+```powershell
+# 0. prerequisites (one-time): see the toolchain notes below
+# 1. clone (Forgejo IS reachable from the guest; github.com is not — 401)
+git clone https://REDACTED_INTERNAL_FORGE/chatek/vclaw-desktop.git C:\Users\chance\dev\vclaw-desktop
+# 2. install WITHOUT scripts (the postinstall forces a node-pty rebuild — see trap 4)
+npm ci --no-audit --no-fund --ignore-scripts
+# 3. copy node-pty prebuilts into the build path
+Copy-Item node_modules\node-pty\prebuilds\win32-x64\* node_modules\node-pty\build\Release\ -Recurse -Force
+# 4. electron binary
+node node_modules\electron\install.js
+# 5. bundle + package (npm 12 required — bootstrap first)
+npm run toolchain:bootstrap
+node scripts/release/package.mjs --qa --platform win --arch x64 --skip-verify
+```
+
+**First-run artefacts (2026-11-13T19:50Z):** `VClaw-1.1.17-x64.exe` 124,480,048 B
+sha256 `d4132931…e9029546`, plus appx/msix/zip/latest.yml — pulled to the workstation
+`build/` with digests verified both sides.
+
+**Windows traps (all measured, each cost a cycle):**
+1. **node version is load-bearing:** system node 26 LTS fails native modules with
+   `ERR_DLOPEN_FAILED` (ABI). Use the pinned 24.15.0 from `.nvmrc`, off-system at
+   `~\build\toolchain\node-v24.15.0-win-x64\` (npmmirror mirror is fast ~9 MB/s).
+2. **VC++ runtime absent on fresh Windows** — `VCRUNTIME140.dll` missing breaks
+   `@electron-internal/extract-zip` with a misleading "optional deps npm bug" message.
+   `winget install Microsoft.VCRedist.2015+.x64` fixes it.
+3. **`core.autocrlf` must be OFF** (global + repo) or `verify-vendor-patches` fails: patches
+   are cut against LF; CRLF checkout breaks both apply and byte-compare.
+4. **node-pty Spectre (MSB8040):** the VS Build Tools installer is BROKEN on the guest
+   ("Didn't find any channel feed", exit 87/1 across every documented invocation shape —
+   direct setup.exe, bootstrapper, channelUri, short paths). Workaround: patch
+   `SpectreMitigation: 'Spectre'` out of `node_modules/node-pty/binding.gyp` AND
+   `node_modules/node-pty/deps/winpty/src/winpty.gyp` (LOCAL-ONLY edits; prebuilts are
+   NAPI-stable, non-Spectre build is fine for QA). The proper fix upstream is to stop
+   force-rebuilding node-pty (it ships prebuilts — see daintree #4145 for the analysis).
+5. **`verify-vendor-patches.mjs` portability:** needs `npm.cmd` + `spawnSync … shell:true`
+   on win32 (two local patches; upstream-worthy).
+6. **Windows sleep suspends the VM mid-build** (`pmsuspended` at the hypervisor, twice):
+   `powercfg /setactive SCHEME_MIN; powercfg /change standby-timeout-ac 0; powercfg /h off`
+   inside the guest. Recovery from suspend: `virsh dompmwakeup win11` on _HYPER_.
+7. **`--skip-verify` justification:** the coverage thresholds fail on this commit ON MAC TOO
+   (measured 2026-11-13 at `73e62c3`) — the aggregate is red upstream, not a Windows defect;
+   the documented skip applies, and package verification + verify-cross-platform-package
+   still run inside package.mjs regardless.
+
+**Proof point:** the mac-doc traps translate as documented — trust the tool's own verdict
+line, not the ssh exit code; hash on both sides before delivery.
 
 Two things about the **mac host's** network are not negotiable, and both cost a cycle if
 discovered late:

@@ -1,4 +1,5 @@
 # PROMPT — VClaw LLM provider: wire the desktop app to `llm.vclawhub.com`
+> ⛔ DATED 2026-11-15 (operator ruling): vpay, TigerBeetle, and all finance-related features are SUSPENDED on this estate — agents' wallet/payment integrates to vpay.tikoly.com. Canon: docs/lanes/LLM_VPAY_SUSPENSION_PLAN_2026-11-08.md (S0.5–S8). The `llm.vclawhub.com` provider this prompt wires is dead (DNS dark). **The shipped desktop's `provider-setup.ts` defaults still point at the dead URL; its degraded behavior — the wallet read answering `unavailable`, or `DOOR_PROBLEM_UNREACHABLE` on a catch — is EXPECTED under the suspension** (plan S1's pre-stop consumer enumeration), not a bug to fix in the desktop lane. `provider-setup.ts` itself is code and belongs to a code lane.
 
 > **You are the dev agent for `vclaw-desktop/`.** Your job on this task: make **VClaw** — this
 > estate's own hosted LLM service at **`https://llm.vclawhub.com`** — a first-class provider in
