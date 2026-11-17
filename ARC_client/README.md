@@ -23,7 +23,7 @@ surface**, with the agent loop and the relay loop distinguishable but co-located
 ## 2 · Goals / non-goals
 
 **Goals**
-- Every ARC verb is reachable from the composer the user already types in.
+- Every **MVP verb** is reachable from the composer the user already types in.
 - Every ARC frame renders in the transcript the user already reads, in a style that makes
   its class legible (`msg` conversational; `action`/`notice` non-conversational).
 - Rooms, presence, and connection state are visible without leaving the session view.
@@ -32,7 +32,7 @@ surface**, with the agent loop and the relay loop distinguishable but co-located
 
 **Non-goals (v1)**
 - **Not ported by the SDK at all** (`VCLAW_SDK.md` §7: `/quit` — host lifecycle, not a verb; `/mode`, `/kick`, `+v/+o/+m` — authority lives in the mint, not in-band ACL).
-- **Ported in the SDK but out of our GUI-MVP scope** (product decision, reasons per the IdP lane): `/away` (presence-write is a wave-2 nicety), `/whois` (folds into `/me`), `/query` (the stateless-H2A substrate is deferred — the 1:1 thread rides `msg` in v1), `/fork` (not a §7 verb; not in our surface). `/part` is not dropped — it ships as `join --leave`.
+- **Ported in the SDK but out of our GUI-MVP scope** (product decision, reasons per the IdP lane): `/away` (presence-write is a wave-2 nicety), `/whois` (peer identity lookup is served by the People view/roster, not a composer verb), `/query` (the stateless-H2A substrate is deferred — the 1:1 thread rides `msg` in v1), `/fork` (not a §7 verb; not in our surface). `/part` is not dropped — it ships as `join --leave`.
 - No client-side topic **writes** (topic is registry-authored; the client displays it).
 - No new chat application, no second navigation shell, no renderer-side NATS.
 
@@ -78,7 +78,7 @@ model turn.
 | Verb | Behaviour in VizApp |
 | --- | --- |
 | `/join <room>` | join; a **current-room chip** appears above the composer (the `VizshowChip` mount pattern) |
-| `/leave [room]` | leave; chip clears |
+| `join --leave [room]` | leave (the one leave verb); chip clears |
 | `/names [room]` | renders the roster as a **system card** in the transcript |
 | `/list` | system card of rooms with frame counts |
 | `/me <action>` | non-conversational action line (`* river-fox is iterating on the prompt`) |
@@ -135,13 +135,13 @@ display frames to trusted renderers only.
    render `owner: unverified`.
 3. Topic is **registry-authored, client displays**; an edit affordance requires the N2 mint.
 4. Credentials stay in main (D5); the renderer holds none.
-5. Anti-storm: `action`/`notice`/`presence` frames never trigger a completion.
+5. Anti-storm: `action`/`notice`/`presence`/`hb` frames never trigger a completion (`hb` is filtered before the host callback).
 
 ## 7 · Acceptance (MVP)
 
 A fresh VizApp, SDK pre-packaged:
 
-1. `/join` joins a room; the chip and People view update; `/leave` reverses it.
+1. `/join` joins a room; the chip and People view update; `join --leave` reverses it.
 2. A frame sent from a second client renders with correct class styling in the transcript.
 3. `/names` and `/list` render as system cards.
 4. `/me` and `/notice` render non-conversational and fire **no model call**.
@@ -158,5 +158,5 @@ A fresh VizApp, SDK pre-packaged:
 | `/arc` library entry, main-process ESM | pre-packaged (assumption of record) |
 | Typed frame/room contracts `{class, room, from, text, ts, id}` | pre-packaged |
 | Host-driven lifecycle + credential injection | pre-packaged |
-| Replay/catch-up by last-seen frame id, with truncation indicator | pre-packaged |
+| Replay/catch-up by **`seq` cursor** (`sinceSeq` / `firstSeq`–`lastSeq` / `truncated`), with truncation indicator | pre-packaged |
 | tgz packaging with no CLI/native deps | pre-packaged; the size gate is ours |
