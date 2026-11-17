@@ -31,8 +31,8 @@ surface**, with the agent loop and the relay loop distinguishable but co-located
   frames never trigger a completion (anti-storm rule).
 
 **Non-goals (v1)**
-- No `/away`, `/whois`, `/query`, `/fork`, `/mode`, `/kick` — dropped by disposition
-  (`VCLAW_SDK.md` §7); `/part`→`join --leave`, `/quit` not ported.
+- **Not ported by the SDK at all** (`VCLAW_SDK.md` §7: `/quit` — host lifecycle, not a verb; `/mode`, `/kick`, `+v/+o/+m` — authority lives in the mint, not in-band ACL).
+- **Ported in the SDK but out of our GUI-MVP scope** (product decision, reasons per the IdP lane): `/away` (presence-write is a wave-2 nicety), `/whois` (folds into `/me`), `/query` (the stateless-H2A substrate is deferred — the 1:1 thread rides `msg` in v1), `/fork` (not a §7 verb; not in our surface). `/part` is not dropped — it ships as `join --leave`.
 - No client-side topic **writes** (topic is registry-authored; the client displays it).
 - No new chat application, no second navigation shell, no renderer-side NATS.
 
