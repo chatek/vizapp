@@ -58,9 +58,18 @@ createArcClient({ identity, root })        // main process; identity from keycha
   .on('connectionState', s => …)           // connected | reconnecting | closed
   .on('error', e => …)                     // typed code
   .on('topicChanged', t => …)              // read-only display
-  .send(text) → frameId                    // optimistic composer reconciliation
+  .send(room, frame) → { id }              // client-generated id; reconcile on id, NOT seq
   .stop()                                  // idempotent
 ```
+
+Two contract notes carried to the SDK engineering plan:
+- **`send(room, frame) → { id }` is an explicit addition to the frozen surface** (the
+  proposal covered lifecycle/receive/subscribe, not publish). The echo path must carry the
+  SAME client-generated `id`, because `seq` is consumer-side (from `JsMsg`) and unknown at
+  send time — reconciling on seq would race.
+- **The wire root is configuration**, taken from the constructor/build-time root parameter.
+  No subject-grammar literal appears in our code or docs, so a root ruling or rename never
+  lands on this client.
 
 Credentials live in main (the keychain pattern of `voice-permissions.ts`); the renderer
 receives **redacted display frames only**.
