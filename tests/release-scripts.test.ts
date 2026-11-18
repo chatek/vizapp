@@ -1522,13 +1522,13 @@ describe('tag-move assert', () => {
 
   test('refuses a move while any run is in flight — artifacts may publish for the old target', () => {
     const verdict = tagMoveVerdict({ runs: [{ status: 'queued' }, { status: 'in_progress' }, { status: 'completed' }] })
-    expect(verdict.ok).toBe(false)
+    if (verdict.ok) throw new Error('expected a refusal for in-flight runs')
     expect(verdict.reason).toMatch(/2 workflow run\(s\).*in flight/)
   })
 
   test('refuses a move once release assets are published — consumed bytes stop matching the target', () => {
     const verdict = tagMoveVerdict({ runs: [], release: { assets: [{ name: 'a.dmg' }, { name: 'b.dmg' }] } })
-    expect(verdict.ok).toBe(false)
+    if (verdict.ok) throw new Error('expected a refusal for published assets')
     expect(verdict.reason).toMatch(/2 published asset\(s\)/)
   })
 })

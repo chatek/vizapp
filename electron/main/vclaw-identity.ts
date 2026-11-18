@@ -1,8 +1,6 @@
-import { createRequire } from 'node:module'
 import { readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
 
 import { findSpoolPath, readOwnNkey, selfPrefix } from './inbox-spool'
 import { vclawSdkRootDirectory } from './vclaw-sdk-root'
@@ -120,14 +118,15 @@ export function setVclawVerbRunnerForTests(runner: VclawVerbRunner | null): void
 
 async function loadVclawVerbRunner(): Promise<VclawVerbRunner> {
   verbRunnerPromise ??= (async () => {
-    const require = createRequire(import.meta.url)
-    const packageJson = require.resolve('@vclawhub/agent/package.json')
-    // Dynamic AND runtime-selected, not a stylistic choice: the specifier is
-    // the resolved absolute path of the vendored SDK. A static deep import
-    // ("@vclawhub/agent/dist/vclaw/run.js") is blocked by the package's
-    // exports map, and the asar-resolved path only exists at runtime
-    // (suggestions-service.ts does the same for the package root).
-    const module = await import(pathToFileURL(join(dirname(packageJson), 'dist', 'vclaw', 'run.js')).href) as VclawRunModule
+    // Resolve through the package's EXPORTED root specifier, never
+    // '@vclawhub/agent/package.json': the exports map does not export it, and
+    // require.resolve throws ERR_PACKAGE_PATH_NOT_EXPORTED in the packaged app
+    // (measured 2026-11-19, Vizmaster.app — dev only escaped because the
+    // earlier probe hand-built the path). import.meta.resolve honours the
+    // exports map and works from inside app.asar; the verbs module sits
+    // beside the resolved dist entry.
+    const entryUrl = import.meta.resolve('@vclawhub/agent')
+    const module = await import(new URL('./vclaw/run.js', entryUrl).href) as VclawRunModule
     return async (argv) => {
       const { result, exit, text } = await module.runVclaw(argv)
       return { state: result.state, exit, data: result.data ?? {}, text }
@@ -147,16 +146,19 @@ async function withProfileSdkEnvironment<T>(run: () => Promise<T>): Promise<T> {
   if (!sdkRoot) return run()
   const root = join(homedir(), sdkRoot)
   const previousHome = process.env.VCLAW_HOME
-  const previousCredsDir = process.env.CREDS_DIR
+  const previousCredsDir = process.env.VCLAW_CREDS_DIR
+  // The SDK env helper resolves env("CREDS_DIR") as VCLAW_CREDS_DIR (with a
+  // VCHAT_ legacy fallback) — a bare CREDS_DIR is ignored by the store, which
+  // is exactly how a member-profile signup could land in ~/.config/vclaw.
   process.env.VCLAW_HOME = root
-  process.env.CREDS_DIR = join(root, 'config')
+  process.env.VCLAW_CREDS_DIR = join(root, 'config')
   try {
     return await run()
   } finally {
     if (previousHome === undefined) delete process.env.VCLAW_HOME
     else process.env.VCLAW_HOME = previousHome
-    if (previousCredsDir === undefined) delete process.env.CREDS_DIR
-    else process.env.CREDS_DIR = previousCredsDir
+    if (previousCredsDir === undefined) delete process.env.VCLAW_CREDS_DIR
+    else process.env.VCLAW_CREDS_DIR = previousCredsDir
   }
 }
 

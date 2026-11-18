@@ -23,7 +23,7 @@ const GH_TIMEOUT_MS = 30_000
 /**
  * Pure verdict over the two facts the assert needs. Testable without the network.
  *
- * @param {{runs: Array<{status: string, headBranch?: string, event?: string}>, release?: {assets: unknown[]}}} state
+ * @param {{runs: Array<{status: string, conclusion?: string, headBranch?: string, event?: string}>, release?: {assets: unknown[]}}} state
  *   runs: workflow runs for the tag (status as gh reports: queued/in_progress/waiting/completed…).
  *   release: the GitHub release for the tag, if one exists.
  * @returns {{ok: true} | {ok: false, reason: string}}
@@ -70,7 +70,7 @@ export function collectTagState(tag) {
 export function assertTagMove(tag, state = collectTagState(tag)) {
   if (!/^v\d+\.\d+\.\d+/.test(tag)) throw new Error(`not a release tag: ${tag}`)
   const verdict = tagMoveVerdict(state)
-  if (!verdict.ok) throw new Error(`refusing to move tag ${tag}: ${verdict.reason}`)
+  if (verdict.ok === false) throw new Error(`refusing to move tag ${tag}: ${verdict.reason}`)
   return { tag, ...verdict }
 }
 

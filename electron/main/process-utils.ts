@@ -225,16 +225,18 @@ export function safeChildEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.Proc
   // child reads and writes the profile root (~/.<profile-id>) instead of the
   // host's ~/.vclaw / ~/.config/vclaw. The generic app sets nothing and keeps
   // host env passthrough byte-for-byte untouched.
-  // CREDS_DIR is the SDK-store's OWN override (1.5.0 store honors it; VCLAW_HOME
-  // is honored by the sibling change only) — setting both keeps every sdk
-  // credentials reader (the /vclaw verbs, the payload assertion pusher) on the
-  // profile root. The bundle's INBOX spool path remains hardcoded ~/.vclaw/inbox
-  // in 1.5.0 — that half needs the sibling agent-sdk release, not an env fix.
+  // VCLAW_CREDS_DIR is the SDK-store's own override — its env helper reads
+  // env("CREDS_DIR") as VCLAW_CREDS_DIR ?? VCHAT_CREDS_DIR (measured 2026-11-19:
+  // a bare CREDS_DIR is IGNORED and a member-profile signup wrote the generic
+  // ~/.config/vclaw). Setting it keeps every credentials reader in harness
+  // children (/vclaw verbs, the payload assertion pusher) on the profile root.
+  // The bundle's INBOX spool path remains hardcoded ~/.vclaw/inbox in 1.5.0 —
+  // that half needs the sibling agent-sdk release, not an env fix.
   const sdkRootDir = vclawSdkRootDirectory()
   if (sdkRootDir) {
     const sdkRoot = join(homedir(), sdkRootDir)
     env.VCLAW_HOME = sdkRoot
-    env.CREDS_DIR = join(sdkRoot, 'config')
+    env.VCLAW_CREDS_DIR = join(sdkRoot, 'config')
   }
   return env
 }

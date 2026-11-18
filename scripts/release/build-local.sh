@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LOCAL FALLBACK build of the VClaw desktop app (-dir, unsigned, arm64/x64).
+# LOCAL FALLBACK build of the Vizmaster desktop app (-dir, unsigned, arm64/x64).
 #
 # The sanctioned builder is the remote host build-host.example; use
 # scripts/release/build-remote.sh and docs/BUILD_REMOTE.md for every real release.
@@ -34,6 +34,13 @@ usage() {
 }
 
 die() { printf 'build-local: FATAL: %s\n' "$*" >&2; exit 1; }
+
+# The bundle/executable name follows package.json's electron-builder productName
+# (the 6f144322 rebrand moved VClaw.app -> Vizmaster.app). Never hardcode it here:
+# one source of truth, so the next rebrand cannot stale this script again.
+APP_NAME="$(node -p "require(process.argv[1]).build.productName" "$REPO_ROOT/package.json")" ||
+  die "cannot read build.productName from package.json — packaging would use it too"
+[ -n "$APP_NAME" ] || die "build.productName is empty in package.json"
 step() { printf '\n==> %s\n' "$*" >&2; }
 warn() { printf 'build-local: WARNING: %s\n' "$*" >&2; }
 
@@ -202,11 +209,11 @@ preflight() {
 app_bundle() { # app_bundle <arch>
   local arch="$1"
   if [ -d "$OUTPUT_DIR/mac-$arch" ]; then
-    printf '%s' "$OUTPUT_DIR/mac-$arch/VClaw.app"
+    printf '%s' "$OUTPUT_DIR/mac-$arch/$APP_NAME.app"
   elif [ "$arch" = "x64" ] && [ -d "$OUTPUT_DIR/mac" ]; then
-    printf '%s' "$OUTPUT_DIR/mac/VClaw.app"
+    printf '%s' "$OUTPUT_DIR/mac/$APP_NAME.app"
   else
-    printf '%s' "$OUTPUT_DIR/mac-$arch/VClaw.app"
+    printf '%s' "$OUTPUT_DIR/mac-$arch/$APP_NAME.app"
   fi
 }
 
@@ -216,7 +223,7 @@ verify_artefact() { # verify_artefact <arch>
 
   app="$(app_bundle "$arch")"
   omp="$app/Contents/Resources/harness/bin/omp"
-  exe="$app/Contents/MacOS/VClaw"
+  exe="$app/Contents/MacOS/$APP_NAME"
 
   [ -d "$app" ] || die "expected app bundle not found: $app"
   [ -f "$omp" ] || die "packaged omp missing: $omp — after-pack should have failed the build"
