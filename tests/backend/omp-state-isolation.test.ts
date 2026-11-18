@@ -184,7 +184,11 @@ describe('safeChildEnvironment OMP isolation', () => {
     setVclawSdkRootDirectory('vizmaster')
     const env = safeChildEnvironment()
     expect(env.VCLAW_HOME).toBe(join(homedir(), '.vizmaster'))
-    // Isolation is policy: extras cannot pull the child back to another root.
-    expect(safeChildEnvironment({ VCLAW_HOME: '/evil' }).VCLAW_HOME).toBe(join(homedir(), '.vizmaster'))
+    // The SDK-store's own override rides along: every credentials reader
+    // (the /vclaw verbs, the payload assertion pusher) resolves the profile
+    // root, not the generic ~/.config/vclaw. Isolation is policy: extras
+    // cannot pull the child back to another root.
+    expect(env.CREDS_DIR).toBe(join(homedir(), '.vizmaster', 'config'))
+    expect(safeChildEnvironment({ VCLAW_HOME: '/evil', CREDS_DIR: '/evil' }).CREDS_DIR).toBe(join(homedir(), '.vizmaster', 'config'))
   })
 })

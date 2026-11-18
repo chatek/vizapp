@@ -9,6 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { VizSharePayloadError, decodePoster, parseDraft, parseDraftCompletion, parseSubmission, type VizShowApi } from './api'
+import { AGENT_ASSERTION_MAX_BYTES, storeAgentAssertion } from './agent-assertion-store'
 import { latestBuildTrace, type VizBuildTrace } from './build-trace'
 import { OidcError, ReauthRequiredError, type OidcClient } from './oidc'
 
@@ -44,6 +45,11 @@ export interface VizShareBrokerOptions {
   isCapValid: (cap: string) => boolean
   /** File-delivered same-user agent capability; replaces Origin only for the two API routes. */
   isAgentCapValid?: (cap: string) => boolean
+  /**
+   * Where a pushed agent assertion lands (spec §3.2 A). Defaults to the
+   * RAM-only store; injectable so route tests never share module state.
+   */
+  storeAgentAssertion?: (assertion: unknown) => { ok: true; bytes: number } | { ok: false; error: string }
   /** Defaults to `isCapValid`; override to keep capture browser-webContents-only. */
   isCaptureCapValid?: (cap: string) => boolean
   /** Electron webContents.capturePage; returns null when the cap has no page. */
@@ -117,11 +123,15 @@ export function createVizShareBroker(options: VizShareBrokerOptions): VizShareRe
     // and GET /v1/mine. /v1/submit is origin-gated renderer traffic only —
     // it completes the consent-bearing chain, which must stay human — and
     // joins /callback and /v1/capture as agent-unreachable surfaces.
+    // Broker-retirement step 2 (spec §3.2 A, ruling §8.1): the agent also
+    // PUSHES its registry assertion here — POST /v1/agent-assertion, the
+    // seed stays inside the agent process. One-way: there is no read route.
     const agentDirect =
       agentCap !== null &&
       options.isAgentCapValid?.(agentCap) === true &&
       ((url.pathname === '/v1/draft' && method === 'POST') ||
-        (url.pathname === '/v1/mine' && method === 'GET'))
+        (url.pathname === '/v1/mine' && method === 'GET') ||
+        (url.pathname === '/v1/agent-assertion' && method === 'POST'))
 
     // Browser requests keep the Origin allow-list and CORS response. A valid
     // file-delivered agent capability is an alternative on exactly these two
@@ -201,6 +211,25 @@ export function createVizShareBroker(options: VizShareBrokerOptions): VizShareRe
       if (method !== 'GET') return
       const records = await options.api.listMine()
       sendJson(response, 200, { shows: Array.isArray(records) ? records : [] })
+      return
+    }
+    if (url.pathname === '/v1/agent-assertion') {
+      requireMethod(response, method, 'POST')
+      if (method !== 'POST') return
+      // One-way push (spec §3.2 A): the broker caches the assertion in RAM
+      // only — no disk, no renderer read path, no log line carrying it. The
+      // registry validates it; the broker never parses beyond the frame.
+      const body = await readJson(request, AGENT_ASSERTION_MAX_BYTES)
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        sendJson(response, 400, { error: 'invalid_request' })
+        return
+      }
+      const stored = (options.storeAgentAssertion ?? storeAgentAssertion)((body as Record<string, unknown>).assertion)
+      if (!stored.ok) {
+        sendJson(response, 400, { error: stored.error })
+        return
+      }
+      sendJson(response, 200, { ok: true })
       return
     }
     if (url.pathname === '/v1/build-trace') {
@@ -398,7 +427,7 @@ function escapeHtml(value: string): string {
   })
 }
 
-function readJson(request: IncomingMessage): Promise<unknown> {
+function readJson(request: IncomingMessage, limit = SUBMIT_BODY_LIMIT): Promise<unknown> {
   const contentType = headerValue(request, 'content-type')
   if (contentType === null || !contentType.toLowerCase().startsWith('application/json')) {
     throw new HttpError(415, 'unsupported_media_type', 'The request body must be application/json')
@@ -406,7 +435,7 @@ function readJson(request: IncomingMessage): Promise<unknown> {
   if (request.method === 'GET' || request.method === 'HEAD') {
     throw new HttpError(400, 'invalid_body', 'A JSON body is required')
   }
-  return readBody(request, SUBMIT_BODY_LIMIT).then(
+  return readBody(request, limit).then(
     (bytes) => {
       if (bytes.length === 0) throw new HttpError(400, 'invalid_body', 'A JSON body is required')
       try {
