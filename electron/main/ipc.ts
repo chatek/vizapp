@@ -25,6 +25,7 @@ import type { ShowsService } from './shows-service'
 import { newestShowBuild } from './shows-service'
 import type { VizshowService } from './vizshow-service'
 import { ensureProjectPreview } from './vizmaster-preview'
+import { connectVclawIdentity } from './vclaw-identity'
 
 interface Services {
   meta: AppMeta
@@ -487,6 +488,17 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
   handle('schedules:delete', (_event, id) => services.schedules.delete(id))
   handle('schedules:run-now', (_event, id) => services.schedules.runNow(id))
   handle('vclaw-inbox:read', () => services.inbox.snapshot())
+  // One-click 'Connect your agent' (operator ruling 2026-11-19): the vendored
+  // CLI's own login/signup verbs run in-process and return the printed auth
+  // link for the Browser pane. A newly approved identity must be visible to
+  // the renderer immediately: the spool watcher only sees inbox-directory
+  // events, and credentials land in a DIFFERENT directory, so force one
+  // refresh — the fan-out below carries the new spoolPath to every pane.
+  handle('vclaw-identity:connect', async () => {
+    const outcome = await connectVclawIdentity()
+    if (outcome.status === 'authenticated') services.inbox.refresh(true)
+    return outcome
+  })
   const unsubscribeInbox = services.inbox.onSnapshot((snapshot) => {
     for (const [id, contents] of authorized) {
       if (contents.isDestroyed()) { authorized.delete(id); continue }

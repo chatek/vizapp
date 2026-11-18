@@ -559,6 +559,12 @@ export function extensionRuntimeEnvironment(
     // /vclaw verbs degrade themselves with no identity, so unlike the brokered
     // capabilities above this one is not settings-gated.
     VCLAW_AGENT_EXTENSION_PATH: extensionPaths.vclaw,
+
+    // The desktop keeps the whole bind dance in-pane (D5 amendment 2): the
+    // bundle's /vclaw signup auto-open is gated on this variable (vclaw-agent.js
+    // openInBrowser gate), so setting it keeps the auth link out of the system
+    // browser — the printed claimUrl reaches the Browser pane instead.
+    VCLAW_MANAGES_OPEN_URL: '1',
   }
 }
 
@@ -1112,6 +1118,9 @@ async function bootstrap(): Promise<void> {
     // SDK bundle uses (no tools, no typebox), and the manifest lists the capability for
     // all three harnesses — so omitting this variable silently cost Prime Work /vclaw.
     VCLAW_AGENT_EXTENSION_PATH: vclawAgentExtensionPath,
+    // In-pane bind dance (D5 amendment 2): gate off the bundle's system-browser
+    // auto-open of the signup claim URL — the Browser pane owns that navigation.
+    VCLAW_MANAGES_OPEN_URL: '1',
     VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
     VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))

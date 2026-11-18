@@ -37,7 +37,12 @@ export function readOwnNkey(readFile: (path: string) => string, home: string): s
   try {
     const raw = readFile(vclawCredentialsPath(home))
     const parsed = JSON.parse(raw) as Record<string, unknown>
-    const candidate = parsed.nkey ?? parsed.nKey ?? parsed.NKey
+    // `nkey` is the SDK-store writer's field; `public_key` is what the vendored
+    // @vclawhub/agent CLI writes (measured 2026-11-19: keys are agent_nkey,
+    // created_at, name, public_key, seed, steward — status prints public_key as
+    // THE identity nkey). Missing the fallback made every CLI-onboarded host
+    // read as no-identity on the desktop.
+    const candidate = parsed.nkey ?? parsed.nKey ?? parsed.NKey ?? parsed.public_key
     return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null
   } catch {
     return null

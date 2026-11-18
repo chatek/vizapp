@@ -70,6 +70,14 @@ describe('spool reading', () => {
     expect(selfPrefix(NKEY)).toBe(SELF8)
   })
 
+  it('reads the nkey from the vendored CLI field name public_key too', () => {
+    // @vclawhub/agent 1.5.0 store writes public_key (measured 2026-11-19);
+    // missing it made every CLI-onboarded host read as no-identity.
+    expect(readOwnNkey(() => JSON.stringify({ public_key: NKEY }), '/home/x')).toBe(NKEY)
+    expect(readOwnNkey(() => JSON.stringify({ agent_nkey: 'OTHER', public_key: NKEY }), '/home/x')).toBe(NKEY)
+    expect(readOwnNkey(() => JSON.stringify({ name: 'anon' }), '/home/x')).toBeNull()
+  })
+
   it('finds the spool by directory scan, not by composing the tenant', () => {
     const files = ['vclaw__UBNBJ35N.jsonl', `vclaw__${SELF8}.jsonl`, 'other__XXXXXXXX.jsonl']
     const found = findSpoolPath(() => files, '/home/x', SELF8)

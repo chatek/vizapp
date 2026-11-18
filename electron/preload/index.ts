@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, PrimeEventEnvelope, PrimeWorkApi, PromptCatalogueResult, PromptDraftInput, PromptDraftOutcome, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot, VizmasterPreviewResult, VizshowBuild, VizshowShow, VizshowShowsSnapshot, VizshowSnapshot } from '../../src/types/api'
+import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, ConnectAgentOutcome, PrimeEventEnvelope, PrimeWorkApi, PromptCatalogueResult, PromptDraftInput, PromptDraftOutcome, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot, VizmasterPreviewResult, VizshowBuild, VizshowShow, VizshowShowsSnapshot, VizshowSnapshot } from '../../src/types/api'
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
   if (typeof callback !== 'function') throw new TypeError('callback must be a function')
@@ -172,6 +172,9 @@ const api: PrimeWorkApi = {
   inbox: {
     read: () => invoke('vclaw-inbox:read'),
     onChanged: (callback) => subscribe<VclawInboxSnapshot>('vclaw-inbox:changed', callback),
+  },
+  vclawIdentity: {
+    connect: () => invoke<ConnectAgentOutcome>('vclaw-identity:connect'),
   },
   vizshow: {
     state: () => invoke<VizshowSnapshot>('vclaw-vizshow:state'),

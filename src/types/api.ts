@@ -24,6 +24,15 @@ export type SessionStatus = 'idle' | 'running' | 'waiting' | 'complete' | 'faile
  */
 export type VclawInboxState = 'live' | 'cached' | 'unavailable'
 
+/** Outcome of the one-click 'Connect your agent' flow (vclaw-identity.ts is the source). */
+export interface ConnectAgentOutcome {
+  /** `link` = open claimUrl in the Browser pane; `authenticated` = identity ready now. */
+  status: 'link' | 'authenticated' | 'error'
+  claimUrl?: string
+  /** The verb's own human text, for toasts/console. */
+  message: string
+}
+
 export interface VclawInboxMessage {
   kind: string
   seq: number
@@ -1168,6 +1177,16 @@ export interface PrimeWorkApi {
   inbox: {
     read(): Promise<VclawInboxSnapshot>
     onChanged(callback: (snapshot: VclawInboxSnapshot) => void): () => void
+  }
+  /**
+   * Agentic identity (operator ruling 2026-11-19, Q1): the agent NKey is the
+   * desktop's only identity, so "linked" is a spool/credential fact, not an
+   * account. Linked/not is carried by the inbox snapshot above (`state !==
+   * 'unavailable'`); this section is the one-click bind affordance only.
+   */
+  vclawIdentity: {
+    /** Runs the vendored CLI's login/signup verbs; a link outcome must be opened in-pane. */
+    connect(): Promise<ConnectAgentOutcome>
   }
   /**
    * Shared prompt auto-complete (VIZREGISTRY_PROMPT_COLLAB_2026-11-06 §8). The renderer never

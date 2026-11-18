@@ -121,6 +121,10 @@ export default function App() {
   const [view, setView] = useState<WorkspaceView>('session')
   const [settingsSectionRequest, setSettingsSectionRequest] = useState<{ section: 'general' | 'agent'; id: number }>({ section: 'general', id: 0 })
   const [noHarnessPromptDismissed, setNoHarnessPromptDismissed] = useState(false)
+  // Agentic identity (ruling 2026-11-19): linked/not is the inbox snapshot's
+  // state vocabulary — 'unavailable' means no nkey and no spool on this host.
+  const [identityLinked, setIdentityLinked] = useState<boolean | null>(null)
+  const [connectAgentBusy, setConnectAgentBusy] = useState(false)
   const [browserGeneration, setBrowserGeneration] = useState(0)
   const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{ id: number; url: string }>()
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -501,6 +505,40 @@ export default function App() {
     const unsubscribe = inbox.onChanged(jumpIfNewIdentity)
     return () => { active = false; unsubscribe() }
   }, [bridge, openTerminalLink])
+  // Linked/not rides the SAME inbox snapshot the jump effect reads: state
+  // 'unavailable' is exactly "no nkey in credentials AND no inbox spool"
+  // (inbox-spool classifyState), so there is no second identity probe.
+  useEffect(() => {
+    const inbox = bridge?.inbox
+    if (!inbox?.read || !inbox.onChanged) return
+    let active = true
+    const apply = (snapshot: { state?: string }) => {
+      if (active) setIdentityLinked(snapshot.state !== undefined ? snapshot.state !== 'unavailable' : null)
+    }
+    void inbox.read().then(apply).catch(() => setIdentityLinked(null))
+    const unsubscribe = inbox.onChanged(apply)
+    return () => { active = false; unsubscribe() }
+  }, [bridge])
+  const handleConnectAgent = useCallback(() => {
+    const identity = bridge?.vclawIdentity
+    if (!identity || connectAgentBusy) return
+    setConnectAgentBusy(true)
+    void identity.connect().then((outcome) => {
+      if (outcome.status === 'link' && outcome.claimUrl) {
+        // The bind dance stays in-pane (D5 amendment 2): the approval page is
+        // pane navigation, never the system browser.
+        openTerminalLink(outcome.claimUrl, false)
+      } else if (outcome.status === 'error') {
+        setToast(outcome.message)
+      }
+      // 'authenticated': the main process refreshed the spool, the push lands,
+      // identityLinked flips, and the identity-gain jump effect above takes over.
+    }).catch((error: unknown) => {
+      reportError(error)
+    }).finally(() => {
+      setConnectAgentBusy(false)
+    })
+  }, [bridge, connectAgentBusy, openTerminalLink, setToast, reportError])
   const handleBrowserNavigationRequest = useCallback((id: number) => {
     setBrowserNavigationRequest((current) => current?.id === id ? undefined : current)
   }, [])
@@ -785,7 +823,7 @@ export default function App() {
     {sidebarVisible && initialized ? <Sidebar projects={projects} sessions={sessions} clearedAttention={clearedAttention} activeProjectId={activeProject?.id} activeSessionId={workspace.activeSessionId} activeView={view} activeHarness={activeHarness} harnesses={meta?.harnesses ?? null} updateState={appUpdates.state} onUpdateAction={appUpdates.act} onSelectHarness={selectHarness} projectSortMode={settingsState.settings.projectSortMode} {...sidebarActions} overlay={layout.compactLayout} platform={platform} /> : null}
     {sidebarVisible && initialized ? <button type="button" className="panel-scrim panel-scrim--sidebar" aria-label="Close sidebar" onClick={toggleSidebar} /> : null}
     <div className="workbench" inert={layout.compactLayout && sidebarVisible ? true : undefined}>
-      <TitleToolbar project={view === 'session' ? activeProject : undefined} gitBranch={git.branch} view={view} productName={HARNESS_PRODUCT_NAMES[activeHarness]} sidebarOpen={sidebarVisible} inspectorOpen={inspectorVisible} terminalOpen={terminalOpen} voiceOpen={voiceOrbOpen} activeProjectScriptKind={activeProjectScriptKind(activeProjectScriptRun, activeProject?.id)} theme={settingsState.settings.theme} onSetTheme={(theme) => { void settingsState.updateSettings({ theme }) }} onRunProjectScript={startProjectScript} onStopProjectScript={stopProjectScript} onSaveProjectScripts={saveProjectScripts} onToggleSidebar={toggleSidebar} onToggleInspector={toggleInspector} onToggleTerminal={toggleTerminal} onToggleVoice={toggleVoice} onOpenBrowser={openBrowser} platform={platform} />
+      <TitleToolbar project={view === 'session' ? activeProject : undefined} gitBranch={git.branch} view={view} productName={HARNESS_PRODUCT_NAMES[activeHarness]} sidebarOpen={sidebarVisible} inspectorOpen={inspectorVisible} terminalOpen={terminalOpen} voiceOpen={voiceOrbOpen} activeProjectScriptKind={activeProjectScriptKind(activeProjectScriptRun, activeProject?.id)} theme={settingsState.settings.theme} onSetTheme={(theme) => { void settingsState.updateSettings({ theme }) }} identityLinked={identityLinked} connectAgentBusy={connectAgentBusy} onConnectAgent={handleConnectAgent} onRunProjectScript={startProjectScript} onStopProjectScript={stopProjectScript} onSaveProjectScripts={saveProjectScripts} onToggleSidebar={toggleSidebar} onToggleInspector={toggleInspector} onToggleTerminal={toggleTerminal} onToggleVoice={toggleVoice} onOpenBrowser={openBrowser} platform={platform} />
       <div className="workbench__content">{view === 'session' ? <div ref={layout.workspaceRowRef} className="session-workspace" style={{ '--inspector-width': `${layout.inspectorWidth}px`, '--terminal-height': `${layout.terminalHeight}px` } as CSSProperties}>
         <div ref={layout.sessionWorkspaceRef} className="conversation-column">
           <main className="conversation-pane">
