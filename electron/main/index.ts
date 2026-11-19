@@ -778,6 +778,14 @@ async function bootstrap(): Promise<void> {
   // for the 0600 key store). The generic app passes null and gets no surface.
   const providerSetupPaths = memberProviderSetupPaths(homedir(), ompStateDirectory(), vclawSdkRootDirectory())
   const providerSetup = providerSetupPaths ? new ProviderSetupService(providerSetupPaths) : null
+  // First run seeds the default catalogue (operator choice 2026-11-19: door inline +
+  // the top global families) so Settings → Providers is never empty; an existing
+  // models.yml is never touched. Failures are loud but never block startup.
+  void providerSetup?.seedDefaultCatalog().then((outcome) => {
+    if (outcome === 'created') console.log('providers: seeded the default catalogue into models.yml')
+  }).catch((error: unknown) => {
+    console.error(`providers: default-catalogue seed failed: ${boundedErrorMessage(error)}`)
+  })
   const ompCatalog = new OmpModelCatalogService(ompExecutable)
   const piCatalog = new PiModelCatalogService(piExecutable)
   agents = new AgentRpcManager(

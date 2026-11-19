@@ -48,6 +48,8 @@ const VIZMASTER_PROVIDER_ALLOWLIST: Record<string, true> = {
   'openai-codex': true,
   'mistral': true,
   'kimi-code': true, 'moonshot': true, // Kimi family
+  'google': true, // Gemini family
+  'qwen': true, // Qwen family
 }
 
 export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {

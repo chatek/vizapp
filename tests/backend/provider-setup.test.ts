@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -283,6 +283,39 @@ describe('credential boundary (docs/VCLAW_LLM.md ground rule 2)', () => {
     // The canary is untouched and the key store contains only provider keys.
     expect(readFileSync(join(configDir, 'credentials.json'), 'utf-8')).toContain('CANARY')
     expect(await readdir(join(configDir, 'provider-keys'))).toEqual(['vclaw.key'])
+  })
+
+  it('seeds the DEFAULT catalogue on first run — door inline + the required families', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'provider-seed-'))
+    cleanupFns.push(() => rmSync(home, { recursive: true, force: true }))
+    const provider = service(home)
+    const outcome = await provider.seedDefaultCatalog()
+    expect(outcome).toBe('created')
+    const modelsYml = join(home, '.vizmaster', 'agent', 'models.yml')
+    const text = readFileSync(modelsYml, 'utf-8')
+    // Order = Settings order; the door sits INLINE between deepseek and claude.
+    const ids = [...text.matchAll(/^ {2}([a-z0-9-]+):$/gm)].map((match) => match[1])
+    expect(ids).toEqual(['zai', 'deepseek', 'vclaw', 'anthropic', 'openai', 'google', 'moonshot', 'qwen'])
+    // The mandated models are present verbatim.
+    expect(text).toContain('id: glm-5.3\n')
+    expect(text).toContain('id: glm-5.3-flash\n')
+    expect(text).toContain('id: deepseek-flash\n')
+    // Seeded providers are visible but keyless: no key files were written.
+    expect(existsSync(join(home, '.vizmaster', 'config', 'provider-keys'))).toBe(false)
+    // Idempotent: a second run leaves the existing file alone.
+    expect(await provider.seedDefaultCatalog()).toBe('present')
+    expect(readFileSync(modelsYml, 'utf-8')).toBe(text)
+  })
+
+  it('never overwrites an existing models.yml when seeding', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'provider-seed-present-'))
+    cleanupFns.push(() => rmSync(home, { recursive: true, force: true }))
+    const agentDir = join(home, '.vizmaster', 'agent')
+    mkdirSync(agentDir, { recursive: true })
+    const handEdited = 'providers:\n  mine:\n    baseUrl: https://example.invalid\n'
+    writeFileSync(join(agentDir, 'models.yml'), handEdited)
+    expect(await service(home).seedDefaultCatalog()).toBe('present')
+    expect(readFileSync(join(agentDir, 'models.yml'), 'utf-8')).toBe(handEdited)
   })
 
   it('keeps the provider-setup module free of identity-credential reads (grep-level)', async () => {

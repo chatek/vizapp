@@ -153,6 +153,65 @@ export const PROVIDER_FAMILIES: Record<string, ProviderFamilySpec> = {
       { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', api: 'openai-completions', reasoning: true, input: ['text', 'image'] },
     ],
   },
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini (Google)',
+    description: 'Google Gemini models through the OpenAI-compatible endpoint.',
+    providerId: 'google',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    api: 'openai-completions',
+    models: [
+      // Ids mirror the fork's census default (google.kdl: default-model) plus the
+      // standard flash tier; PROVISIONAL until GET /v1/models is reachable, like
+      // the door's hosted order.
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (preview)', api: 'openai-completions', reasoning: true, input: ['text', 'image'], contextWindow: 1_048_576 },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', api: 'openai-completions', reasoning: true, input: ['text', 'image'], contextWindow: 1_048_576 },
+    ],
+  },
+  qwen: {
+    id: 'qwen',
+    label: 'Qwen (Alibaba)',
+    description: 'Alibaba Qwen models through the DashScope OpenAI-compatible endpoint.',
+    providerId: 'qwen',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    api: 'openai-completions',
+    models: [
+      // PROVISIONAL ids until the DashScope catalogue is probed (same posture as
+      // the door's hosted order).
+      { id: 'qwen3-max', name: 'Qwen3 Max', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 262_144 },
+      { id: 'qwen3-coder-plus', name: 'Qwen3 Coder Plus', api: 'openai-completions', reasoning: true, input: ['text'], contextWindow: 262_144 },
+    ],
+  },
+}
+
+/**
+ * The member product's DEFAULT catalogue (operator choice 2026-11-19): the
+ * VizMaster door inline among the top global families, seeded into models.yml
+ * on first run so Settings → Providers is never an empty list. Order is the
+ * Settings order; the door is an entry like any other, not a banner.
+ */
+export const DEFAULT_CATALOG_FAMILY_ORDER = ['glm', 'deepseek', 'vclaw', 'claude', 'gpt', 'gemini', 'kimi', 'qwen'] as const
+
+/**
+ * models.yml text for the default catalogue. Key commands point at the same
+ * 0600 key files `setupOwnProvider` writes — a seeded provider is VISIBLE but
+ * unusable until its key exists, which is the intended onboarding path.
+ */
+export function renderDefaultCatalog(keyStoreDir: string, order: readonly string[] = DEFAULT_CATALOG_FAMILY_ORDER): string {
+  let text = ''
+  // mergeProviderStanza INSERTS directly under `providers:` (prepends), so apply
+  // the order backwards — the written file then reads exactly as the order list.
+  for (const familyId of [...order].reverse()) {
+    const spec = familyId === VCLAW_PROVIDER_ID
+      ? { ...VCLAW_LLM_STANZA_SPEC, keyCommand: `!cat ${join(keyStoreDir, `${VCLAW_PROVIDER_ID}.key`)}` }
+      : (() => {
+          const family = PROVIDER_FAMILIES[familyId]
+          if (!family) throw new TypeError(`Unknown default-catalogue family: ${familyId}`)
+          return { id: family.providerId, baseUrl: family.baseUrl, api: family.api, models: family.models, keyCommand: `!cat ${join(keyStoreDir, `${family.providerId}.key`)}` }
+        })()
+    text = mergeProviderStanza(text, spec)
+  }
+  return text
 }
 
 /** Renderer-facing family catalogue (labels plus the prefilled model ids). */
@@ -390,6 +449,23 @@ export class ProviderSetupService {
       keyPath,
       modelKeys: spec.models.map((model) => `${spec.id}/${model.id}`),
     }
+  }
+
+  /**
+   * First-run seed of the DEFAULT catalogue (operator choice 2026-11-19): writes
+   * models.yml only when it does not exist yet. An existing file — however it got
+   * there (user setup, hand edits) — is NEVER touched.
+   */
+  async seedDefaultCatalog(): Promise<'created' | 'present'> {
+    try {
+      await stat(this.modelsYmlPath)
+      return 'present'
+    } catch {
+      // absent → seed below
+    }
+    await mkdir(this.paths.agentDir, { recursive: true })
+    await writeFileAtomic(this.modelsYmlPath, renderDefaultCatalog(this.paths.keyStoreDir), 0o644)
+    return 'created'
   }
 
   /** Option 1: the estate's credential-gated OpenAI-compatible door. */
