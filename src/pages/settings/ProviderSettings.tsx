@@ -277,11 +277,17 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
         </p>
         {memberError ? <p className="settings-error" role="alert">{memberError}</p> : null}
         <label className="field"><span>API key</span><input autoFocus type="password" value={memberKey} autoComplete="off" spellCheck={false} onChange={(event) => setMemberKey(event.target.value)} placeholder={memberSetup.kind === 'door' ? 'sk-…' : 'provider API key'} /></label>
-        <fieldset className="field provider-model-picker"><legend>Models</legend>
-          {memberSetup.modelKeys.map((modelId) => (
-            <label key={modelId} className="provider-model-picker__option"><input type="checkbox" checked={memberSelected.includes(modelId)} onChange={(event) => setMemberSelected((current) => event.target.checked ? [...current, modelId] : current.filter((entry) => entry !== modelId))} /><span>{modelId}</span></label>
-          ))}
-        </fieldset>
+        <div className="provider-model-field">
+          <span>Models</span>
+          <div className="provider-model-picker" role="group" aria-label="Models">
+            {memberSetup.modelKeys.map((modelId) => (
+              <label key={modelId} className="provider-model-picker__row">
+                <input type="checkbox" checked={memberSelected.includes(modelId)} onChange={(event) => setMemberSelected((current) => event.target.checked ? [...current, modelId] : current.filter((entry) => entry !== modelId))} />
+                <span>{modelId}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </Modal> : null}
     </section>
   )

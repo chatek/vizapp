@@ -62,3 +62,14 @@
 @keyframes modal-in { from { opacity: 0; transform: translateY(5px) scale(.99); } }
 @keyframes palette-in { from { opacity: 0; transform: translateY(-5px) scale(.995); } }
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+
+/* Member provider key modal: model checklist. A plain fieldset would inherit the
+   .field column/100%-input rules and render 32px full-width checkboxes; these
+   rows follow the compact toggle idiom used elsewhere (13px box, accent-color). */
+.provider-model-field { display: flex; flex-direction: column; gap: 6px; margin-top: 13px; }
+.provider-model-field > span { color: var(--text); font-size: 11px; font-weight: 540; }
+.provider-model-picker { max-height: 216px; overflow: auto; padding: 4px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-sunken, var(--surface)); }
+.provider-model-picker__row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 5px; color: var(--text-secondary); font-size: 11.5px; line-height: 1.3; cursor: pointer; }
+.provider-model-picker__row:hover { background: var(--surface-hover); color: var(--text); }
+.provider-model-picker__row input { width: 13px; height: 13px; min-width: 13px; margin: 0; accent-color: var(--prime); cursor: pointer; }
+.provider-model-picker__row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
