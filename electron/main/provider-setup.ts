@@ -41,6 +41,8 @@ export interface ProviderStanzaModel {
 
 export interface ProviderStanza {
   readonly id: string
+  /** Provider display name (Settings label); the provider KEY stays the id. */
+  readonly name?: string
   readonly baseUrl: string
   readonly api: string
   readonly keyCommand: string
@@ -203,11 +205,11 @@ export function renderDefaultCatalog(keyStoreDir: string, order: readonly string
   // the order backwards — the written file then reads exactly as the order list.
   for (const familyId of [...order].reverse()) {
     const spec = familyId === VCLAW_PROVIDER_ID
-      ? { ...VCLAW_LLM_STANZA_SPEC, keyCommand: `!cat ${join(keyStoreDir, `${VCLAW_PROVIDER_ID}.key`)}` }
+      ? { ...VCLAW_LLM_STANZA_SPEC, name: 'VizMaster LLM (estate door)', keyCommand: `!cat ${join(keyStoreDir, `${VCLAW_PROVIDER_ID}.key`)}` }
       : (() => {
           const family = PROVIDER_FAMILIES[familyId]
           if (!family) throw new TypeError(`Unknown default-catalogue family: ${familyId}`)
-          return { id: family.providerId, baseUrl: family.baseUrl, api: family.api, models: family.models, keyCommand: `!cat ${join(keyStoreDir, `${family.providerId}.key`)}` }
+          return { id: family.providerId, name: family.label, baseUrl: family.baseUrl, api: family.api, models: family.models, keyCommand: `!cat ${join(keyStoreDir, `${family.providerId}.key`)}` }
         })()
     text = mergeProviderStanza(text, spec)
   }
@@ -323,6 +325,7 @@ function requireFamily(familyId: unknown): ProviderFamilySpec {
 export function renderProviderStanza(stanza: ProviderStanza): string {
   const lines = [
     `  ${stanza.id}:`,
+    ...(stanza.name ? [`    name: ${stanza.name}`] : []),
     `    baseUrl: ${stanza.baseUrl}`,
     `    api: ${stanza.api}`,
     `    apiKey: "${stanza.keyCommand}"`,
@@ -483,7 +486,7 @@ export class ProviderSetupService {
     const known = new Map(family.models.map((model) => [model.id, model]))
     const models = modelIds.map((id) => known.get(id) ?? { id, api: family.api })
     const keyPath = await this.writeKeyFile(family.providerId, key)
-    return this.applyStanza({ id: family.providerId, baseUrl: family.baseUrl, api: family.api, models }, keyPath)
+    return this.applyStanza({ id: family.providerId, name: family.label, baseUrl: family.baseUrl, api: family.api, models }, keyPath)
   }
 
   private async request(url: string, init: RequestInit): Promise<Response> {

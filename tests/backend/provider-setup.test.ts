@@ -144,7 +144,7 @@ describe('option 2 — own provider families', () => {
     const result = await service(home).setupOwnProvider('deepseek', 'sk-oai-test-987654321', ['deepseek-chat', 'deepseek-reasoner'])
 
     const yml = readFileSync(result.modelsYmlPath, 'utf-8')
-    expect(yml).toContain('  deepseek:\n    baseUrl: https://api.deepseek.com\n    api: openai-completions\n    apiKey: "!cat ')
+    expect(yml).toContain('  deepseek:\n    name: DeepSeek\n    baseUrl: https://api.deepseek.com\n    api: openai-completions\n    apiKey: "!cat ')
     expect(yml).toContain('- id: deepseek-chat')
     expect(yml).toContain('- id: deepseek-reasoner')
     expect(yml).not.toContain('sk-oai-test-987654321')
@@ -296,6 +296,10 @@ describe('credential boundary (docs/VCLAW_LLM.md ground rule 2)', () => {
     // Order = Settings order; the door sits INLINE between deepseek and claude.
     const ids = [...text.matchAll(/^ {2}([a-z0-9-]+):$/gm)].map((match) => match[1])
     expect(ids).toEqual(['zai', 'deepseek', 'vclaw', 'anthropic', 'openai', 'google', 'moonshot', 'qwen'])
+    // Display names ride the stanzas so Settings never shows raw ids.
+    expect(text).toContain('    name: GLM (Z.ai / BigModel)')
+    expect(text).toContain('    name: VizMaster LLM (estate door)')
+    expect(text).toContain('    name: Gemini (Google)')
     // The mandated models are present verbatim.
     expect(text).toContain('id: glm-5.3\n')
     expect(text).toContain('id: glm-5.3-flash\n')

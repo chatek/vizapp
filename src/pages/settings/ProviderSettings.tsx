@@ -39,6 +39,17 @@ function activeFirst<T extends { enabled?: boolean }>(items: readonly T[]): T[] 
 // US/China model families — GLM (Z.ai), DeepSeek, Claude (Anthropic), GPT (OpenAI),
 // Mistral, Kimi. Everything else the catalog reports is filtered out of BOTH views.
 // Ids are the fork's canonical provider ids (packages/catalog/src/compat/provider-ids.ts).
+const VIZMASTER_PROVIDER_LABELS: Record<string, string> = {
+  vclaw: 'VizMaster LLM (estate door)',
+  zai: 'GLM (Z.ai / BigModel)',
+  deepseek: 'DeepSeek',
+  anthropic: 'Claude (Anthropic)',
+  openai: 'GPT (OpenAI)',
+  google: 'Gemini (Google)',
+  moonshot: 'Kimi (Moonshot)',
+  qwen: 'Qwen (Alibaba)',
+}
+
 const VIZMASTER_PROVIDER_ALLOWLIST: Record<string, true> = {
   'vclaw': true, // the estate's own door (docs/VCLAW_LLM.md)
   'zai': true, 'zai-coding-plan': true, 'zhipu-coding-plan': true, // GLM / Zhipu family
@@ -71,7 +82,11 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
       : catalog?.providers ?? []
     return activeFirst(matches.filter((provider) => VIZMASTER_PROVIDER_ALLOWLIST[provider.id] === true))
   }, [catalog, query])
-  const providerNames = useMemo(() => new Map((catalog?.providers ?? []).map((provider) => [provider.id, provider.name])), [catalog])
+  const providerNames = useMemo(
+    () => new Map((catalog?.providers ?? []).map((provider) => [provider.id, VIZMASTER_PROVIDER_LABELS[provider.id] ?? provider.name])),
+    [catalog],
+  )
+  const displayName = (provider: { id: string; name: string }) => VIZMASTER_PROVIDER_LABELS[provider.id] ?? provider.name
   const modelGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     const allowedModels = normalized
@@ -152,7 +167,7 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
           const busy = busyProvider === provider.id
           return <div className="provider-row" key={provider.id}>
             <label className="provider-row__toggle" title={provider.enabled ? `Hide provider in ${agentName}` : `Show provider in ${agentName}`}><input type="checkbox" aria-label={`Show ${provider.name} provider`} checked={provider.enabled} disabled={busy} onChange={(event) => void run(provider.id, () => onSetEnabled(provider.id, event.target.checked))} /><i aria-hidden="true"><span /></i></label>
-            <div className="provider-row__identity"><strong>{provider.name}</strong><small>{externalAuth ? `${provider.authLabel ?? `Credentials managed by the ${harness} CLI`} · ${provider.availableModelCount.toLocaleString()} models` : authDescription(provider)}</small></div>
+            <div className="provider-row__identity"><strong>{displayName(provider)}</strong><small>{externalAuth ? `${provider.authLabel ?? `Credentials managed by the ${harness} CLI`} · ${provider.availableModelCount.toLocaleString()} models` : authDescription(provider)}</small></div>
             {externalAuth ? <div className="provider-row__actions"><button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Subscribe this LLM</button></div> : <div className="provider-row__actions">
               {provider.authMethod === 'oauth' ? <button type="button" className="button" disabled={busy} onClick={() => void run(provider.id, () => onStartOAuth(provider.id))}><LogIn size={13} /> {provider.configured ? 'Reconnect' : 'Connect'}</button> : null}
               {provider.authMethod === 'api_key' ? <button type="button" className="button" disabled={busy} onClick={() => { setError(''); setApiKeyError(''); setApiKey(''); setApiKeyProvider(provider) }}><KeyRound size={13} /> {provider.configured ? 'Replace key' : 'Add key'}</button> : null}
@@ -166,7 +181,7 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
           const collapsed = collapsedModelProviders.has(provider.id)
           const contentId = `provider-models-${provider.id.replace(/[^a-z0-9_-]/gi, '-')}`
           return <div className={`provider-model-group${provider.enabled ? '' : ' is-disabled'}${collapsed ? ' is-collapsed' : ''}`} key={provider.id}>
-          <button type="button" className="provider-model-group__heading" aria-expanded={!collapsed} aria-controls={contentId} onClick={() => toggleModelProvider(provider.id)}><strong>{provider.name}</strong><small>{models.filter((model) => model.enabled !== false).length.toLocaleString()} of {models.length.toLocaleString()} on</small><ChevronRight className="provider-model-group__chevron" size={13} aria-hidden="true" /></button>
+          <button type="button" className="provider-model-group__heading" aria-expanded={!collapsed} aria-controls={contentId} onClick={() => toggleModelProvider(provider.id)}><strong>{displayName(provider)}</strong><small>{models.filter((model) => model.enabled !== false).length.toLocaleString()} of {models.length.toLocaleString()} on</small><ChevronRight className="provider-model-group__chevron" size={13} aria-hidden="true" /></button>
           <div id={contentId} className="provider-model-group__models" hidden={collapsed}>{models.map((model) => <div className={`provider-model-row${model.enabled === false ? ' is-disabled' : ''}`} key={model.key}>
             <div className="provider-row__identity"><strong>{model.name}</strong><small>{model.id}</small></div>
             <div className="provider-model-row__capabilities">
