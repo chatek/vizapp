@@ -19,7 +19,27 @@ interface ProviderSettingsProps {
   onStartOAuth(providerId: string): Promise<void>
   /** Opens the provider's subscribe page (vizmaster: per-provider URL). */
   onOpenDocs(providerId: string): void
+  /**
+   * Member-only key entry (vizmaster): writes 0600 key files + models.yml
+   * `!cat` stanzas through the main process. Absent in the generic app.
+   */
+  providerSetup?: PrimeWorkApi['providerSetup']
 }
+
+/** Seeded provider id → member family id (PROVIDER_FAMILIES keys in provider-setup). */
+const MEMBER_FAMILY_BY_PROVIDER: Record<string, string> = {
+  zai: 'glm',
+  deepseek: 'deepseek',
+  anthropic: 'claude',
+  openai: 'gpt',
+  google: 'gemini',
+  moonshot: 'kimi',
+  qwen: 'qwen',
+}
+
+type MemberSetupTarget =
+  | { kind: 'door'; providerId: 'vclaw'; label: string; modelKeys: string[] }
+  | { kind: 'family'; providerId: string; familyId: string; label: string; modelKeys: string[] }
 
 function authDescription(provider: PrimeProviderDescriptor): string {
   if (!provider.configured) return provider.authMethod === 'external' ? 'Uses credentials configured outside VClaw' : 'Not connected'
@@ -63,13 +83,19 @@ const VIZMASTER_PROVIDER_ALLOWLIST: Record<string, true> = {
   'qwen': true, // Qwen family
 }
 
-export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs }: ProviderSettingsProps) {
+export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSaveApiKey, onLogout, onSetEnabled, onSetAllEnabled, onSetAllDisabled, onSetModelEnabled, onStartOAuth, onOpenDocs, providerSetup }: ProviderSettingsProps) {
   // OMP and Pi own their credentials in their CLIs; VClaw only toggles visibility.
   const externalAuth = harness !== 'prime'
   const agentName = HARNESS_AGENT_NAMES[harness]
   const [view, setView] = useState<'providers' | 'models'>('providers')
   const [query, setQuery] = useState('')
   const [apiKeyProvider, setApiKeyProvider] = useState<PrimeProviderDescriptor | null>(null)
+  // Member key entry (vizmaster): door + per-family stanzas via providerSetup.
+  const [memberSetup, setMemberSetup] = useState<MemberSetupTarget | null>(null)
+  const [memberKey, setMemberKey] = useState('')
+  const [memberError, setMemberError] = useState('')
+  const [memberBusy, setMemberBusy] = useState(false)
+  const [memberSelected, setMemberSelected] = useState<string[]>([])
   const [apiKey, setApiKey] = useState('')
   const [busyProvider, setBusyProvider] = useState<string | null>(null)
   const [collapsedModelProviders, setCollapsedModelProviders] = useState<ReadonlySet<string>>(() => new Set())
@@ -87,6 +113,15 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
     [catalog],
   )
   const displayName = (provider: { id: string; name: string }) => VIZMASTER_PROVIDER_LABELS[provider.id] ?? provider.name
+  const modelIdsByProvider = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const model of catalog?.models ?? []) {
+      const ids = map.get(model.provider)
+      if (ids) ids.push(model.id)
+      else map.set(model.provider, [model.id])
+    }
+    return map
+  }, [catalog])
   const modelGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     const allowedModels = normalized
@@ -137,6 +172,36 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
   }
 
   const closeApiKey = () => { setApiKey(''); setApiKeyError(''); setApiKeyProvider(null) }
+  const openMemberSetup = (target: MemberSetupTarget) => {
+    setError('')
+    setMemberError('')
+    setMemberKey('')
+    setMemberSelected(target.modelKeys)
+    setMemberSetup(target)
+  }
+  const closeMemberSetup = () => {
+    if (memberBusy) return
+    setMemberKey('')
+    setMemberError('')
+    setMemberSetup(null)
+  }
+  const saveMemberKey = async () => {
+    const setup = providerSetup
+    if (!memberSetup || !setup || memberBusy) return
+    setMemberBusy(true)
+    setMemberError('')
+    try {
+      if (memberSetup.kind === 'door') await setup.setupVclawLlm(memberKey)
+      else await setup.setupOwnProvider(memberSetup.familyId, memberKey, memberSelected.length ? memberSelected : memberSetup.modelKeys)
+      setMemberKey('')
+      setMemberSetup(null)
+      await onRefresh()
+    } catch (failure) {
+      setMemberError(errorMessage(failure))
+    } finally {
+      setMemberBusy(false)
+    }
+  }
   const toggleModelProvider = (providerId: string) => setCollapsedModelProviders((current) => {
     const next = new Set(current)
     if (next.has(providerId)) next.delete(providerId)
@@ -168,7 +233,11 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
           return <div className="provider-row" key={provider.id}>
             <label className="provider-row__toggle" title={provider.enabled ? `Hide provider in ${agentName}` : `Show provider in ${agentName}`}><input type="checkbox" aria-label={`Show ${provider.name} provider`} checked={provider.enabled} disabled={busy} onChange={(event) => void run(provider.id, () => onSetEnabled(provider.id, event.target.checked))} /><i aria-hidden="true"><span /></i></label>
             <div className="provider-row__identity"><strong>{displayName(provider)}</strong><small>{externalAuth ? `${provider.authLabel ?? `Credentials managed by the ${harness} CLI`} · ${provider.availableModelCount.toLocaleString()} models` : authDescription(provider)}</small></div>
-            {externalAuth ? <div className="provider-row__actions"><button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Subscribe this LLM</button></div> : <div className="provider-row__actions">
+            {externalAuth ? <div className="provider-row__actions">
+              {providerSetup && provider.id === 'vclaw' ? <button type="button" className="button button--primary" onClick={() => openMemberSetup({ kind: 'door', providerId: 'vclaw', label: displayName(provider), modelKeys: (modelIdsByProvider.get('vclaw') ?? []).map((modelId) => modelId) })}><KeyRound size={13} /> Connect VizMaster key</button> : null}
+              {providerSetup && MEMBER_FAMILY_BY_PROVIDER[provider.id] ? <button type="button" className="button button--primary" onClick={() => openMemberSetup({ kind: 'family', providerId: provider.id, familyId: MEMBER_FAMILY_BY_PROVIDER[provider.id]!, label: displayName(provider), modelKeys: (modelIdsByProvider.get(provider.id) ?? []).map((modelId) => modelId) })}><KeyRound size={13} /> Add API key</button> : null}
+              <button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Subscribe this LLM</button>
+            </div> : <div className="provider-row__actions">
               {provider.authMethod === 'oauth' ? <button type="button" className="button" disabled={busy} onClick={() => void run(provider.id, () => onStartOAuth(provider.id))}><LogIn size={13} /> {provider.configured ? 'Reconnect' : 'Connect'}</button> : null}
               {provider.authMethod === 'api_key' ? <button type="button" className="button" disabled={busy} onClick={() => { setError(''); setApiKeyError(''); setApiKey(''); setApiKeyProvider(provider) }}><KeyRound size={13} /> {provider.configured ? 'Replace key' : 'Add key'}</button> : null}
               {provider.authMethod === 'external' ? <button type="button" className="button" onClick={() => onOpenDocs(provider.id)}><ExternalLink size={13} /> Setup</button> : null}
@@ -196,6 +265,24 @@ export function ProviderSettings({ harness = 'prime', catalog, onRefresh, onSave
       {catalog && view === 'providers' && !providers.length ? <p className="settings-empty">No providers match your search.</p> : null}
       {catalog && view === 'models' && !modelGroups.length ? <p className="settings-empty">No models match your search.</p> : null}
       {apiKeyProvider ? <Modal title={`Connect ${apiKeyProvider.name}`} onClose={() => { if (!busyProvider) closeApiKey() }} footer={<><button type="button" className="button" disabled={Boolean(busyProvider)} onClick={closeApiKey}>Cancel</button><button type="button" className="button button--primary" disabled={Boolean(busyProvider) || !apiKey.trim()} onClick={() => void saveApiKey()}>Save API key</button></>}><p className="modal-intro">The key is sent directly to Prime Agent’s protected auth store. VizMaster clears it from renderer state when this dialog closes.</p>{apiKeyError ? <p className="settings-error" role="alert">{apiKeyError}</p> : null}<label className="field"><span>API key</span><input autoFocus type="password" value={apiKey} autoComplete="off" spellCheck={false} onChange={(event) => setApiKey(event.target.value)} /></label></Modal> : null}
+      {memberSetup ? <Modal
+        title={`Connect ${memberSetup.label}`}
+        onClose={closeMemberSetup}
+        footer={<><button type="button" className="button" disabled={memberBusy} onClick={closeMemberSetup}>Cancel</button><button type="button" className="button button--primary" disabled={memberBusy || !memberKey.trim() || memberSelected.length === 0} onClick={() => void saveMemberKey()}>{memberBusy ? 'Saving…' : 'Save API key'}</button></>}
+      >
+        <p className="modal-intro">
+          {memberSetup.kind === 'door'
+            ? 'The key is stored as a 0600 file under ~/.vizmaster/config/provider-keys and referenced from models.yml as a command — it never appears in the YAML itself or in logs.'
+            : 'The key is stored as a 0600 file under ~/.vizmaster/config/provider-keys and referenced from models.yml as a command — it never appears in the YAML itself or in logs. Pick the models this provider should offer.'}
+        </p>
+        {memberError ? <p className="settings-error" role="alert">{memberError}</p> : null}
+        <label className="field"><span>API key</span><input autoFocus type="password" value={memberKey} autoComplete="off" spellCheck={false} onChange={(event) => setMemberKey(event.target.value)} placeholder={memberSetup.kind === 'door' ? 'sk-…' : 'provider API key'} /></label>
+        <fieldset className="field provider-model-picker"><legend>Models</legend>
+          {memberSetup.modelKeys.map((modelId) => (
+            <label key={modelId} className="provider-model-picker__option"><input type="checkbox" checked={memberSelected.includes(modelId)} onChange={(event) => setMemberSelected((current) => event.target.checked ? [...current, modelId] : current.filter((entry) => entry !== modelId))} /><span>{modelId}</span></label>
+          ))}
+        </fieldset>
+      </Modal> : null}
     </section>
   )
 }
