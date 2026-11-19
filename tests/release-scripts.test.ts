@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -180,7 +180,7 @@ function writeMacReleaseFixture(directory: string, { omit }: { omit?: string } =
     const artifactDirectory = join(inputDirectory, `artifact-${index}`)
     mkdirSync(artifactDirectory, { recursive: true })
     const content = name.endsWith('.yml')
-      ? 'version: 0.2.0\nfiles:\n  - url: VClaw-0.2.0-x64.zip\n    sha512: x64-digest\n    size: 42\npath: VClaw-0.2.0-x64.zip\nsha512: x64-digest\n'
+      ? 'version: 0.2.0\nfiles:\n  - url: Vizmaster-0.2.0-x64.zip\n    sha512: x64-digest\n    size: 42\npath: Vizmaster-0.2.0-x64.zip\nsha512: x64-digest\n'
       : `asset ${index}`
     writeFileSync(join(artifactDirectory, name), content)
   }
@@ -329,7 +329,23 @@ describe('release preflight', () => {
     const profile = join(directory, 'profile.json')
     writeFileSync(profile, JSON.stringify({ profileVersion: 1, id: 'preflight-test', harnesses: ['omp'] }))
     try {
-      const result = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--member', 'preflight-test', '--profile', profile, '--dry-run'], { encoding: 'utf8' })
+      // cwd ISOLATED on purpose: the refusal must come from THIS profile/payload pair,
+      // not from whatever the shared checkout happens to carry — since the 6f144322
+      // rebrand the checkout's default profile is itself a member with an integrated
+      // payload, and a shared cwd makes the gate pass (exit 0) or fail for reasons the
+      // fixture does not control.
+      // The script path stays ABSOLUTE (the module's real location); only the cwd moves.
+      const packageMjs = fileURLToPath(new URL('../scripts/release/package.mjs', import.meta.url))
+      // package.mjs lazily imports electron/main/product-profile.ts relative to its CWD:
+      // give the isolated checkout that one module as a re-export of the REAL validator,
+      // so the gate runs the production logic without a second electron/ tree.
+      mkdirSync(join(directory, 'electron', 'main'), { recursive: true })
+      writeFileSync(
+        join(directory, 'electron', 'main', 'product-profile.ts'),
+        `export { validateProductProfile } from ${JSON.stringify(fileURLToPath(new URL('../electron/main/product-profile.ts', import.meta.url)))}\n`,
+      )
+      const spawn = (args: string[]): SpawnSyncReturns<string> => spawnSync(process.execPath, [packageMjs, ...args.slice(1)], { encoding: 'utf8', cwd: directory })
+      const result = spawn(['scripts/release/package.mjs', '--qa', '--platform', platform, '--member', 'preflight-test', '--profile', profile, '--dry-run'])
       expect(result.status, result.stderr).toBe(2)
       expect(result.stderr).toContain('product/payload/dist does not exist')
 
@@ -346,7 +362,7 @@ describe('release preflight', () => {
           defaultProject: { name: 'X', from: 'product/payload', to: '~/X', version: '0.0.0+unrendered' },
         }),
       )
-      const profileOnly = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', memberProfile, '--dry-run'], { encoding: 'utf8' })
+      const profileOnly = spawn(['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', memberProfile, '--dry-run'])
       expect(profileOnly.status, profileOnly.stderr).toBe(2)
       expect(profileOnly.stderr).toContain('profile preflight-member but product/payload/dist does not exist')
 
@@ -362,7 +378,7 @@ describe('release preflight', () => {
           defaultProject: { name: 'X', from: 'vizmaster', to: '~/X', version: '0.0.0+unrendered' },
         }),
       )
-      const legacy = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', legacyProfile, '--dry-run'], { encoding: 'utf8' })
+      const legacy = spawn(['scripts/release/package.mjs', '--qa', '--platform', platform, '--profile', legacyProfile, '--dry-run'])
       expect(legacy.status, legacy.stderr).toBe(2)
       expect(legacy.stderr).toContain('the v2 convention is defaultProject.from = "product/payload"')
     } finally {
@@ -468,8 +484,8 @@ describe('release preflight', () => {
   test('staging dry-run prints the immutable prefix and writes the clean tuple', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-staging-'))
     const sha = 'c'.repeat(40)
-    const dmg = 'VClaw-1.1.17-vizmaster-arm64.dmg'
-    const zip = 'VClaw-1.1.17-vizmaster-arm64.zip'
+    const dmg = 'Vizmaster-1.1.17-vizmaster-arm64.dmg'
+    const zip = 'Vizmaster-1.1.17-vizmaster-arm64.zip'
     writeFileSync(
       join(directory, 'BUILD.json'),
       JSON.stringify({
@@ -1261,18 +1277,18 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
 describe('GitHub Release publication', () => {
   test('selects an exact enabled platform set', () => {
     expect(parseReleasePlatforms('mac,linux')).toEqual(['mac', 'linux'])
-    expect(expectedGitHubReleaseAssets('0.2.0', ['mac', 'linux'])).not.toContain('VClaw-0.2.0-win-x64.exe')
-    expect(expectedGitHubReleaseAssets('0.2.0', ['mac'])).toEqual(['VClaw-0.2.0-arm64.zip', 'VClaw-0.2.0-intel-chip.dmg', 'VClaw-0.2.0-m-chip.dmg', 'VClaw-0.2.0-x64.zip', 'latest-mac.yml'])
-    expect(expectedDownloadedReleaseAssets('0.2.0', ['mac'])).toEqual(['VClaw-0.2.0-arm64.zip', 'VClaw-0.2.0-x64.dmg', 'VClaw-0.2.0-arm64.dmg', 'VClaw-0.2.0-x64.zip', 'latest-mac.yml'])
+    expect(expectedGitHubReleaseAssets('0.2.0', ['mac', 'linux'])).not.toContain('Vizmaster-0.2.0-win-x64.exe')
+    expect(expectedGitHubReleaseAssets('0.2.0', ['mac'])).toEqual(['Vizmaster-0.2.0-arm64.zip', 'Vizmaster-0.2.0-intel-chip.dmg', 'Vizmaster-0.2.0-m-chip.dmg', 'Vizmaster-0.2.0-x64.zip', 'latest-mac.yml'])
+    expect(expectedDownloadedReleaseAssets('0.2.0', ['mac'])).toEqual(['Vizmaster-0.2.0-arm64.zip', 'Vizmaster-0.2.0-x64.dmg', 'Vizmaster-0.2.0-arm64.dmg', 'Vizmaster-0.2.0-x64.zip', 'latest-mac.yml'])
     expect(expectedGitHubReleaseAssets('0.2.0', ['linux'])).toEqual([
-      'VClaw-0.2.0-linux-aarch64.pacman',
-      'VClaw-0.2.0-linux-aarch64.rpm',
-      'VClaw-0.2.0-linux-amd64.deb',
-      'VClaw-0.2.0-linux-arm64.AppImage',
-      'VClaw-0.2.0-linux-arm64.deb',
-      'VClaw-0.2.0-linux-x64.pacman',
-      'VClaw-0.2.0-linux-x86_64.AppImage',
-      'VClaw-0.2.0-linux-x86_64.rpm',
+      'Vizmaster-0.2.0-linux-aarch64.pacman',
+      'Vizmaster-0.2.0-linux-aarch64.rpm',
+      'Vizmaster-0.2.0-linux-amd64.deb',
+      'Vizmaster-0.2.0-linux-arm64.AppImage',
+      'Vizmaster-0.2.0-linux-arm64.deb',
+      'Vizmaster-0.2.0-linux-x64.pacman',
+      'Vizmaster-0.2.0-linux-x86_64.AppImage',
+      'Vizmaster-0.2.0-linux-x86_64.rpm',
       'latest-linux-arm64.yml',
       'latest-linux.yml',
     ])
@@ -1296,9 +1312,9 @@ describe('GitHub Release publication', () => {
     expect(produced).toHaveLength(targetCount)
     // Only the two macOS DMGs are renamed for the public download page.
     expect([...names].filter(([published, downloaded]) => published !== downloaded)).toEqual([
-      ['VClaw-0.2.0-intel-chip.dmg', 'VClaw-0.2.0-x64.dmg'],
-      ['VClaw-0.2.0-m-chip.dmg', 'VClaw-0.2.0-arm64.dmg'],
-      ['VClaw-0.2.0-win-x64.msix', 'VClaw-0.2.0-win-x64.appx'],
+      ['Vizmaster-0.2.0-intel-chip.dmg', 'Vizmaster-0.2.0-x64.dmg'],
+      ['Vizmaster-0.2.0-m-chip.dmg', 'Vizmaster-0.2.0-arm64.dmg'],
+      ['Vizmaster-0.2.0-win-x64.msix', 'Vizmaster-0.2.0-win-x64.appx'],
     ])
   })
 
@@ -1317,11 +1333,11 @@ describe('GitHub Release publication', () => {
   test('reports the published name of a missing artifact through the rename map', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-github-release-missing-'))
     try {
-      const { projectDirectory, inputDirectory } = writeMacReleaseFixture(directory, { omit: 'VClaw-0.2.0-arm64.dmg' })
+      const { projectDirectory, inputDirectory } = writeMacReleaseFixture(directory, { omit: 'Vizmaster-0.2.0-arm64.dmg' })
       // The arm64 DMG publishes as m-chip.dmg: the report must name the missing
       // published asset, not whichever entry happens to share its sort index.
       await expect(prepareGitHubRelease({ inputDirectory, outputDirectory: join(directory, 'out'), projectDirectory, platforms: ['mac'], tag: 'v0.2.0' })).rejects.toThrow(
-        /incomplete; missing VClaw-0\.2\.0-m-chip\.dmg$/,
+        /incomplete; missing Vizmaster-0\.2\.0-m-chip\.dmg$/,
       )
     } finally {
       rmSync(directory, { recursive: true, force: true })
@@ -1331,17 +1347,17 @@ describe('GitHub Release publication', () => {
   test('takes legacy updater fields from the primary architecture manifest, not the first sorted path', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-update-metadata-'))
     try {
-      const arm64 = writeUpdateManifest(directory, 'a-arm64', 'VClaw-0.2.0-arm64.zip', 'arm64-digest', '2026-01-01T00:00:00.000Z')
-      const x64 = writeUpdateManifest(directory, 'z-x64', 'VClaw-0.2.0-x64.zip', 'x64-digest', '2026-02-02T00:00:00.000Z')
+      const arm64 = writeUpdateManifest(directory, 'a-arm64', 'Vizmaster-0.2.0-arm64.zip', 'arm64-digest', '2026-01-01T00:00:00.000Z')
+      const x64 = writeUpdateManifest(directory, 'z-x64', 'Vizmaster-0.2.0-x64.zip', 'x64-digest', '2026-02-02T00:00:00.000Z')
       const merged = mergeUpdateMetadata([arm64, x64], '0.2.0')
-      expect(merged.path).toBe('VClaw-0.2.0-x64.zip')
+      expect(merged.path).toBe('Vizmaster-0.2.0-x64.zip')
       expect(merged.sha512).toBe('x64-digest')
       expect(merged.releaseDate).toBe('2026-02-02T00:00:00.000Z')
-      expect(merged.files.map((file: { url: string }) => file.url)).toEqual(['VClaw-0.2.0-arm64.zip', 'VClaw-0.2.0-x64.zip'])
+      expect(merged.files.map((file: { url: string }) => file.url)).toEqual(['Vizmaster-0.2.0-arm64.zip', 'Vizmaster-0.2.0-x64.zip'])
       // Renaming the artifact directories reverses the path sort order without
       // changing which manifest supplies the legacy fields.
-      const swappedArm64 = writeUpdateManifest(directory, 'z-arm', 'VClaw-0.2.0-arm64.zip', 'arm64-digest', '2026-01-01T00:00:00.000Z')
-      const swappedX64 = writeUpdateManifest(directory, 'a-intel', 'VClaw-0.2.0-x64.zip', 'x64-digest', '2026-02-02T00:00:00.000Z')
+      const swappedArm64 = writeUpdateManifest(directory, 'z-arm', 'Vizmaster-0.2.0-arm64.zip', 'arm64-digest', '2026-01-01T00:00:00.000Z')
+      const swappedX64 = writeUpdateManifest(directory, 'a-intel', 'Vizmaster-0.2.0-x64.zip', 'x64-digest', '2026-02-02T00:00:00.000Z')
       expect(mergeUpdateMetadata([swappedArm64, swappedX64], '0.2.0')).toEqual(merged)
       expect(mergeUpdateMetadata([swappedX64, swappedArm64], '0.2.0')).toEqual(merged)
     } finally {
@@ -1357,12 +1373,12 @@ describe('GitHub Release publication', () => {
         writeFileSync(path, `version: 0.2.0\nfiles:\n${file}`)
         return path
       }
-      const sized = (size: string) => `  - url: VClaw-0.2.0-x64.zip\n    sha512: digest\n    size: ${size}\n`
-      expect(() => mergeUpdateMetadata([write('missing-size.yml', '  - url: VClaw-0.2.0-x64.zip\n    sha512: digest\n')], '0.2.0')).toThrow(/invalid size/)
+      const sized = (size: string) => `  - url: Vizmaster-0.2.0-x64.zip\n    sha512: digest\n    size: ${size}\n`
+      expect(() => mergeUpdateMetadata([write('missing-size.yml', '  - url: Vizmaster-0.2.0-x64.zip\n    sha512: digest\n')], '0.2.0')).toThrow(/invalid size/)
       expect(() => mergeUpdateMetadata([write('zero-size.yml', sized('0'))], '0.2.0')).toThrow(/invalid size/)
       expect(() => mergeUpdateMetadata([write('negative-size.yml', sized('-1'))], '0.2.0')).toThrow(/invalid size/)
       expect(() => mergeUpdateMetadata([write('text-size.yml', sized("'42'"))], '0.2.0')).toThrow(/invalid size/)
-      expect(() => mergeUpdateMetadata([write('empty-digest.yml', "  - url: VClaw-0.2.0-x64.zip\n    sha512: ''\n    size: 42\n")], '0.2.0')).toThrow(/no sha512/)
+      expect(() => mergeUpdateMetadata([write('empty-digest.yml', "  - url: Vizmaster-0.2.0-x64.zip\n    sha512: ''\n    size: 42\n")], '0.2.0')).toThrow(/no sha512/)
       expect(() => mergeUpdateMetadata([write('valid.yml', sized('42'))], '0.2.0')).not.toThrow()
       expect(() => mergeUpdateMetadata([write('a.yml', sized('42')), write('b.yml', sized('43'))], '0.2.0')).toThrow(/disagrees/)
       expect(() => mergeUpdateMetadata([], '0.2.0')).toThrow(/missing/)
@@ -1372,9 +1388,9 @@ describe('GitHub Release publication', () => {
   })
 
   test('deletes only unexpected assets from a resumed draft release', () => {
-    const assets = ['VClaw-0.2.0-m-chip.dmg', 'VClaw-0.1.9-arm64.dmg', 'latest-mac.yml', 'SHA256SUMS.txt']
-    const expected = ['VClaw-0.2.0-m-chip.dmg', 'latest-mac.yml', 'SHA256SUMS.txt']
-    expect(staleDraftReleaseAssets(assets, expected)).toEqual(['VClaw-0.1.9-arm64.dmg'])
+    const assets = ['Vizmaster-0.2.0-m-chip.dmg', 'Vizmaster-0.1.9-arm64.dmg', 'latest-mac.yml', 'SHA256SUMS.txt']
+    const expected = ['Vizmaster-0.2.0-m-chip.dmg', 'latest-mac.yml', 'SHA256SUMS.txt']
+    expect(staleDraftReleaseAssets(assets, expected)).toEqual(['Vizmaster-0.1.9-arm64.dmg'])
     expect(staleDraftReleaseAssets(expected, expected)).toEqual([])
     // An empty expected set would delete the whole draft, so it fails instead.
     expect(() => staleDraftReleaseAssets(assets, [])).toThrow(/expected release asset set is empty/)
@@ -1387,12 +1403,12 @@ describe('GitHub Release publication', () => {
     const directory = mkdtempSync(join(tmpdir(), 'vclaw-draft-prune-'))
     try {
       mkdirSync(join(directory, 'release-assets'))
-      for (const name of ['VClaw-0.2.0-m-chip.dmg', 'SHA256SUMS.txt']) writeFileSync(join(directory, 'release-assets', name), 'asset')
-      writeFileSync(join(directory, 'draft.json'), JSON.stringify({ assets: [{ name: 'VClaw-0.2.0-m-chip.dmg' }, { name: 'VClaw-0.1.9-arm64.dmg' }] }))
+      for (const name of ['Vizmaster-0.2.0-m-chip.dmg', 'SHA256SUMS.txt']) writeFileSync(join(directory, 'release-assets', name), 'asset')
+      writeFileSync(join(directory, 'draft.json'), JSON.stringify({ assets: [{ name: 'Vizmaster-0.2.0-m-chip.dmg' }, { name: 'Vizmaster-0.1.9-arm64.dmg' }] }))
       const args = ['scripts/release/prune-draft-release-assets.mjs', '--assets', join(directory, 'draft.json'), '--expected', join(directory, 'release-assets')]
       const result = spawnSync(process.execPath, args, { encoding: 'utf8' })
       expect(result.status).toBe(0)
-      expect(result.stdout.trim().split('\n')).toEqual(['VClaw-0.1.9-arm64.dmg'])
+      expect(result.stdout.trim().split('\n')).toEqual(['Vizmaster-0.1.9-arm64.dmg'])
       const failed = spawnSync(process.execPath, args.slice(0, 3), { encoding: 'utf8' })
       expect(failed.status).toBe(1)
       expect(failed.stderr).toMatch(/Draft release asset pruning failed/)
@@ -1426,20 +1442,20 @@ describe('GitHub Release publication', () => {
       mkdirSync(artifactDirectory)
       const updateTarget =
         name === 'latest-mac.yml'
-          ? 'VClaw-0.2.0-arm64.zip'
+          ? 'Vizmaster-0.2.0-arm64.zip'
           : name === 'latest-linux.yml'
-            ? 'VClaw-0.2.0-linux-x86_64.AppImage'
+            ? 'Vizmaster-0.2.0-linux-x86_64.AppImage'
             : name === 'latest-linux-arm64.yml'
-              ? 'VClaw-0.2.0-linux-arm64.AppImage'
-              : 'VClaw-0.2.0-win-x64.exe'
+              ? 'Vizmaster-0.2.0-linux-arm64.AppImage'
+              : 'Vizmaster-0.2.0-win-x64.exe'
       const content = name.startsWith('latest')
-        ? `version: 0.2.0\nfiles:\n  - url: ${updateTarget}\n    sha512: checksum-${index}\n    size: ${index + 1}\n${name === 'latest-mac.yml' ? '  - url: VClaw-0.2.0-arm64.dmg\n    sha512: checksum-arm64-dmg\n    size: 44\n' : ''}path: ${updateTarget}\nsha512: checksum-${index}\n`
+        ? `version: 0.2.0\nfiles:\n  - url: ${updateTarget}\n    sha512: checksum-${index}\n    size: ${index + 1}\n${name === 'latest-mac.yml' ? '  - url: Vizmaster-0.2.0-arm64.dmg\n    sha512: checksum-arm64-dmg\n    size: 44\n' : ''}path: ${updateTarget}\nsha512: checksum-${index}\n`
         : `asset ${index}`
       writeFileSync(join(artifactDirectory, name), content)
     }
     const secondMacManifest = join(inputDirectory, 'macos-x64')
     mkdirSync(secondMacManifest)
-    writeFileSync(join(secondMacManifest, 'latest-mac.yml'), 'version: 0.2.0\nfiles:\n  - url: VClaw-0.2.0-x64.zip\n    sha512: checksum-x64\n    size: 42\n')
+    writeFileSync(join(secondMacManifest, 'latest-mac.yml'), 'version: 0.2.0\nfiles:\n  - url: Vizmaster-0.2.0-x64.zip\n    sha512: checksum-x64\n    size: 42\n')
     try {
       const result = await prepareGitHubRelease({ inputDirectory, outputDirectory, projectDirectory, tag: 'v0.2.0' })
       expect(result.assets).toEqual(expected)
@@ -1453,16 +1469,16 @@ describe('GitHub Release publication', () => {
         expect(checksums).toContain(`${digest}  ${name}`)
       }
       const macFeed = readFileSync(join(outputDirectory, 'latest-mac.yml'), 'utf8')
-      expect(macFeed).toContain('VClaw-0.2.0-arm64.zip')
-      expect(macFeed).toContain('VClaw-0.2.0-x64.zip')
-      expect(macFeed).toContain('VClaw-0.2.0-m-chip.dmg')
-      expect(macFeed).not.toContain('VClaw-0.2.0-arm64.dmg')
+      expect(macFeed).toContain('Vizmaster-0.2.0-arm64.zip')
+      expect(macFeed).toContain('Vizmaster-0.2.0-x64.zip')
+      expect(macFeed).toContain('Vizmaster-0.2.0-m-chip.dmg')
+      expect(macFeed).not.toContain('Vizmaster-0.2.0-arm64.dmg')
       const linuxFeed = readFileSync(join(outputDirectory, 'latest-linux.yml'), 'utf8')
-      expect(linuxFeed).toContain('VClaw-0.2.0-linux-x86_64.AppImage')
-      expect(linuxFeed).not.toContain('VClaw-0.2.0-linux-arm64.AppImage')
+      expect(linuxFeed).toContain('Vizmaster-0.2.0-linux-x86_64.AppImage')
+      expect(linuxFeed).not.toContain('Vizmaster-0.2.0-linux-arm64.AppImage')
       const linuxArmFeed = readFileSync(join(outputDirectory, 'latest-linux-arm64.yml'), 'utf8')
-      expect(linuxArmFeed).toContain('VClaw-0.2.0-linux-arm64.AppImage')
-      expect(linuxArmFeed).not.toContain('VClaw-0.2.0-linux-x86_64.AppImage')
+      expect(linuxArmFeed).toContain('Vizmaster-0.2.0-linux-arm64.AppImage')
+      expect(linuxArmFeed).not.toContain('Vizmaster-0.2.0-linux-x86_64.AppImage')
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
@@ -1485,12 +1501,12 @@ describe('GitHub Release publication', () => {
         mkdirSync(artifactDirectory)
         const updateTarget =
           name === 'latest-mac.yml'
-            ? 'VClaw-0.2.0-arm64.zip'
+            ? 'Vizmaster-0.2.0-arm64.zip'
             : name === 'latest-linux.yml'
-              ? 'VClaw-0.2.0-linux-x86_64.AppImage'
+              ? 'Vizmaster-0.2.0-linux-x86_64.AppImage'
               : name === 'latest-linux-arm64.yml'
-                ? 'VClaw-0.2.0-linux-arm64.AppImage'
-                : 'VClaw-0.2.0-win-x64.exe'
+                ? 'Vizmaster-0.2.0-linux-arm64.AppImage'
+                : 'Vizmaster-0.2.0-win-x64.exe'
         writeFileSync(join(artifactDirectory, name), name.startsWith('latest') ? `version: 0.2.0\nfiles:\n  - url: ${updateTarget}\n    sha512: checksum-${index}\n` : `asset ${index}`)
       }
       const duplicateDirectory = join(inputDirectory, 'duplicate')

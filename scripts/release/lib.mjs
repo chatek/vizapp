@@ -11,6 +11,25 @@ const localRequire = createRequire(import.meta.url)
 const packageJsonPath = fileURLToPath(new URL('../../package.json', import.meta.url))
 const nvmrcPath = fileURLToPath(new URL('../../.nvmrc', import.meta.url))
 
+let productPrefixCache
+/**
+ * The artifact-name prefix the CURRENT package identity produces: electron-builder
+ * resolves the `${productName}` macro to `build.productName`, so `Vizmaster-<version>…`
+ * names must always start with this. Single source of truth — scripts and tests derive
+ * from here instead of hardcoding a product literal that the next rebrand would stale
+ * (the 6f144322 VClaw→Vizmaster rename is exactly that failure mode).
+ */
+export function productArtifactPrefix() {
+  productPrefixCache ??= String(JSON.parse(readFileSync(packageJsonPath, 'utf8')).build?.productName ?? '').trim()
+  if (!productPrefixCache) throw new Error('package.json build.productName is missing or empty — cannot derive artifact names')
+  return productPrefixCache
+}
+
+/** Escapes a prefix for embedding in an artifact-name RegExp. */
+export function escapeArtifactPrefix(prefix) {
+  return prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function validateAbsoluteSingleLinePath(value, label, platform = process.platform) {
   const pathApi = platform === 'win32' ? win32 : posix
   if (typeof value !== 'string' || value.length === 0 || value.trim() !== value || /[\0\r\n]/.test(value) || !pathApi.isAbsolute(value)) {
@@ -423,10 +442,10 @@ const ARTIFACT_ARCHITECTURES = new Set(['arm64', 'x64', 'universal'])
  * The member segment an artifact name claims, or null for the generic product name.
  *
  * Parsed from the RIGHT: a member id may itself contain hyphens, the architecture may not.
- * `VClaw-1.1.17-arm64.dmg` -> null; `VClaw-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
+ * `Vizmaster-1.1.17-arm64.dmg` -> null; `Vizmaster-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
  */
 export function artifactMemberSegment(filename) {
-  const match = /^VClaw-\d+\.\d+\.\d+-(.+)\.(?:dmg|zip|exe|AppImage)$/.exec(filename)
+  const match = new RegExp(`^${escapeArtifactPrefix(productArtifactPrefix())}-\\d+\\.\\d+\\.\\d+-(.+)\\.(?:dmg|zip|exe|AppImage)$`).exec(filename)
   if (!match) throw new Error(`Unrecognised artifact name: ${filename}`)
   const segments = match[1].split('-')
   const architecture = segments.pop()

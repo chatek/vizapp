@@ -4,6 +4,7 @@ import { copyFileSync, createReadStream, existsSync, lstatSync, mkdirSync, readF
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { dump, load } from 'js-yaml'
+import { productArtifactPrefix } from './lib.mjs'
 import { validateReleaseTag } from './validate-release-tag.mjs'
 
 const RELEASE_PLATFORMS = ['mac', 'linux', 'win']
@@ -39,20 +40,25 @@ export function parseReleasePlatforms(value = RELEASE_PLATFORMS.join(',')) {
  * electron-builder configuration and fails when this map drifts from them.
  */
 export function releaseAssetNames(version, platforms = RELEASE_PLATFORMS) {
+  // The prefix derives from the package identity (build.productName) — the same value
+  // electron-builder's ${productName} macro resolves to — so a rebrand updates asset
+  // naming by changing package.json alone (the 6f144322 VClaw→Vizmaster rename staled
+  // a hardcoded copy of these names once already).
+  const prefix = productArtifactPrefix()
   const assets = {
-    mac: [[`VClaw-${version}-m-chip.dmg`, `VClaw-${version}-arm64.dmg`], [`VClaw-${version}-intel-chip.dmg`, `VClaw-${version}-x64.dmg`], [`VClaw-${version}-arm64.zip`], [`VClaw-${version}-x64.zip`]],
+    mac: [[`${prefix}-${version}-m-chip.dmg`, `${prefix}-${version}-arm64.dmg`], [`${prefix}-${version}-intel-chip.dmg`, `${prefix}-${version}-x64.dmg`], [`${prefix}-${version}-arm64.zip`], [`${prefix}-${version}-x64.zip`]],
     linux: [
-      [`VClaw-${version}-linux-arm64.AppImage`],
-      [`VClaw-${version}-linux-arm64.deb`],
-      [`VClaw-${version}-linux-aarch64.pacman`],
-      [`VClaw-${version}-linux-aarch64.rpm`],
-      [`VClaw-${version}-linux-x86_64.AppImage`],
-      [`VClaw-${version}-linux-amd64.deb`],
-      [`VClaw-${version}-linux-x64.pacman`],
-      [`VClaw-${version}-linux-x86_64.rpm`],
+      [`${prefix}-${version}-linux-arm64.AppImage`],
+      [`${prefix}-${version}-linux-arm64.deb`],
+      [`${prefix}-${version}-linux-aarch64.pacman`],
+      [`${prefix}-${version}-linux-aarch64.rpm`],
+      [`${prefix}-${version}-linux-x86_64.AppImage`],
+      [`${prefix}-${version}-linux-amd64.deb`],
+      [`${prefix}-${version}-linux-x64.pacman`],
+      [`${prefix}-${version}-linux-x86_64.rpm`],
     ],
     // electron-builder emits the MSIX-compatible package as .appx; publish the same bytes with the modern .msix extension.
-    win: [[`VClaw-${version}-win-x64.exe`], [`VClaw-${version}-win-x64.zip`], [`VClaw-${version}-win-x64.msix`, `VClaw-${version}-win-x64.appx`]],
+    win: [[`${prefix}-${version}-win-x64.exe`], [`${prefix}-${version}-win-x64.zip`], [`${prefix}-${version}-win-x64.msix`, `${prefix}-${version}-win-x64.appx`]],
   }
   const entries = platforms
     .flatMap((platform) => [...assets[platform], ...UPDATE_METADATA_BY_PLATFORM[platform].map((name) => [name])])

@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { listPackage } from '@electron/asar'
-import { assertAsarLayout, assertPackagedExtensionContent, assertPackagedExtensions, assertPackagedProductProfile, readShippedAgentPin } from './lib.mjs'
+import { assertAsarLayout, assertPackagedExtensionContent, assertPackagedExtensions, assertPackagedProductProfile, escapeArtifactPrefix, productArtifactPrefix, readShippedAgentPin } from './lib.mjs'
 
 function requireOption(value, label, allowed) {
   if (!value || !allowed.includes(value)) throw new Error(`${label} must be one of: ${allowed.join(', ')}`)
@@ -163,7 +163,7 @@ export function verifyPackage(target, architecture, { unpackedOnly = false, mode
   assertPackagedExtensions(resources)
   assertPackagedExtensionContent(resources, readShippedAgentPin())
 
-  const named = artifacts.find((name) => /^VClaw-/.test(name))
+  const named = artifacts.find((name) => new RegExp(`^${escapeArtifactPrefix(productArtifactPrefix())}-`).test(name))
   assertPackagedProductProfile(resources, named === undefined ? null : basename(named))
 
   if (!unpackedOnly && target === 'win' && mode === 'public') {

@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { assertSupportedToolchain, renderStagedProfile, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
+import { assertSupportedToolchain, productArtifactPrefix, renderStagedProfile, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
 
 const args = new Set(process.argv.slice(2))
 const isPublic = args.has('--public')
@@ -166,12 +166,16 @@ try {
 
   // The artifact name is DERIVED from the profile, never supplied beside it: verify-package
   // asserts the two agree, and this is the one place that makes them agree by construction.
-  // Windows carries an explicit platform segment (VClaw-<version>-win-<arch>) so it cannot be
+  // The prefix is the product identity (member profile's identity.productName, else the
+  // package's build.productName — the same value electron-builder's ${productName} macro
+  // resolves to), so a rebrand cannot stale this line against the config it mirrors.
+  // Windows carries an explicit platform segment (<prefix>-<version>-win-<arch>) so it cannot be
   // confused with a future linux x64 artifact of the same version; mac needs none (it is the
   // only dmg/zip-app producer). This matches package.json's build.win.artifactName and the
   // asset lists prepare-github-release.mjs expects.
   const platformSegment = platform === 'win' ? '-win' : ''
-  const artifactName = profile.id === 'vclaw' ? `VClaw-\${version}${platformSegment}-\${arch}.\${ext}` : `VClaw-\${version}-${profile.id}${platformSegment}-\${arch}.\${ext}`
+  const productPrefix = profile.identity?.productName ?? productArtifactPrefix()
+  const artifactName = profile.id === 'vclaw' ? `${productPrefix}-\${version}${platformSegment}-\${arch}.\${ext}` : `${productPrefix}-\${version}-${profile.id}${platformSegment}-\${arch}.\${ext}`
   // Per-platform key, not the top-level one: package.json sets build.mac.artifactName, and a
   // platform artifactName WINS over the generic one — so `--config.artifactName` was silently
   // ignored and every member build kept the plain ${productName}-${version}-${arch} name.
