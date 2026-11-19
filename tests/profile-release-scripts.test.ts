@@ -20,18 +20,17 @@ function resources(product: unknown | null): { path: string; cleanup: () => void
 
 describe('artifactMemberSegment', () => {
   test('reads the member from the right, because a member id may contain hyphens', () => {
-    expect(artifactMemberSegment('Vizmaster-1.1.17-arm64.dmg')).toBeNull()
-    expect(artifactMemberSegment('Vizmaster-1.1.17-vizmaster-arm64.dmg')).toBe('vizmaster')
-    expect(artifactMemberSegment('Vizmaster-1.1.17-some-member-x64.zip')).toBe('some-member')
-    expect(artifactMemberSegment('Vizmaster-1.1.17-arm64.zip')).toBeNull()
+    expect(artifactMemberSegment('VizMaster-1.1.17-arm64.dmg')).toBeNull()
+    expect(artifactMemberSegment('VizMaster-1.1.17-vizmaster-arm64.dmg')).toBe('vizmaster')
+    expect(artifactMemberSegment('VizMaster-1.1.17-some-member-x64.zip')).toBe('some-member')
+    expect(artifactMemberSegment('VizMaster-1.1.17-arm64.zip')).toBeNull()
   })
 
   test('refuses names it cannot read rather than guessing', () => {
     // The bug this replaces: a naive regex captured "arm64" as the member segment, so every
     // GENERIC artifact suddenly looked member-named and the verifier threw on a good build.
-    expect(() => artifactMemberSegment('Vizmaster-1.1.17.dmg')).toThrow(/Unrecognised artifact name/)
-    expect(() => artifactMemberSegment('VizMaster-1.1.17-arm64.dmg')).toThrow(/Unrecognised artifact/)
-    expect(() => artifactMemberSegment('Vizmaster-1.1.17-vizmaster-mips.dmg')).toThrow(/Unrecognised architecture/)
+    expect(() => artifactMemberSegment('VizMaster-1.1.17.dmg')).toThrow(/Unrecognised artifact name/)
+    expect(() => artifactMemberSegment('VizMaster-1.1.17-vizmaster-mips.dmg')).toThrow(/Unrecognised architecture/)
   })
 })
 
@@ -39,7 +38,7 @@ describe('assertPackagedProductProfile', () => {
   test('accepts a generic build whose profile agrees with its name', () => {
     const { path, cleanup } = resources(GENERIC)
     try {
-      expect(assertPackagedProductProfile(path, 'Vizmaster-1.1.17-arm64.dmg').id).toBe('vclaw')
+      expect(assertPackagedProductProfile(path, 'VizMaster-1.1.17-arm64.dmg').id).toBe('vclaw')
     } finally {
       cleanup()
     }
@@ -48,7 +47,7 @@ describe('assertPackagedProductProfile', () => {
   test('accepts a member build whose profile agrees with its name', () => {
     const { path, cleanup } = resources(MEMBER)
     try {
-      expect(assertPackagedProductProfile(path, 'Vizmaster-1.1.17-vizmaster-arm64.dmg').id).toBe('vizmaster')
+      expect(assertPackagedProductProfile(path, 'VizMaster-1.1.17-vizmaster-arm64.dmg').id).toBe('vizmaster')
     } finally {
       cleanup()
     }
@@ -57,7 +56,7 @@ describe('assertPackagedProductProfile', () => {
   test('refuses a member-named artifact carrying the generic profile', () => {
     const { path, cleanup } = resources(GENERIC)
     try {
-      expect(() => assertPackagedProductProfile(path, 'Vizmaster-1.1.17-vizmaster-arm64.dmg')).toThrow(/named for member "vizmaster" but carries profile id "vclaw"/)
+      expect(() => assertPackagedProductProfile(path, 'VizMaster-1.1.17-vizmaster-arm64.dmg')).toThrow(/named for member "vizmaster" but carries profile id "vclaw"/)
     } finally {
       cleanup()
     }
@@ -66,7 +65,7 @@ describe('assertPackagedProductProfile', () => {
   test('refuses a generic-named artifact hiding a branded build', () => {
     const { path, cleanup } = resources(MEMBER)
     try {
-      expect(() => assertPackagedProductProfile(path, 'Vizmaster-1.1.17-arm64.dmg')).toThrow(/generic product but carries profile id "vizmaster"/)
+      expect(() => assertPackagedProductProfile(path, 'VizMaster-1.1.17-arm64.dmg')).toThrow(/generic product but carries profile id "vizmaster"/)
     } finally {
       cleanup()
     }
@@ -75,7 +74,7 @@ describe('assertPackagedProductProfile', () => {
   test('a packaged app without a profile is a failure, not a default', () => {
     const { path, cleanup } = resources(null)
     try {
-      expect(() => assertPackagedProductProfile(path, 'Vizmaster-1.1.17-arm64.dmg')).toThrow(/must ship Resources\/product.json/)
+      expect(() => assertPackagedProductProfile(path, 'VizMaster-1.1.17-arm64.dmg')).toThrow(/must ship Resources\/product.json/)
     } finally {
       cleanup()
     }
@@ -84,7 +83,7 @@ describe('assertPackagedProductProfile', () => {
   test('a malformed profile fails with the validator reason', () => {
     const { path, cleanup } = resources({ profileVersion: 1, id: 'Bad Id', harnesses: ['omp'] })
     try {
-      expect(() => assertPackagedProductProfile(path, 'Vizmaster-1.1.17-arm64.dmg')).toThrow(/Invalid product profile/)
+      expect(() => assertPackagedProductProfile(path, 'VizMaster-1.1.17-arm64.dmg')).toThrow(/Invalid product profile/)
     } finally {
       cleanup()
     }

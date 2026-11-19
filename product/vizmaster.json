@@ -2,7 +2,7 @@
   "profileVersion": 1,
   "id": "vizmaster",
   "identity": {
-    "productName": "Vizmaster",
+    "productName": "VizMaster",
     "appId": "com.vclaw.desktop"
   },
   "harnesses": [

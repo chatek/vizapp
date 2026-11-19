@@ -60,7 +60,7 @@ describe('sidebar update control', () => {
 
     await press(container.querySelector('.sidebar-update')!)
     const dialog = document.body.querySelector('[role="dialog"]')
-    expect(dialog?.textContent).toContain('Restart Vizmaster to install the update?')
+    expect(dialog?.textContent).toContain('Restart VizMaster to install the update?')
     expect(dialog?.textContent).toContain('close and restart')
     expect(dialog?.textContent).not.toContain('download the update')
 
@@ -109,6 +109,6 @@ describe('sidebar update control', () => {
     expect(update?.getAttribute('aria-live')).toBeNull()
     const status = container.querySelector('.sidebar__footer [role="status"]')
     expect(status?.getAttribute('aria-live')).toBe('polite')
-    expect(status?.textContent).toBe('Downloading Vizmaster update 0.2.0')
+    expect(status?.textContent).toBe('Downloading VizMaster update 0.2.0')
   })
 })

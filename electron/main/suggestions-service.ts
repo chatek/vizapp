@@ -210,12 +210,12 @@ export function resolvePromptConfig(
 
 /**
  * Both headers carry the SAME token: the service reads `Authorization` case-insensitively and
- * falls back to `X-Vizmaster-Token` for transports whose header framing cannot take the
+ * falls back to `X-VizMaster-Token` for transports whose header framing cannot take the
  * triple-slash value. Sending both is one field on the wire and removes a whole class of
  * "which client mangled my header" failures.
  */
 export function bearerHeaders(token: string): Record<string, string> {
-  return { Authorization: `Bearer ${token}`, 'X-Vizmaster-Token': token }
+  return { Authorization: `Bearer ${token}`, 'X-VizMaster-Token': token }
 }
 
 /** Request options the service owns; the transport only forwards them. */
@@ -847,7 +847,7 @@ export class SuggestionsService {
   }
 
   /**
-   * One Micro request, carrying the identity's token in `Authorization` + `X-Vizmaster-Token`.
+   * One Micro request, carrying the identity's token in `Authorization` + `X-VizMaster-Token`.
    * Only `unauthorized` re-mints and retries EXACTLY once — a second refusal is terminal and
    * `forbidden_segment` is passed through untouched, because a loop would turn a wrong-segment
    * client into a request storm.

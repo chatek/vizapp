@@ -133,7 +133,7 @@ export function VoiceOrb({ voice, harness, onClose, onTaskStarted, pet, focusPet
             if (active) setTaskOpened(true)
           }).catch((failure) => {
             if (!active) return
-            setError(`The task started, but Vizmaster could not open it: ${failure instanceof Error ? failure.message : 'Unknown error'}`)
+            setError(`The task started, but VizMaster could not open it: ${failure instanceof Error ? failure.message : 'Unknown error'}`)
           })
         }
       } catch (failure) {

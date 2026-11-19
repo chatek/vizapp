@@ -760,9 +760,15 @@ describe('harness settings surfaces', () => {
     expect(container.querySelector('h1')?.textContent).toBe('General')
     await act(async () => { root.render(renderSettings('agent')); await Promise.resolve() })
     expect(container.querySelector('h1')?.textContent).toBe('Harness')
-    expect(container.querySelector('.settings-nav .is-active')?.textContent).toContain('Harness')
+    // vizmaster product (operator 2026-11-07): the Harness section body stays
+    // reachable programmatically, but its nav ENTRY is hidden — while the
+    // internal section is 'agent' NO nav item claims active, which is exactly
+    // how a deep link into a hidden section should read.
+    const navButtons = [...container.querySelectorAll<HTMLButtonElement>('.settings-nav button')]
+    expect(navButtons.some((button) => button.textContent?.includes('Harness'))).toBe(false)
+    expect(container.querySelector('.settings-nav .is-active')).toBeNull()
 
-    await click([...container.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find((button) => button.textContent?.includes('General'))!)
+    await click(navButtons.find((button) => button.textContent?.includes('General'))!)
     expect(container.querySelector('h1')?.textContent).toBe('General')
     await act(async () => { root.render(renderSettings('agent', 1)); await Promise.resolve() })
     expect(container.querySelector('h1')?.textContent).toBe('Harness')

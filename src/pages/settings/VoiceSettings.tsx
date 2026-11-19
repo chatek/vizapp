@@ -122,7 +122,7 @@ export function VoiceSettings({ settings, onUpdate, voice, platform = 'darwin' }
       await voice.testSelfHosted({ url, model })
       await onUpdate({ voiceSelfHostedUrl: url, voiceSelfHostedModel: model })
       setSelfHostedTestState('connected')
-      setSelfHostedMessage('Connected. Vizmaster successfully transcribed a test audio clip.')
+      setSelfHostedMessage('Connected. VizMaster successfully transcribed a test audio clip.')
     } catch (error) {
       setSelfHostedTestState('error')
       setSelfHostedMessage(errorMessage(error))
@@ -143,19 +143,19 @@ export function VoiceSettings({ settings, onUpdate, voice, platform = 'darwin' }
       {serviceState === 'restart-required' ? (
         <div className="voice-bridge-notice" role="status">
           <RefreshCw size={17} />
-          <span><strong>Restart Vizmaster to finish enabling Voice</strong><small>This app window is connected to an older desktop process without the Voice handlers. Quit Vizmaster completely with {shortcutLabel(platform, ['Primary', 'Q'])}, then reopen it.</small></span>
+          <span><strong>Restart VizMaster to finish enabling Voice</strong><small>This app window is connected to an older desktop process without the Voice handlers. Quit VizMaster completely with {shortcutLabel(platform, ['Primary', 'Q'])}, then reopen it.</small></span>
         </div>
       ) : null}
 
       <section className="voice-section" aria-labelledby="voice-connections-title">
         <div className="voice-section__heading">
           <span><ShieldCheck size={15} /></span>
-          <div><h2 id="voice-connections-title">Connections</h2><p>Add a key for any hosted service you want to use. Secure storage keeps keys encrypted between app sessions; otherwise they stay only in memory until Vizmaster quits.</p></div>
+          <div><h2 id="voice-connections-title">Connections</h2><p>Add a key for any hosted service you want to use. Secure storage keeps keys encrypted between app sessions; otherwise they stay only in memory until VizMaster quits.</p></div>
         </div>
         {serviceState === 'ready' && status && !secureStorageAvailable ? (
           <div className="voice-storage-notice" role="alert">
             <ShieldAlert size={17} />
-            <span><strong>Keys will work only until Vizmaster quits</strong><small>{status.storage.message} You can still add a key for this session. Vizmaster will keep it only in desktop memory and will not save it to disk.</small></span>
+            <span><strong>Keys will work only until VizMaster quits</strong><small>{status.storage.message} You can still add a key for this session. VizMaster will keep it only in desktop memory and will not save it to disk.</small></span>
           </div>
         ) : null}
         {voice ? <div className="voice-connection-grid">
@@ -227,7 +227,7 @@ export function VoiceSettings({ settings, onUpdate, voice, platform = 'darwin' }
           ) : null}
           {settings.voiceTranscriptionProvider === 'local-whisper' ? (
             <div className="voice-local-setup">
-              <span className="voice-local-setup__intro"><Laptop size={15} /><span><strong>Local whisper.cpp setup</strong><small>These are file paths because Vizmaster runs your installed whisper.cpp directly. Hosted services do not need them.</small></span></span>
+              <span className="voice-local-setup__intro"><Laptop size={15} /><span><strong>Local whisper.cpp setup</strong><small>These are file paths because VizMaster runs your installed whisper.cpp directly. Hosted services do not need them.</small></span></span>
               <PathInput label="whisper-cli executable" description="Path to the whisper.cpp command-line program." placeholder="/opt/homebrew/bin/whisper-cli" value={settings.voiceLocalWhisperExecutable} onCommit={(value) => update('voiceLocalWhisperExecutable', value)} />
               <PathInput label="GGML model file" description="Path to the downloaded whisper.cpp model." placeholder="/path/to/ggml-large-v3-turbo.bin" value={settings.voiceLocalWhisperModel} onCommit={(value) => update('voiceLocalWhisperModel', value)} />
             </div>
@@ -263,7 +263,7 @@ export function VoiceSettings({ settings, onUpdate, voice, platform = 'darwin' }
       </section>
 
       {credential ? <Modal title={`Connect ${CREDENTIALS.find((item) => item.id === credential)?.name ?? credential}`} onClose={closeCredential} footer={<><button type="button" className="button" disabled={busy} onClick={closeCredential}>Cancel</button><button type="button" className="button button--primary" disabled={busy || !apiKey.trim()} onClick={() => void saveCredential()}>{busy ? 'Saving…' : credential === 'self-hosted' ? 'Save token' : 'Save API key'}</button></>}>
-        <p className="modal-intro">{secureStorageAvailable ? `Paste the ${credential === 'self-hosted' ? 'optional bearer token' : 'provider API key'}. Vizmaster encrypts it with your operating system’s secure credential store and never reads it back into this screen.` : `Secure credential storage is unavailable. Vizmaster will keep this ${credential === 'self-hosted' ? 'token' : 'key'} only in desktop memory for the current app session. It will not write the ${credential === 'self-hosted' ? 'token' : 'key'} to disk, and it will be cleared when Vizmaster quits.`}</p>
+        <p className="modal-intro">{secureStorageAvailable ? `Paste the ${credential === 'self-hosted' ? 'optional bearer token' : 'provider API key'}. VizMaster encrypts it with your operating system’s secure credential store and never reads it back into this screen.` : `Secure credential storage is unavailable. VizMaster will keep this ${credential === 'self-hosted' ? 'token' : 'key'} only in desktop memory for the current app session. It will not write the ${credential === 'self-hosted' ? 'token' : 'key'} to disk, and it will be cleared when VizMaster quits.`}</p>
         {failure ? <p className="settings-error" role="alert">{failure}</p> : null}
         <label className="field"><span>{credential === 'self-hosted' ? 'Access token' : 'API key'}</span><input autoFocus type="password" value={apiKey} autoComplete="off" spellCheck={false} placeholder={credential === 'self-hosted' ? 'Paste access token' : 'Paste API key'} onChange={(event) => setApiKey(event.target.value)} /></label>
       </Modal> : null}

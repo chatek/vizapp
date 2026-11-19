@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, ConnectAgentOutcome, PrimeEventEnvelope, PrimeWorkApi, PromptCatalogueResult, PromptDraftInput, PromptDraftOutcome, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot, VizmasterPreviewResult, VizshowBuild, VizshowShow, VizshowShowsSnapshot, VizshowSnapshot } from '../../src/types/api'
+import type { AgentBrowserActivityEvent, AgentBrowserPointerEvent, AgentBrowserState, AppUpdateState, ConnectAgentOutcome, PrimeEventEnvelope, PrimeWorkApi, PromptCatalogueResult, PromptDraftInput, PromptDraftOutcome, PromptSuggestion, PromptSuggestionConsentRequest, PromptSuggestionInvokeResult, PromptSuggestionOutcome, ProviderAuthEvent, ScheduleChangeEvent, SessionChangeEvent, TerminalDataEvent, TerminalExitEvent, VclawInboxSnapshot, VizMasterPreviewResult, VizshowBuild, VizshowShow, VizshowShowsSnapshot, VizshowSnapshot } from '../../src/types/api'
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
   if (typeof callback !== 'function') throw new TypeError('callback must be a function')
@@ -180,7 +180,7 @@ const api: PrimeWorkApi = {
     state: () => invoke<VizshowSnapshot>('vclaw-vizshow:state'),
     onChanged: (callback) => subscribe<VizshowSnapshot>('vclaw-vizshow:changed', callback),
     url: (buildId?: string) => invoke<{ ok: true; url: string; build: VizshowBuild } | { ok: false; error: string }>('vclaw-vizshow:url', buildId ?? null),
-    preview: (mode?: 'preview' | 'dev') => invoke<VizmasterPreviewResult>('vclaw-vizshow:preview', mode ?? 'preview'),
+    preview: (mode?: 'preview' | 'dev') => invoke<VizMasterPreviewResult>('vclaw-vizshow:preview', mode ?? 'preview'),
     shows: () => invoke<VizshowShowsSnapshot>('vclaw-vizshow:shows'),
     onShowsChanged: (callback) => subscribe<VizshowShowsSnapshot>('vclaw-vizshow:shows-changed', callback),
     showUrl: (showId?: string) => invoke<{ ok: true; url: string; build: VizshowBuild; show: VizshowShow } | { ok: false; error: string }>('vclaw-vizshow:show-url', showId ?? null),

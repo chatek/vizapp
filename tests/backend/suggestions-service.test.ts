@@ -534,16 +534,16 @@ describe('micro authorization', () => {
     expect(['vizregistry.prompts.room.open', 'vizregistry.prompts.room.close', 'vizregistry.prompts.feedback']
       .flatMap((subject) => requestsFor(fake, subject))
       .map((request) => request.headers)).toEqual([
-      { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
-      { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
-      { Authorization: 'Bearer token-1', 'X-Vizmaster-Token': 'token-1' },
+      { Authorization: 'Bearer token-1', 'X-VizMaster-Token': 'token-1' },
+      { Authorization: 'Bearer token-1', 'X-VizMaster-Token': 'token-1' },
+      { Authorization: 'Bearer token-1', 'X-VizMaster-Token': 'token-1' },
     ])
     expect(fake.refreshes).toBe(0)
     await service.stop()
   })
 
   it('builds the canonical header plus the fallback the service accepts', () => {
-    expect(bearerHeaders('abc.def.ghi')).toEqual({ Authorization: 'Bearer abc.def.ghi', 'X-Vizmaster-Token': 'abc.def.ghi' })
+    expect(bearerHeaders('abc.def.ghi')).toEqual({ Authorization: 'Bearer abc.def.ghi', 'X-VizMaster-Token': 'abc.def.ghi' })
   })
 
   it('passes forbidden_segment through untouched instead of retrying', async () => {
@@ -576,7 +576,7 @@ describe('micro authorization', () => {
       'Bearer stale-token',
       'Bearer fresh-token',
     ])
-    expect(feedback[1]?.headers?.['X-Vizmaster-Token']).toBe('fresh-token')
+    expect(feedback[1]?.headers?.['X-VizMaster-Token']).toBe('fresh-token')
     await service.stop()
   })
 

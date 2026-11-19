@@ -84,7 +84,7 @@ describe('VoiceService', () => {
   it('rejects Linux basic-text storage with actionable setup guidance', () => {
     expect(voiceSecretStorageStatus('linux', true, 'basic_text')).toEqual({
       available: false,
-      message: 'Vizmaster will not save voice API keys because this Linux desktop is using unprotected basic-text storage. Install and unlock GNOME Keyring (libsecret) or KWallet, then restart Vizmaster.',
+      message: 'VizMaster will not save voice API keys because this Linux desktop is using unprotected basic-text storage. Install and unlock GNOME Keyring (libsecret) or KWallet, then restart VizMaster.',
     })
     expect(voiceSecretStorageStatus('linux', true, 'gnome_libsecret')).toEqual({ available: true })
     expect(voiceSecretStorageStatus('win32', true)).toEqual({ available: true })
@@ -108,7 +108,7 @@ describe('VoiceService', () => {
   it('does not decrypt or use a saved key while secure storage is unavailable', async () => {
     let storageAvailable = true
     const decrypt = vi.fn((value: Buffer) => value.toString().replace(/^encrypted:/, ''))
-    const message = 'Install and unlock GNOME Keyring (libsecret) or KWallet, then restart Vizmaster.'
+    const message = 'Install and unlock GNOME Keyring (libsecret) or KWallet, then restart VizMaster.'
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toEqual({ Authorization: 'Bearer sk-session-value' })
       return new Response('v=0\r\no=answer')
@@ -143,7 +143,7 @@ describe('VoiceService', () => {
   })
 
   it('keeps a fallback key only in memory when secure storage is unavailable', async () => {
-    const message = 'Install and unlock GNOME Keyring (libsecret) or KWallet, then restart Vizmaster.'
+    const message = 'Install and unlock GNOME Keyring (libsecret) or KWallet, then restart VizMaster.'
     const encrypt = vi.fn((value: string) => Buffer.from(`encrypted:${value}`))
     const { service, options } = makeService({
       secretCodec: {

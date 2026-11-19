@@ -12,6 +12,7 @@ import {
   serializePackagedSmokeMarker,
 } from '../electron/main/packaged-smoke'
 import * as launcher from '../scripts/release/smoke-packaged-app.mjs'
+import { productArtifactPrefix } from '../scripts/release/lib.mjs'
 
 describe('packaged smoke contract', () => {
   it('agrees with the launcher on every shared value', () => {
@@ -106,7 +107,10 @@ describe('packaged smoke launch', () => {
   let unpacked: string
 
   const writeFakeApplication = (script: string): void => {
-    const executable = join(unpacked, 'vclaw')
+    // The launcher derives the executable from build.productName (rebrand-safe
+    // since the artifact-rename slice); the fixture must do the same, not pin
+    // the pre-rebrand literal.
+    const executable = join(unpacked, productArtifactPrefix().toLowerCase())
     writeFileSync(executable, `#!/usr/bin/env bash\nset -euo pipefail\n${script}\n`, { encoding: 'utf8' })
     chmodSync(executable, 0o755)
   }
@@ -171,7 +175,7 @@ describe('packaged smoke launch', () => {
   })
 
   it('reports a missing packaged executable rather than launching something else', async () => {
-    rmSync(join(unpacked, 'vclaw'), { force: true })
+    rmSync(join(unpacked, productArtifactPrefix().toLowerCase()), { force: true })
 
     await expect(launcher.smokePackagedApp('linux', 'x64')).rejects.toThrow('missing its executable')
 

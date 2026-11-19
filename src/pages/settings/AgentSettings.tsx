@@ -76,7 +76,7 @@ export function AgentSettings({ settings, meta, onUpdate, onRefreshHarnesses }: 
             </div>
           )
         })}
-        <p className="settings-group__description">Discovery checks a saved override first, then the harness environment variable, bundled files, PATH, and standard install directories. Refreshing updates future sessions without restarting Vizmaster.</p>
+        <p className="settings-group__description">Discovery checks a saved override first, then the harness environment variable, bundled files, PATH, and standard install directories. Refreshing updates future sessions without restarting VizMaster.</p>
         {HARNESS_IDS.map((harness) => <DraftSettingField
           key={harness}
           id={`runtime-path-${harness}`}

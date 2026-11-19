@@ -131,7 +131,7 @@ describe('MacBackgroundController', () => {
     expect(electron.nativeImage.createFromPath).toHaveBeenCalledWith('/app/icon.png')
     expect(electron.trayImage.resize).toHaveBeenCalledWith({ width: 18, height: 18 })
     expect(electron.trayImage.setTemplateImage).toHaveBeenCalledWith(true)
-    expect(electron.templates[0].map((item) => item.label ?? item.type)).toEqual(['Open Vizmaster', 'separator', 'Settings...', 'Quit'])
+    expect(electron.templates[0].map((item) => item.label ?? item.type)).toEqual(['Open VizMaster', 'separator', 'Settings...', 'Quit'])
     expect(electron.templates[0].every((item) => item.accelerator === undefined)).toBe(true)
     expect(electron.templates[0].filter((item) => item.label).every((item) => item.icon)).toBe(true)
     expect(electron.nativeImage.createFromDataURL).toHaveBeenCalledTimes(3)

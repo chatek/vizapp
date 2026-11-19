@@ -230,7 +230,7 @@ async function loadVclawVerbRunner(): Promise<VclawVerbRunner> {
     // Resolve through the package's EXPORTED root specifier, never
     // '@vclawhub/agent/package.json': the exports map does not export it, and
     // require.resolve throws ERR_PACKAGE_PATH_NOT_EXPORTED in the packaged app
-    // (measured 2026-11-19, Vizmaster.app — dev only escaped because the
+    // (measured 2026-11-19, VizMaster.app — dev only escaped because the
     // earlier probe hand-built the path). import.meta.resolve honours the
     // exports map and works from inside app.asar; the verbs module sits
     // beside the resolved dist entry.

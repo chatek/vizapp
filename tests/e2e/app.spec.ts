@@ -757,7 +757,7 @@ test.describe('Prime Work desktop smoke', () => {
       return { found: Boolean(parent), parent: parent?.label, platform: process.platform }
     })
     expect(updateMenu.found).toBe(true)
-    expect(updateMenu.parent).toBe(updateMenu.platform === 'darwin' ? 'Vizmaster' : 'Help')
+    expect(updateMenu.parent).toBe(updateMenu.platform === 'darwin' ? 'VizMaster' : 'Help')
     await expect(page.evaluate(() => window.prime.updates.getState())).resolves.toMatchObject({ phase: 'unsupported' })
     const credentialStatus = await page.evaluate(() => window.prime.voice.credentialStatus())
     expect(typeof credentialStatus.storage.available).toBe('boolean')
@@ -874,7 +874,7 @@ test.describe('Prime Work desktop smoke', () => {
   })
 
   test('uses the persisted selected pet for realtime voice after a full restart', async () => {
-    const desktopPet = page.getByRole('button', { name: /Orb, draggable Vizmaster pet/ })
+    const desktopPet = page.getByRole('button', { name: /Orb, draggable VizMaster pet/ })
     await expect(desktopPet).toBeVisible()
     await desktopPet.hover()
     await expect(desktopPet).not.toHaveAttribute('title')
@@ -888,7 +888,7 @@ test.describe('Prime Work desktop smoke', () => {
     expect(idlePetGap).toBeLessThanOrEqual(1)
     await page.locator('.title-toolbar').getByRole('button', { name: 'Open realtime voice' }).click()
     await expect(page.getByRole('complementary', { name: 'Realtime voice session' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Orb, draggable Vizmaster pet/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Orb, draggable VizMaster pet/ })).toBeVisible()
     await expect(page.locator('.voice-orb')).toHaveCount(0)
     await page.getByRole('complementary', { name: 'Realtime voice session' }).getByRole('button', { name: 'Close realtime voice' }).click()
 
@@ -896,8 +896,8 @@ test.describe('Prime Work desktop smoke', () => {
     await page.getByRole('button', { name: 'Pets', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Pets', exact: true })).toBeVisible()
     await expect(page.getByRole('radio', { name: /^Orb Built/ })).toBeChecked()
-    await page.getByRole('radio', { name: /^Vizmaster Built/ }).click()
-    await expect(page.getByRole('radio', { name: /^Vizmaster Built/ })).toBeChecked()
+    await page.getByRole('radio', { name: /^VizMaster Built/ }).click()
+    await expect(page.getByRole('radio', { name: /^VizMaster Built/ })).toBeChecked()
     await expect(page.getByRole('heading', { name: 'Codex Pets' })).toBeVisible()
     const showPet = page.getByRole('checkbox', { name: 'Show desktop pet' })
     await showPet.focus()
@@ -925,7 +925,7 @@ test.describe('Prime Work desktop smoke', () => {
     await page.locator('.session-row-wrap').filter({ hasText: 'Hermetic desktop fixture' }).locator('.session-row').click()
     await page.locator('.title-toolbar').getByRole('button', { name: 'Open realtime voice' }).click()
     const realtimePet = page.getByRole('complementary', { name: 'Realtime voice session' })
-    await expect(realtimePet.getByRole('button', { name: /Vizmaster, draggable Vizmaster pet/ })).toBeVisible()
+    await expect(realtimePet.getByRole('button', { name: /VizMaster, draggable VizMaster pet/ })).toBeVisible()
     await expect(realtimePet.locator('.pet-sprite img')).toBeVisible()
     await expect(page.locator('.voice-orb')).toHaveCount(0)
   })
@@ -1623,7 +1623,7 @@ test.describe('Prime Work desktop smoke', () => {
         await expect(addDialog.getByText('Add MCP', { exact: true })).toBeVisible()
         await expect(addDialog.getByText('Add Package', { exact: true })).toBeVisible()
         await expect(addDialog.getByText('Add Extension', { exact: true })).toBeVisible()
-        await expect(addDialog.getByText(/Not every third-party package, plugin, or extension will work in Vizmaster/)).toBeVisible()
+        await expect(addDialog.getByText(/Not every third-party package, plugin, or extension will work in VizMaster/)).toBeVisible()
         const addMcp = addDialog.getByRole('button', { name: /Add MCP/ })
         await expect(addMcp).toBeDisabled()
         await expect(addMcp).toContainText('Prime MCP setup is managed outside VClaw')
@@ -2390,8 +2390,8 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string; click?: () => void }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open Vizmaster|separator|Settings...|Quit') {
-          scope.__trayOpen = items.find((item) => item.label === 'Open Vizmaster')?.click
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VizMaster|separator|Settings...|Quit') {
+          scope.__trayOpen = items.find((item) => item.label === 'Open VizMaster')?.click
         }
         return originalBuildFromTemplate(template)
       }) as typeof Menu.buildFromTemplate
@@ -2430,7 +2430,7 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open Vizmaster|separator|Settings...|Quit') {
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VizMaster|separator|Settings...|Quit') {
           process.getBuiltinModule('node:fs').appendFileSync(markerPath, 'tray\n')
         }
         return originalBuildFromTemplate(template)
@@ -2456,9 +2456,9 @@ test.describe('Prime Work desktop smoke', () => {
     await stubCloseDialog(app!)
 
     const runningPrompt = {
-      message: 'Close Vizmaster while an agent is running?',
+      message: 'Close VizMaster while an agent is running?',
       detail: 'An agent run is still in progress and will be stopped.',
-      buttons: ['Cancel', 'Close Vizmaster'],
+      buttons: ['Cancel', 'Close VizMaster'],
     }
     await app!.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.close() })
     await expect.poll(() => closePrompts(app!)).toEqual([runningPrompt])
@@ -2487,7 +2487,7 @@ test.describe('Prime Work desktop smoke', () => {
       const originalBuildFromTemplate = Menu.buildFromTemplate.bind(Menu)
       Menu.buildFromTemplate = ((template) => {
         const items = template as Array<{ label?: string; type?: string; click?: () => void }>
-        if (items.map((item) => item.label ?? item.type).join('|') === 'Open Vizmaster|separator|Settings...|Quit') {
+        if (items.map((item) => item.label ?? item.type).join('|') === 'Open VizMaster|separator|Settings...|Quit') {
           scope.__trayQuit = items.find((item) => item.label === 'Quit')?.click
         }
         return originalBuildFromTemplate(template)
@@ -2520,9 +2520,9 @@ test.describe('Prime Work desktop smoke', () => {
     expect(processIsAlive(runtimePid)).toBe(true)
 
     const runningPrompt = {
-      message: 'Close Vizmaster while an agent is running?',
+      message: 'Close VizMaster while an agent is running?',
       detail: 'An agent run is still in progress and will be stopped.',
-      buttons: ['Cancel', 'Close Vizmaster'],
+      buttons: ['Cancel', 'Close VizMaster'],
     }
     await app!.evaluate(() => {
       const quit = (globalThis as { __trayQuit?: () => void }).__trayQuit

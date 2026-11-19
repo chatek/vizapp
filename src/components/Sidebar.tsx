@@ -128,17 +128,17 @@ function HarnessMark({ harness, size }: { harness: HarnessId; size: number }) {
 function updateControlCopy(state: AppUpdateState): { label: string; title: string } {
   const version = state.version ? ` ${state.version}` : ''
   switch (state.phase) {
-    case 'checking': return { label: 'Checking for updates', title: 'Checking GitHub Releases for a new Vizmaster version' }
-    case 'available': return { label: `Download${version}`, title: `Download and restart Vizmaster${version}` }
+    case 'checking': return { label: 'Checking for updates', title: 'Checking GitHub Releases for a new VizMaster version' }
+    case 'available': return { label: `Download${version}`, title: `Download and restart VizMaster${version}` }
     case 'downloading': return {
       label: state.percent === undefined ? `Downloading${version}` : `Downloading${version} · ${state.percent}%`,
-      title: `Downloading Vizmaster${version}`,
+      title: `Downloading VizMaster${version}`,
     }
-    case 'downloaded': return { label: `Restart for${version}`, title: `Restart Vizmaster and install version${version}` }
-    case 'not-available': return { label: 'Vizmaster is up to date', title: 'Check again for a new Vizmaster release' }
+    case 'downloaded': return { label: `Restart for${version}`, title: `Restart VizMaster and install version${version}` }
+    case 'not-available': return { label: 'VizMaster is up to date', title: 'Check again for a new VizMaster release' }
     case 'error': return { label: version ? `Retry update${version}` : 'Retry update', title: state.message ?? 'Update failed — try checking again' }
     case 'unsupported': return { label: 'Automatic updates', title: state.message ?? 'Automatic updates are available in installed builds' }
-    default: return { label: 'Release updates', title: 'Check for a new Vizmaster release' }
+    default: return { label: 'Release updates', title: 'Check for a new VizMaster release' }
   }
 }
 
@@ -146,22 +146,22 @@ function updateControlCopy(state: AppUpdateState): { label: string; title: strin
 function updateAnnouncement(state: AppUpdateState): string {
   const version = state.version ? ` ${state.version}` : ''
   switch (state.phase) {
-    case 'available': return `Vizmaster update${version} is available`
-    case 'downloading': return `Downloading Vizmaster update${version}`
-    case 'downloaded': return `Vizmaster update${version} is ready to install`
-    case 'error': return `Vizmaster update failed. ${state.message ?? 'Try again.'}`
+    case 'available': return `VizMaster update${version} is available`
+    case 'downloading': return `Downloading VizMaster update${version}`
+    case 'downloaded': return `VizMaster update${version} is ready to install`
+    case 'error': return `VizMaster update failed. ${state.message ?? 'Try again.'}`
     default: return ''
   }
 }
 
 function updateConfirmCopy(state: AppUpdateState): { title: string; body: string } {
   if (state.phase === 'downloaded') return {
-    title: 'Restart Vizmaster to install the update?',
-    body: 'Vizmaster will close and restart to finish installing the update.',
+    title: 'Restart VizMaster to install the update?',
+    body: 'VizMaster will close and restart to finish installing the update.',
   }
   return {
-    title: 'Download and Restart Vizmaster?',
-    body: 'Vizmaster will download the update, close, and restart when it is ready.',
+    title: 'Download and Restart VizMaster?',
+    body: 'VizMaster will download the update, close, and restart when it is ready.',
   }
 }
 

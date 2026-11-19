@@ -212,7 +212,7 @@ export function PiMark({ size = 24 }: { size?: number }) {
 
 export function VClawMark({ size = 24 }: { size?: number }) {
   return (
-    <span className="vclaw-mark" style={{ width: size, height: size }} role="img" aria-label="Vizmaster">
+    <span className="vclaw-mark" style={{ width: size, height: size }} role="img" aria-label="VizMaster">
       <img src="/vclaw-mascot.png" alt="" aria-hidden="true" />
     </span>
   )

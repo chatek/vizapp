@@ -14,7 +14,7 @@ const nvmrcPath = fileURLToPath(new URL('../../.nvmrc', import.meta.url))
 let productPrefixCache
 /**
  * The artifact-name prefix the CURRENT package identity produces: electron-builder
- * resolves the `${productName}` macro to `build.productName`, so `Vizmaster-<version>…`
+ * resolves the `${productName}` macro to `build.productName`, so `VizMaster-<version>…`
  * names must always start with this. Single source of truth — scripts and tests derive
  * from here instead of hardcoding a product literal that the next rebrand would stale
  * (the 6f144322 VClaw→Vizmaster rename is exactly that failure mode).
@@ -442,7 +442,7 @@ const ARTIFACT_ARCHITECTURES = new Set(['arm64', 'x64', 'universal'])
  * The member segment an artifact name claims, or null for the generic product name.
  *
  * Parsed from the RIGHT: a member id may itself contain hyphens, the architecture may not.
- * `Vizmaster-1.1.17-arm64.dmg` -> null; `Vizmaster-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
+ * `VizMaster-1.1.17-arm64.dmg` -> null; `VizMaster-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
  */
 export function artifactMemberSegment(filename) {
   const match = new RegExp(`^${escapeArtifactPrefix(productArtifactPrefix())}-\\d+\\.\\d+\\.\\d+-(.+)\\.(?:dmg|zip|exe|AppImage)$`).exec(filename)

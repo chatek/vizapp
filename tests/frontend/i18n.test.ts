@@ -63,6 +63,6 @@ describe('i18n', () => {
     expect(translate('en', 'appearance.language.available', { count: 1 })).toBe('1 language available')
     expect(translate('en', 'appearance.language.available', { count: 2 })).toBe('2 languages available')
     expect(translate('zh-CN', 'appearance.language.available', { count: 2 })).toBe('支持 2 种语言')
-    expect(translate('zh-CN', 'common.reload')).toBe('Reload Vizmaster')
+    expect(translate('zh-CN', 'common.reload')).toBe('Reload VizMaster')
   })
 })

@@ -111,7 +111,7 @@ export interface VizshowSnapshot {
 }
 
 /** Outcome of the live-project preview (5174). `note` explains a navigate-anyway outcome. */
-export interface VizmasterPreviewResult {
+export interface VizMasterPreviewResult {
   ok: boolean
   url: string
   started: boolean
@@ -1046,7 +1046,7 @@ export interface PrimeWorkApi {
     /** Resolves a build id (or the latest build) to a URL the pane may load. */
     url(buildId?: string): Promise<{ ok: true; url: string; build: VizshowBuild } | { ok: false; error: string }>
     /** Spawns `npm run preview|dev` in the seeded project; answers the URL either way. */
-    preview(mode?: 'preview' | 'dev'): Promise<VizmasterPreviewResult>
+    preview(mode?: 'preview' | 'dev'): Promise<VizMasterPreviewResult>
     /** Creator-composed shows (`~/.vizmaster/shows/`), announced on each SHOW.json change. */
     shows(): Promise<VizshowShowsSnapshot>
     onShowsChanged(callback: (snapshot: VizshowShowsSnapshot) => void): () => void

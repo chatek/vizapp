@@ -1,7 +1,7 @@
 import { spawn as spawnProcess, type ChildProcess } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { vizmasterProjectRoot } from './vizshow-service'
-import type { VizmasterPreviewResult } from '../../src/types/api'
+import type { VizMasterPreviewResult } from '../../src/types/api'
 
 /**
  * The LIVE project preview: `npm run preview` (dist, zero-toolchain) or `npm run dev` (HMR) in
@@ -77,7 +77,7 @@ function spawnNpm(request: PreviewSpawnRequest): ChildProcess {
  *                                  that is about to work)
  *   · nothing started at all    → `{ ok: false, error }` (missing project, npm not runnable)
  */
-export async function ensureProjectPreview(options: EnsureProjectPreviewOptions = {}): Promise<VizmasterPreviewResult> {
+export async function ensureProjectPreview(options: EnsureProjectPreviewOptions = {}): Promise<VizMasterPreviewResult> {
   const projectRoot = options.projectRoot ?? vizmasterProjectRoot()
   const mode = options.mode ?? 'preview'
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -85,7 +85,7 @@ export async function ensureProjectPreview(options: EnsureProjectPreviewOptions 
   const probe = options.probe ?? portAnswers
   const spawnPreview = options.spawnPreview ?? spawnNpm
 
-  const already = async (): Promise<VizmasterPreviewResult> => ({
+  const already = async (): Promise<VizMasterPreviewResult> => ({
     ok: true,
     url: PREVIEW_URL,
     started: false,

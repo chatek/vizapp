@@ -31,34 +31,41 @@ afterEach(() => {
 })
 
 describe('splash hold timing (pure)', () => {
-  it('waits out the 3s minimum when dismissal comes early', () => {
+  // d916a27f retuned the budget to the measured chime reality: MIN 6.8s
+  // (chime start latency ~1.8-4.0s + the piece's natural 4.64s + fade margin),
+  // cap 7.2s, jitter 0 (a randomized extension would outlast the finished
+  // piece). These tests assert via the live constants, never stale literals.
+  it('waits out the full minimum when dismissal comes early', () => {
     expect(splashHoldDelayMs(500, 0, 0)).toBe(SPLASH_MIN_HOLD_MS - 500)
-    expect(splashHoldDelayMs(2_999, 0, 0)).toBe(1)
+    expect(splashHoldDelayMs(SPLASH_MIN_HOLD_MS - 1, 0, 0)).toBe(1)
   })
 
   it('fades at once when dismissal arrives after the hold window', () => {
-    expect(splashHoldDelayMs(3_000, 0, 0)).toBe(0)
-    expect(splashHoldDelayMs(9_000, 0, 2_000)).toBe(0)
+    expect(splashHoldDelayMs(SPLASH_MIN_HOLD_MS, 0, 0)).toBe(0)
+    expect(splashHoldDelayMs(SPLASH_MAX_HOLD_MS + 2_000, 0, 2_000)).toBe(0)
   })
 
-  it('extends the hold by the jitter, clamped so 3s+jitter never exceeds the 5s cap', () => {
-    expect(splashHoldDelayMs(0, 0, 1_500)).toBe(SPLASH_MIN_HOLD_MS + 1_500)
-    expect(splashHoldDelayMs(0, 0, SPLASH_MAX_HOLD_JITTER_MS)).toBe(SPLASH_MAX_HOLD_MS)
-    expect(splashHoldDelayMs(0, 0, 99_999)).toBe(SPLASH_MAX_HOLD_MS)
+  it('jitter is retired (0): any delivered value cannot extend the hold past the cap', () => {
+    expect(splashHoldDelayMs(0, 0, 1_500)).toBe(SPLASH_MIN_HOLD_MS)
+    expect(splashHoldDelayMs(0, 0, SPLASH_MAX_HOLD_JITTER_MS)).toBe(SPLASH_MIN_HOLD_MS)
+    expect(splashHoldDelayMs(0, 0, 99_999)).toBe(SPLASH_MIN_HOLD_MS)
     expect(splashHoldDelayMs(0, 0, -50)).toBe(SPLASH_MIN_HOLD_MS)
   })
 
   it('anchors on first paint, not on dismissal time', () => {
-    // Paint at 400ms: the 3s window is measured from there, not from now.
-    expect(splashHoldDelayMs(1_000, 400, 0)).toBe(2_400)
+    // Paint at 400ms: the hold window is measured from there, not from now.
+    expect(splashHoldDelayMs(1_000, 400, 0)).toBe(SPLASH_MIN_HOLD_MS + 400 - 1_000)
   })
 
-  it('parses the dataset jitter defensively', () => {
-    expect(parseSplashHoldJitter('1200')).toBe(1_200)
+  it('parses the dataset jitter defensively — and the clamp is 0 since the retune', () => {
+    // Parsing stays defensive; the VALUE is always clamped to 0 (jitter was
+    // retired in d916a27f: any extension would outlast the finished chime).
+    expect(parseSplashHoldJitter('1200')).toBe(SPLASH_MAX_HOLD_JITTER_MS)
     expect(parseSplashHoldJitter(undefined)).toBe(0)
     expect(parseSplashHoldJitter('not-a-number')).toBe(0)
     expect(parseSplashHoldJitter('-5')).toBe(0)
     expect(parseSplashHoldJitter('999999')).toBe(SPLASH_MAX_HOLD_JITTER_MS)
+    expect(SPLASH_MAX_HOLD_JITTER_MS).toBe(0)
   })
 
   it('falls back to a non-negative anchor when paint entries are absent', () => {
@@ -85,14 +92,14 @@ describe('splash overlay dismissal', () => {
     }
   })
 
-  it('extends by the delivered jitter (dataset from the main-process payload)', () => {
+  it('a delivered jitter no longer extends the hold (retired in d916a27f)', () => {
     vi.useFakeTimers()
     try {
       stubPaintAnchor(0)
       const overlay = document.getElementById(SPLASH_OVERLAY_ID)
       overlay?.setAttribute('data-vclaw-hold-jitter', '1500')
       dismissSplashOverlay()
-      vi.advanceTimersByTime(SPLASH_MIN_HOLD_MS + 1_499)
+      vi.advanceTimersByTime(SPLASH_MIN_HOLD_MS - 1)
       expect(overlay?.classList.contains('vclaw-splash--hidden')).toBe(false)
       vi.advanceTimersByTime(1)
       expect(overlay?.classList.contains('vclaw-splash--hidden')).toBe(true)
@@ -135,13 +142,18 @@ describe('splash overlay dismissal', () => {
 })
 
 describe('splash overlay hard cap', () => {
-  it('removes the overlay at first paint + 5s even without initialized', () => {
+  it('removes the overlay at first paint + the hold even without initialized', () => {
     vi.useFakeTimers()
     try {
       stubPaintAnchor(100)
+      const beforeArm = performance.now()
       primeSplashOverlayCap()
       const overlay = document.getElementById(SPLASH_OVERLAY_ID)
-      vi.advanceTimersByTime(100 + SPLASH_MAX_HOLD_MS - 1)
+      // The cap arms with jitter clamped to 0 (retired in d916a27f), so the
+      // removal lands at anchor + SPLASH_MIN_HOLD_MS; SPLASH_MAX_HOLD_MS only
+      // bounds a jitter extension should one ever return. Advance relative to
+      // the arming instant, not to zero — keeps the boundary exact.
+      vi.advanceTimersByTime(Math.max(0, 100 + SPLASH_MIN_HOLD_MS - beforeArm - 1))
       expect(overlay?.classList.contains('vclaw-splash--hidden')).toBe(false)
       vi.advanceTimersByTime(1)
       expect(overlay?.classList.contains('vclaw-splash--hidden')).toBe(true)

@@ -26,15 +26,15 @@ describe('PetService', () => {
     const root = makeRoot()
     const builtInRoot = join(root, 'built-in')
     const codexRoot = join(root, 'codex')
-    writePet(builtInRoot, 'vclaw', 'vclaw', 'Vizmaster')
-    writePet(codexRoot, 'vclaw', 'vclaw', 'Duplicate Vizmaster')
+    writePet(builtInRoot, 'vclaw', 'vclaw', 'VizMaster')
+    writePet(codexRoot, 'vclaw', 'vclaw', 'Duplicate VizMaster')
     writePet(codexRoot, 'rocky', 'rocky', 'Rocky')
     const service = new PetService({ builtInRoot, codexRoot })
 
     const pets = await service.list()
     expect(pets.map((pet) => [pet.id, pet.displayName, pet.source])).toEqual([
       ['orb', 'Orb', 'built-in'],
-      ['vclaw', 'Vizmaster', 'built-in'],
+      ['vclaw', 'VizMaster', 'built-in'],
       ['codex/rocky', 'Rocky', 'codex'],
     ])
     await expect(service.sprite('vclaw')).resolves.toMatch(/^data:image\/webp;base64,/)
@@ -47,7 +47,7 @@ describe('PetService', () => {
     const root = makeRoot()
     const builtInRoot = join(root, 'built-in')
     const codexRoot = join(root, 'codex')
-    writePet(builtInRoot, 'vclaw', 'vclaw', 'Vizmaster')
+    writePet(builtInRoot, 'vclaw', 'vclaw', 'VizMaster')
     writePet(codexRoot, 'bad-manifest', 'bad id', 'Bad')
     const target = writePet(codexRoot, 'target', 'target', 'Target')
     symlinkSync(target, join(codexRoot, 'linked'))

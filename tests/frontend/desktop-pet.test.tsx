@@ -9,7 +9,7 @@ import type { PetDefinition, PrimeWorkApi } from '../../src/types/api'
 
 const definitions: PetDefinition[] = [
   { id: 'orb', petId: 'orb', displayName: 'Orb', description: 'Orb.', source: 'built-in', kind: 'orb' },
-  { id: 'vclaw', petId: 'vclaw', displayName: 'Vizmaster', description: 'Vizmaster.', source: 'built-in', kind: 'spritesheet' },
+  { id: 'vclaw', petId: 'vclaw', displayName: 'VizMaster', description: 'VizMaster.', source: 'built-in', kind: 'spritesheet' },
 ]
 
 describe('DesktopPet', () => {

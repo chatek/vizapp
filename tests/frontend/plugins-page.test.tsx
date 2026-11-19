@@ -355,7 +355,7 @@ describe('PluginsPage bundled capability controls', () => {
     const addMcp = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Add MCP'))!
     expect(addMcp.disabled).toBe(true)
     expect(addMcp.textContent).toContain('Enable Pi MCP Adapter first')
-    expect(dialog.textContent).toContain('Not every third-party package, plugin, or extension will work in Vizmaster')
+    expect(dialog.textContent).toContain('Not every third-party package, plugin, or extension will work in VizMaster')
     await act(async () => { [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'create a GitHub issue')!.click() })
     expect(openExternal).toHaveBeenCalledWith('https://github.com/chatek/vclaw-desktop/issues/new')
 
