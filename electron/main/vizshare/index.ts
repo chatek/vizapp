@@ -31,6 +31,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import { createVizShowApi, type VizShareFetch } from './api'
+import { createRegistryTokenSource } from './agent-token-source'
 import { SHARE_ORIGINS, createVizShareBroker, type VizShareRequestListener } from './broker'
 import { OidcClient, type SafeStorageLike } from './oidc'
 
@@ -126,7 +127,14 @@ export async function startVizShare(options: VizShareStartOptions): Promise<VizS
     storePath: join(options.app.getPath('userData'), 'vizshare-auth.bin'),
     ...(options.safeStorage === undefined ? {} : { safeStorage: options.safeStorage }),
   })
-  const api = createVizShowApi({ fetch: fetchImpl, getAccessToken: () => oidc.accessToken() })
+  // Step 3 dual mode (spec §5): a fresh pushed agent assertion serves first, the
+  // OIDC session second (the step-3 rollback is the PREFER_AGENT_ASSERTION
+  // constant), and no-assertion-no-session surfaces the client's typed
+  // reauth_required. The serving leg is logged; token material never is.
+  const api = createVizShowApi({
+    fetch: fetchImpl,
+    getAccessToken: async () => (await createRegistryTokenSource(oidc)((message) => console.log(message))).token,
+  })
 
   broker = createVizShareBroker({
     port,
