@@ -565,6 +565,13 @@ export function extensionRuntimeEnvironment(
     // openInBrowser gate), so setting it keeps the auth link out of the system
     // browser — the printed claimUrl reaches the Browser pane instead.
     VCLAW_MANAGES_OPEN_URL: '1',
+
+    // The VizShow build tool spawns vite. Inside the app, process.execPath is
+    // THIS binary (Electron), not node — advertise it so the tool's resolver can
+    // use Electron as node (it probes and spawns with ELECTRON_RUN_AS_NODE=1)
+    // when no node is on PATH. It never overrides a real node: the resolver
+    // validates every candidate by its `--version` output.
+    VIZMASTER_NODE: process.execPath,
   }
 }
 
@@ -1129,6 +1136,8 @@ async function bootstrap(): Promise<void> {
     // In-pane bind dance (D5 amendment 2): gate off the bundle's system-browser
     // auto-open of the signup claim URL — the Browser pane owns that navigation.
     VCLAW_MANAGES_OPEN_URL: '1',
+    // Same VizShow-build runtime advertisement as extensionRuntimeEnvironment.
+    VIZMASTER_NODE: process.execPath,
     VCLAW_CUA_DRIVER_PATH: stateStore.getSettings().computerUseEnabled ? cuaDriver.executable() ?? undefined : undefined,
     VCLAW_COMPUTER_USE_SKILL_PATH: stateStore.getSettings().computerUseEnabled && cuaDriver.executable() ? computerUseSkillPath : undefined,
   }))
