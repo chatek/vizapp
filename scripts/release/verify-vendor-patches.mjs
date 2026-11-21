@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { verifyVendorAgentPins } from './vendor-agent-pins.mjs'
+import { resolveCommandInvocation } from './lib.mjs'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const VENDOR = join(ROOT, 'vendor')
@@ -28,7 +29,10 @@ function sha256(path) {
 }
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: false })
+  // win32: npm is npm.cmd — a shell-less spawn cannot find it (ENOENT, measured
+  // on the ct18 guest). Resolve the invocation exactly like the release scripts.
+  const invocation = resolveCommandInvocation(command, args, process.platform, process.env)
+  const result = spawnSync(invocation.file, invocation.args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: invocation.shell })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${(result.stderr || result.stdout).trim()}`)
   return result.stdout.trim()
