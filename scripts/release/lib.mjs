@@ -445,11 +445,14 @@ const ARTIFACT_ARCHITECTURES = new Set(['arm64', 'x64', 'universal'])
  * `VizMaster-1.1.17-arm64.dmg` -> null; `VizMaster-1.1.17-vizmaster-arm64.dmg` -> 'vizmaster'.
  */
 export function artifactMemberSegment(filename) {
-  const match = new RegExp(`^${escapeArtifactPrefix(productArtifactPrefix())}-\\d+\\.\\d+\\.\\d+-(.+)\\.(?:dmg|zip|exe|AppImage)$`).exec(filename)
+  const match = new RegExp(`^${escapeArtifactPrefix(productArtifactPrefix())}-\\d+\\.\\d+\\.\\d+-(.+)\\.(?:dmg|zip|exe|appx|msix|AppImage)$`).exec(filename)
   if (!match) throw new Error(`Unrecognised artifact name: ${filename}`)
   const segments = match[1].split('-')
   const architecture = segments.pop()
   if (!ARTIFACT_ARCHITECTURES.has(architecture)) throw new Error(`Unrecognised architecture in artifact name: ${filename}`)
+  // Windows artifactName carries a platform infix: <member>-win-<arch>. It is not
+  // a member segment (`VizMaster-1.1.19-vizmaster-win-x64.exe` -> 'vizmaster').
+  if (segments.length && segments[segments.length - 1] === 'win') segments.pop()
   return segments.length ? segments.join('-') : null
 }
 

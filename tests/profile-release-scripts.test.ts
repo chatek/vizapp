@@ -26,6 +26,14 @@ describe('artifactMemberSegment', () => {
     expect(artifactMemberSegment('VizMaster-1.1.17-arm64.zip')).toBeNull()
   })
 
+  test('windows names carry a platform infix and the appx/msix extensions', () => {
+    expect(artifactMemberSegment('VizMaster-1.1.19-win-x64.exe')).toBeNull()
+    expect(artifactMemberSegment('VizMaster-1.1.19-vizmaster-win-x64.exe')).toBe('vizmaster')
+    expect(artifactMemberSegment('VizMaster-1.1.19-vizmaster-win-x64.appx')).toBe('vizmaster')
+    expect(artifactMemberSegment('VizMaster-1.1.19-vizmaster-win-x64.msix')).toBe('vizmaster')
+    expect(artifactMemberSegment('VizMaster-1.1.19-vizmaster-win-x64.zip')).toBe('vizmaster')
+  })
+
   test('refuses names it cannot read rather than guessing', () => {
     // The bug this replaces: a naive regex captured "arm64" as the member segment, so every
     // GENERIC artifact suddenly looked member-named and the verifier threw on a good build.
