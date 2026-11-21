@@ -122,7 +122,10 @@ try {
   let memberRelease = ''
   if (memberBuildId !== undefined) {
     const label = member !== undefined ? `--member ${member}` : `profile ${profile.id}`
-    if (profile.defaultProject && profile.defaultProject.from !== 'product/payload') {
+    // profile.json is hand-edited and may carry Windows separators ("product\\payload");
+    // compare normalized paths so the same profile passes on every host.
+    const seedsFrom = profile.defaultProject ? profile.defaultProject.from.replace(/\\/g, '/') : undefined
+    if (profile.defaultProject && seedsFrom !== 'product/payload') {
       console.error(`${label} seeds from "${profile.defaultProject.from}", but a member build ships its payload at product/payload; the v2 convention is defaultProject.from = "product/payload"`)
       process.exit(2)
     }
