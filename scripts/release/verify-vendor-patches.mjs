@@ -67,7 +67,10 @@ for (const spec of PACKAGES) {
     mkdirSync(rebuilt)
     mkdirSync(reviewed)
     run('tar', ['-xzf', basePath, '-C', work], ROOT)
-    run('git', ['apply', patchPath], work)
+    // Patch text is LF in the reviewed archive; a Windows system config with
+    // core.autocrlf=true would rewrite it to CRLF on apply and fail the byte
+    // comparison below. Pin the setting for this one invocation.
+    run('git', ['-c', 'core.autocrlf=false', 'apply', patchPath], work)
     run('tar', ['-xzf', outputPath, '-C', reviewed], ROOT)
     assertTreeMatches(join(work, 'package'), join(reviewed, 'package'))
 
