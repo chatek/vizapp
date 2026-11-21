@@ -197,6 +197,10 @@ try {
   if (isPublic && platform === 'win') builderArgs.push('--config.forceCodeSigning=true')
   const builderEnv = isQa ? { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } : process.env
   if (isQa && platform === 'mac') builderArgs.push('--config.mac.identity=null', '--config.mac.notarize=false')
+  // QA Windows builds ship node-pty/zeromq win32-x64 PREBUILDS (asarUnpack lists them);
+  // the ct18 guest has no MSVC and no Python on the SYSTEM PATH, so @electron/rebuild's
+  // node-gyp attempt cannot succeed and is not needed. Public builds keep the default.
+  if (isQa && platform === 'win') builderArgs.push('--config.npmRebuild=false')
   run('electron-builder', builderArgs, builderEnv)
   if (platform === 'win' && !dryRun) {
     const outputDirectory = resolve('release', platform, arch)
