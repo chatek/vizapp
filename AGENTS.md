@@ -24,6 +24,10 @@ Building and packaging have one entry point: start at [`docs/BUILD.md`](docs/BUI
 - **Official releases are cut by the maintainer**, not by CI. There is no automated release
   pipeline in this repository; do not document or plan one without also adding the workflow
   that runs it.
+- **Where packaged artefacts land:** the canonical output is `release/<platform>/<arch>/`;
+  every packaged file is ALSO copied to `build/<platform>-<arch>/` (git-ignored binaries) so the
+  operator can inspect build output in one obvious place. `--without-appx` is the only sanctioned
+  way to skip a Windows target, and it prints the skip; never drop a target silently.
 - **Nobody signs today.** No Developer ID or Authenticode credentials are configured, so
   builds are `--qa` only and releases are marked `unsigned`.
 

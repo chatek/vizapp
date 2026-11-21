@@ -12,6 +12,9 @@ const dryRun = args.has('--dry-run')
 // the identical typecheck/lint/test suite on the same commit; the release job
 // then only builds the bundle, packages, and runs post-package verification.
 const skipVerify = args.has('--skip-verify')
+// Explicit, reported alternative to a silent target drop: on hosts without the
+// Windows SDK the appx target cannot run (electron-builder needs makeappx).
+const withoutAppx = args.has('--without-appx')
 const platformIndex = process.argv.indexOf('--platform')
 const platform = platformIndex === -1 ? undefined : process.argv[platformIndex + 1]
 const archIndex = process.argv.indexOf('--arch')
@@ -201,11 +204,15 @@ try {
   // the ct18 guest has no MSVC and no Python on the SYSTEM PATH, so @electron/rebuild's
   // node-gyp attempt cannot succeed and is not needed. Public builds keep the default.
   if (isQa && platform === 'win') builderArgs.push('--config.npmRebuild=false')
+  if (platform === 'win' && withoutAppx) {
+    builderArgs.push(`--config.win.target=${JSON.stringify(['nsis', 'zip'])}`)
+    console.warn('note: --without-appx — the appx target is SKIPPED (no Windows SDK on this host); nsis + zip only')
+  }
   run('electron-builder', builderArgs, builderEnv)
-  if (platform === 'win' && !dryRun) {
+  if (platform === 'win' && !dryRun && !withoutAppx) {
     const outputDirectory = resolve('release', platform, arch)
     const appx = readdirSync(outputDirectory).find((name) => name.endsWith('.appx'))
-    if (!appx) throw new Error('Windows AppX/MSIX package was not produced')
+    if (!appx) throw new Error('Windows AppX/MSIX package was not produced (pass --without-appx to build nsis+zip only)')
     copyFileSync(resolve(outputDirectory, appx), resolve(outputDirectory, appx.replace(/\.appx$/, '.msix')))
   }
   if (platform === 'mac') {
@@ -216,6 +223,19 @@ try {
     )
   } else {
     run('node', ['scripts/release/verify-cross-platform-package.mjs', '--platform', platform, '--arch', arch, '--mode', isPublic ? 'public' : 'qa'], withoutReleaseCredentials(process.env))
+  }
+  // Operator-visible artifact mirror: every packaged file is also copied under
+  // build/<platform>-<arch>/ (git-ignored binaries), so the build output is one
+  // place to look instead of release/<platform>/<arch>.
+  if (!dryRun) {
+    const from = resolve('release', platform, arch)
+    const to = resolve('build', `${platform}-${arch}`)
+    mkdirSync(to, { recursive: true })
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      copyFileSync(resolve(from, entry.name), resolve(to, entry.name))
+    }
+    console.log(`artifacts also copied to build/${platform}-${arch}/`)
   }
   if (dryRun) console.log('\nDRY RUN — nothing executed.')
   else console.log(`\n${isPublic ? 'Distribution' : 'Local QA'} ${platform}/${arch} package pipeline passed.`)
