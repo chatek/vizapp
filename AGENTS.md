@@ -24,6 +24,12 @@ Building and packaging have one entry point: start at [`docs/BUILD.md`](docs/BUI
 - **Official releases are cut by the maintainer**, not by CI. There is no automated release
   pipeline in this repository; do not document or plan one without also adding the workflow
   that runs it.
+- **Release prep must not mutate the shared checkout.** Build/release scripts run in a
+  dedicated `git worktree` (or `git archive` of HEAD); never `git checkout`, `git clean`,
+  `git restore` or `git stash` against the primary working tree. The shared tree has
+  repeatedly replayed to a pre-step-2 state that way. Every build preflight runs
+  `node scripts/release/verify-vizshare-surface.mjs` (also `npm run verify:vizshare-surface`)
+  so a replayed tree fails loudly instead of shipping without the agent identity surface.
 - **Windows builds run on the ct18 KVM guest and the VM MUST be powered off after every
   use** (operator rule, 2026-11-21): use `scripts/release/win-vm-guard.sh` (`run`/`build`
   power it off on every exit path), never start qemu by hand, and never leave the guest

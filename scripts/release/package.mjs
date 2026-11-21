@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { assertSupportedToolchain, productArtifactPrefix, renderStagedProfile, runCommand, validateReleaseCredentials, validateWindowsReleaseCredentials, withoutReleaseCredentials } from './lib.mjs'
+import { verifyVizshareSurface } from './verify-vizshare-surface.mjs'
 
 const args = new Set(process.argv.slice(2))
 const isPublic = args.has('--public')
@@ -74,6 +75,12 @@ function hasMemberContent(directory) {
 
 try {
   assertSupportedToolchain()
+  // A replayed shared-tree checkout silently ships without the agent identity surface;
+  // fail here, before any packaging work, instead of producing a bad artefact.
+  {
+    const surface = verifyVizshareSurface(process.cwd())
+    if (!surface.ok) throw new Error(`vizshare surface check failed: ${surface.problems.join('; ')}`)
+  }
   if (process.platform !== platformHosts[platform]) throw new Error(`${platform} packaging must run natively on ${platformHosts[platform]}`)
   if (isPublic && platform === 'mac') validateReleaseCredentials(process.env)
   if (isPublic && platform === 'win') validateWindowsReleaseCredentials(process.env)

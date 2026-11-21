@@ -98,6 +98,13 @@ preflight() {
 
   printf 'preflight: local fallback on %s (%s)\n' "$(uname -m)" "$REPO_ROOT"
 
+  # 0. landed agent-identity surface (shared-tree replays have silently removed it)
+  if node "$REPO_ROOT/scripts/release/verify-vizshare-surface.mjs" --root "$REPO_ROOT" >/dev/null 2>&1; then
+    verdict_ok vizshare-surface "step-2 store + step-3 token source + broker route present"
+  else
+    verdict_fail vizshare-surface "electron/main/vizshare reverted to a pre-step-2 state — restore from HEAD before building"
+  fi
+
   # 1. node major 24 — the pinned toolchain, honoured only when already active
   want="$(tr -d '[:space:]' <"$NVMRC" 2>/dev/null || true)"
   if command -v node >/dev/null 2>&1; then
