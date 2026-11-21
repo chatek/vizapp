@@ -7,6 +7,7 @@ live in the procedure pages, not here.
 |---|---|---|
 | **local packaging (macOS)** | smoke-testing an installer on the machine that built it; verifying the tree still packages and the bundled `omp` (when the checkout declares `harness/bin` in `build.mac.extraResources`) verifies | [BUILD_LOCAL.md](BUILD_LOCAL.md) |
 | **local packaging (Linux / Windows)** | the same QA purpose on their native hosts (`package:linux:local-qa`, `package:win:local-qa`) | [FORK.md](../FORK.md) |
+| **Windows build host (ct18 KVM guest)** | every Windows build; the VM **must be powered off after each use** (operator rule) | [BUILD_WIN.md](BUILD_WIN.md) |
 | **development run** | running the app from source while working on it | [README.md](../README.md#run-from-source) |
 
 Packaging is native: run each platform command on its matching operating system and

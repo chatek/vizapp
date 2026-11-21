@@ -24,6 +24,11 @@ Building and packaging have one entry point: start at [`docs/BUILD.md`](docs/BUI
 - **Official releases are cut by the maintainer**, not by CI. There is no automated release
   pipeline in this repository; do not document or plan one without also adding the workflow
   that runs it.
+- **Windows builds run on the ct18 KVM guest and the VM MUST be powered off after every
+  use** (operator rule, 2026-11-21): use `scripts/release/win-vm-guard.sh` (`run`/`build`
+  power it off on every exit path), never start qemu by hand, and never leave the guest
+  running — it holds 16 GiB of the host. Autostart is disabled on the domain. Procedure:
+  [`docs/BUILD_WIN.md`](docs/BUILD_WIN.md).
 - **Where packaged artefacts land:** the canonical output is `release/<platform>/<arch>/`;
   every packaged file is ALSO copied to `build/<platform>-<arch>/` (git-ignored binaries) so the
   operator can inspect build output in one obvious place. `--without-appx` is the only sanctioned
