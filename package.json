@@ -187,6 +187,12 @@
       ],
       "artifactName": "${productName}-${version}-win-${arch}.${ext}",
       "icon": "assets/icon.png",
+      "extraResources": [
+        {
+          "from": "../vendors/oh-my-pi/releases/v18.16.0/omp-windows-${arch}.exe",
+          "to": "harness/bin/omp.exe"
+        }
+      ],
       "asarUnpack": [
         "**/node_modules/node-pty/prebuilds/win32-${arch}/pty.node",
         "**/node_modules/node-pty/prebuilds/win32-${arch}/conpty.node",
