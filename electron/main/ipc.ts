@@ -25,6 +25,10 @@ import type { ShowsService } from './shows-service'
 import { newestShowBuild } from './shows-service'
 import type { VizshowService } from './vizshow-service'
 import { ensureProjectPreview } from './vizmaster-preview'
+import { findVizShowForSession } from './vizshow-session'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { vizmasterHome } from './vizshow-service'
 import { connectVclawIdentity } from './vclaw-identity'
 
 interface Services {
@@ -127,6 +131,21 @@ export interface IpcRegistration {
 }
 
 let activeIpcRegistration: IpcRegistration | null = null
+
+/**
+ * Session files accepted by the session→VizShow resolver: JSONL transcripts under a harness
+ * session root (member or generic). Anything else is refused — the renderer must not be able
+ * to make the main process read an arbitrary path.
+ */
+function isSessionFile(candidate: string): boolean {
+  if (!candidate.endsWith('.jsonl')) return false
+  const roots = [
+    join(vizmasterHome(), 'agent', 'sessions'),
+    join(homedir(), '.omp', 'agent', 'sessions'),
+    join(homedir(), '.pi', 'agent', 'sessions'),
+  ].map((root) => resolve(root))
+  return roots.some((root) => candidate === root || candidate.startsWith(`${root}/`))
+}
 
 export function registerIpc(services: Services, expectedRendererUrl: string): IpcRegistration {
   if (activeIpcRegistration) {
@@ -541,6 +560,29 @@ export function registerIpc(services: Services, expectedRendererUrl: string): Ip
     return services.vizshow.urlFor(typeof buildId === 'string' ? buildId : undefined)
   })
   handle('vclaw-vizshow:preview', (_event, mode) => ensureProjectPreview({ mode: mode === 'dev' ? 'dev' : 'preview' }))
+  // The session view: resolve the selected chat session to ITS VizShow. A finished build
+  // navigates to the artefact; a staging/broken/missing one navigates to the local status page
+  // so the Browser explains the state instead of 404ing.
+  handle('vclaw-vizshow:for-session', async (_event, sessionFile) => {
+    if (typeof sessionFile !== 'string' || !sessionFile.trim()) return { ok: false, error: 'invalid_session' }
+    const resolved = resolve(sessionFile)
+    if (!isSessionFile(resolved)) return { ok: false, error: 'invalid_session' }
+    const match = await findVizShowForSession({ sessionFile: resolved, entries: services.vizshow.scanAll() })
+    if (!match) {
+      const page = await services.vizshow.statusUrl()
+      return page.ok ? { ok: true, url: page.url, status: 'missing' as const, matchedBy: null } : { ok: false, error: page.error }
+    }
+    if (match.status === 'done') {
+      const resolvedUrl = await services.vizshow.urlFor(match.buildId)
+      if (resolvedUrl.ok) {
+        return { ok: true, url: resolvedUrl.url, build: resolvedUrl.build, status: 'done' as const, matchedBy: match.matchedBy }
+      }
+    }
+    const page = await services.vizshow.statusUrl(match.buildId)
+    return page.ok
+      ? { ok: true, url: page.url, status: match.status, matchedBy: match.matchedBy, buildId: match.buildId }
+      : { ok: false, error: page.error }
+  })
   handle('vclaw-vizshow:shows', () => services.shows.snapshot())
   // A show's builds ARE vizshow build ids, so opening one is the same resolution (and the same
   // lazy loopback bind) as a `vizshow://` link — newest by the build watch's own ordering.

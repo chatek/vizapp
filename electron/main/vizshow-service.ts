@@ -23,6 +23,8 @@ import type { VizshowBuild, VizshowSnapshot } from '../../src/types/api'
 
 /** Preferred port. Not the project preview's 5174: the two surfaces must not collide. */
 export const DEFAULT_VIZSHOW_PORT = 47_361
+/** Per-build staging directory prefix written by `buildVizShow` before the atomic rename. */
+const STAGING_PREFIX = '.staging-'
 
 // vizmaster (2026-11-07): the status literal comes from the CANONICAL package — a local
 // 'done' literal is exactly what let 'built' sit unnoticed (the drift test keys on this export).
@@ -57,6 +59,52 @@ const MIME_TYPES: Record<string, string> = {
   '.mp3': 'audio/mpeg',
 }
 
+/** Small self-contained status page for a build that is not servable (or absent). */
+export function renderStatusPage(entry: VizshowScanEntry | null, requestedId: string | null): string {
+  const escape = (value: string): string => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char)
+  const status = entry?.status ?? 'missing'
+  const label: Record<string, string> = {
+    done: 'Ready',
+    incomplete: 'Not finished yet',
+    broken: 'Build is broken',
+    missing: requestedId ? 'No such build' : 'No VizShow build for this session',
+  }
+  const badgeColor: Record<string, string> = {
+    done: '#2f7d4f', incomplete: '#9a6a12', broken: '#9b2c2c', missing: '#5b5b5b',
+  }
+  const rows: Array<[string, string | undefined]> = [
+    ['Build', requestedId ?? '—'],
+    ['Status', entry ? `${status} — ${entry.detail ?? label[status]}` : label[status]],
+    ['Prompt', entry?.prompt ? entry.prompt.slice(0, 400) + (entry.prompt.length > 400 ? '…' : '') : undefined],
+    ['Built at', entry?.createdAt],
+  ]
+  const table = rows
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `<tr><th>${escape(key)}</th><td>${escape(String(value))}</td></tr>`)
+    .join('')
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VizShow — ${escape(label[status] ?? status)}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 32px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 18px; }
+  .badge { display: inline-block; margin-bottom: 16px; padding: 2px 10px; border-radius: 999px; color: #fff; font-size: 12px; background: ${badgeColor[status] ?? '#5b5b5b'}; }
+  table { border-collapse: collapse; max-width: 720px; }
+  th { text-align: left; vertical-align: top; padding: 6px 16px 6px 0; color: #777; font-weight: 500; white-space: nowrap; }
+  td { padding: 6px 0; white-space: pre-wrap; word-break: break-word; }
+  p { max-width: 720px; color: #777; }
+</style></head>
+<body>
+  <h1>VizShow</h1>
+  <div class="badge">${escape(label[status] ?? status)}</div>
+  <table>${table}</table>
+  <p>${status === 'done'
+    ? 'This build is ready — reopen it from the VizShow pill.'
+    : 'The Browser pane shows this page until the build finishes. Re-prompt the agent to build again if it stays here.'}</p>
+</body></html>`
+}
+
 export function mimeTypeFor(path: string): string {
   return MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
@@ -83,6 +131,16 @@ export function vizmasterProjectRoot(env: NodeJS.ProcessEnv = process.env): stri
 // (which produced the built/done drift) is closed at the source.
 export { isBuildId, parseBuildManifest } from '@vizmaster/vizshow-contract'
 import { BUILD_STATUS_DONE, entryResolvesInside, isBuildId, manifestIdMatchesDir, parseBuildManifest } from '@vizmaster/vizshow-contract'
+
+/** What the local server knows about one directory that looks like a build. */
+export type VizshowScanStatus = 'done' | 'incomplete' | 'broken'
+export interface VizshowScanEntry {
+  id: string
+  status: VizshowScanStatus
+  prompt?: string
+  createdAt?: string
+  detail?: string
+}
 
 export interface VizshowServiceOptions {
   root?: string
@@ -169,6 +227,74 @@ export class VizshowService {
       this.#scan()
     }, 150)
     this.#rescanTimer.unref?.()
+  }
+
+  /**
+   * Every directory that looks like a build, including the ones the published listing skips:
+   * a staging directory (`.staging-<id>`) or an unreadable/finished-with-error BUILD.json.
+   * Used for the per-session view, which must show WHY a session has no servable show.
+   */
+  scanAll(): VizshowScanEntry[] {
+    let names: string[]
+    try {
+      names = this.#readdir(this.root)
+    } catch {
+      return []
+    }
+    const entries: VizshowScanEntry[] = []
+    for (const name of names) {
+      const staging = name.startsWith(STAGING_PREFIX)
+      const id = staging ? name.slice(STAGING_PREFIX.length) : name
+      if (!isBuildId(id)) continue
+      const directory = join(this.root, name)
+      let mtime: string
+      try {
+        if (!statSync(directory).isDirectory()) continue
+        mtime = statSync(directory).mtime.toISOString()
+      } catch {
+        continue
+      }
+      let raw: unknown
+      try {
+        raw = JSON.parse(this.#readFile(join(directory, 'BUILD.json')))
+      } catch {
+        entries.push({
+          id,
+          status: staging ? 'incomplete' : 'broken',
+          createdAt: mtime,
+          detail: staging ? 'build in progress (staging directory, no BUILD.json yet)' : 'BUILD.json missing or unreadable',
+        })
+        continue
+      }
+      let manifest: VizshowBuild | null
+      try {
+        manifest = parseBuildManifest(raw, id)
+      } catch {
+        manifest = null
+      }
+      if (!manifest) {
+        entries.push({ id, status: 'broken', createdAt: mtime, detail: 'BUILD.json does not satisfy the contract' })
+        continue
+      }
+      const consistent = manifestIdMatchesDir(manifest, id) && entryResolvesInside(directory, manifest.entry)
+      entries.push({
+        id,
+        status: manifest.status === BUILD_STATUS_DONE && consistent && !staging ? 'done' : 'incomplete',
+        prompt: manifest.prompt,
+        createdAt: manifest.createdAt ?? mtime,
+        detail: manifest.status !== BUILD_STATUS_DONE
+          ? `status is "${manifest.status}", not "done"`
+          : consistent ? undefined : 'manifest id/entry does not match the directory',
+      })
+    }
+    return entries.sort((left, right) => (right.createdAt ?? '').localeCompare(left.createdAt ?? '') || right.id.localeCompare(left.id))
+  }
+
+  /** Url for the generated status page of a build that is not servable (or of none at all). */
+  async statusUrl(buildId?: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+    const port = await this.#ensureListening()
+    if (port === null) return { ok: false, error: 'unavailable' }
+    return { ok: true, url: `${this.#baseUrl(port)}/__status/${buildId ? encodeURIComponent(buildId) : ''}` }
   }
 
   #scan(): void {
@@ -273,6 +399,27 @@ export class VizshowService {
       response.writeHead(405, { allow: 'GET, HEAD' }).end()
       return
     }
+    // Generated status page: a session's build exists but is not servable yet (staging,
+    // non-"done" status, broken manifest) or the session has no build at all. Served here
+    // instead of the artifact so the Browser pane explains the state rather than 404ing.
+    const statusMatch = /^\/__status\/?(.*)$/.exec(request.url ?? '')
+    if (statusMatch) {
+      const requested = decodeURIComponent(statusMatch[1] ?? '').replace(/\/$/, '')
+      const entry = requested ? this.scanAll().find((candidate) => candidate.id === requested) : undefined
+      const body = renderStatusPage(entry ?? null, requested || null)
+      response.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-length': Buffer.byteLength(body),
+        'cache-control': 'no-store',
+        // Inline styles only; no scripts, no remote fetches.
+        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+        'x-content-type-options': 'nosniff',
+      })
+      if (request.method === 'HEAD') { response.end(); return }
+      response.end(body)
+      return
+    }
+
     const resolved = this.#resolveRequestPath(request.url ?? '/')
     if (!resolved.ok) {
       response.writeHead(resolved.status).end()

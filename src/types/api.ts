@@ -102,6 +102,12 @@ export interface VizshowShowsSnapshot {
 }
 
 /** What the renderer knows about the vizshow surface: the latest build and the server's port. */
+/** Per-session resolution: a finished build, an unfinished/broken one, or no build at all. */
+export type VizshowSessionStatus = 'done' | 'incomplete' | 'broken' | 'missing'
+export type VizshowSessionResult =
+  | { ok: true; url: string; status: VizshowSessionStatus; matchedBy: 'prompt' | 'window' | null; build?: VizshowBuild; buildId?: string }
+  | { ok: false; error: string }
+
 export interface VizshowSnapshot {
   latest: VizshowBuild | null
   /** How many ready builds exist under the output root. */
@@ -1050,6 +1056,11 @@ export interface PrimeWorkApi {
     /** Creator-composed shows (`~/.vizmaster/shows/`), announced on each SHOW.json change. */
     shows(): Promise<VizshowShowsSnapshot>
     onShowsChanged(callback: (snapshot: VizshowShowsSnapshot) => void): () => void
+    /**
+     * Resolves the SELECTED chat session to its VizShow: a finished build's artefact URL, or
+     * the loopback status page when the build is unfinished/broken/missing.
+     */
+    forSession(sessionFile: string): Promise<VizshowSessionResult>
     /** Opens a show's NEWEST build through the same loopback resolution as a vizshow link. */
     showUrl(showId?: string): Promise<{ ok: true; url: string; build: VizshowBuild; show: VizshowShow } | { ok: false; error: string }>
   }

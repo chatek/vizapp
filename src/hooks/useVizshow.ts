@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { VizshowSnapshot } from '@/types/api'
-import { openVizshow } from '@/lib/vizshow-open'
+import { navigateVizshowUrl, openVizshow } from '@/lib/vizshow-open'
 
 export interface UseVizshow {
   snapshot: VizshowSnapshot | null
@@ -10,6 +10,11 @@ export interface UseVizshow {
   pending: boolean
   /** Resolves the latest build and hands its URL to the App's pane navigator. */
   openLatest(): void
+  /**
+   * Resolves the SELECTED session's build (finished, unfinished, broken or missing) and
+   * navigates; falls back to the latest build when no session is selected.
+   */
+  openSession(): void
   /**
    * Asks main for the live project preview and returns its URL (or a typed failure). Main owns
    * the spawn and the "failed spawn means the port is already held" rule, so the renderer never
@@ -24,7 +29,7 @@ export interface UseVizshow {
  * the loopback server's port, and the two navigation actions. A build that arrives while the app
  * is open marks itself `fresh` so the chip can announce it without stealing focus.
  */
-export function useVizshow(): UseVizshow {
+export function useVizshow(sessionFile?: string | null): UseVizshow {
   const [snapshot, setSnapshot] = useState<VizshowSnapshot | null>(null)
   const [fresh, setFresh] = useState(false)
   const [pending, setPending] = useState(false)
@@ -74,5 +79,36 @@ export function useVizshow(): UseVizshow {
 
   const dismiss = useCallback(() => setFresh(false), [])
 
-  return { snapshot, fresh, pending, openLatest, openPreview, dismiss }
+  const openSession = useCallback(() => {
+    const api = window.prime?.vizshow
+    if (!sessionFile || !api?.forSession) {
+      openLatest()
+      return
+    }
+    void api.forSession(sessionFile).then((result) => {
+      // A status page is a valid destination: the pane explains an unfinished/broken build.
+      if (result.ok) navigateVizshowUrl(result.url)
+    }).catch(() => undefined)
+  }, [sessionFile, openLatest])
+
+  // Selecting a session shows ITS VizShow in the Browser — or the local status page when the
+  // build is not ready. Runs once per session identity; a re-render never re-navigates.
+  const lastSessionRef = useRef<string | null>(null)
+  useEffect(() => {
+    const api = window.prime?.vizshow
+    const file = sessionFile ?? null
+    if (!file) {
+      lastSessionRef.current = null
+      return
+    }
+    if (!api?.forSession || file === lastSessionRef.current) return
+    lastSessionRef.current = file
+    let live = true
+    void api.forSession(file).then((result) => {
+      if (live && result.ok) navigateVizshowUrl(result.url)
+    }).catch(() => undefined)
+    return () => { live = false }
+  }, [sessionFile])
+
+  return { snapshot, fresh, pending, openLatest, openSession, openPreview, dismiss }
 }
