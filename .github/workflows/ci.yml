@@ -18,6 +18,7 @@ jobs:
   production-audit:
     name: Production dependency audit
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       # pull_request defaults to a synthetic merge ref; audit the immutable PR
       # head itself so this required status names the exact proposed lockfile.
@@ -35,6 +36,7 @@ jobs:
 
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -52,7 +54,18 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
+            timeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          elif command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm ci --prefer-offline --no-audit --no-fund
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
       - run: npm run release:preflight:toolchain
       - run: npm run typecheck
       - run: npm run check
@@ -67,6 +80,7 @@ jobs:
 
   hermetic-e2e:
     runs-on: macos-14
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -84,7 +98,18 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
+            timeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          elif command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm ci --prefer-offline --no-audit --no-fund
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
       - run: npm run release:preflight:toolchain
       - run: npm run build:bundle
       - run: npm run test:e2e:hermetic
@@ -97,6 +122,7 @@ jobs:
 
   windows-state-migration:
     runs-on: windows-2022
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -110,12 +136,24 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
+            timeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          elif command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm ci --prefer-offline --no-audit --no-fund
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
       - run: npm run release:preflight:toolchain
       - run: npm exec -- vitest run tests/backend/store-windows-migration.test.ts
 
   packaging-smoke:
     if: github.event_name == 'pull_request'
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +188,18 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
+            timeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          elif command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm ci --prefer-offline --no-audit --no-fund
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
       - run: npm run release:preflight:toolchain
       - run: npm run build:bundle
       - run: node node_modules/electron-builder/cli.js --dir --${{ matrix.target }} --${{ matrix.arch }} --publish=never --config.directories.output=release/${{ matrix.target }}/${{ matrix.arch }} ${{ matrix.extra_args }}
@@ -176,6 +225,7 @@ jobs:
 
   local-qa-package:
     if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -221,7 +271,18 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npm ci
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
+            timeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          elif command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=1m 20m npm ci --prefer-offline --no-audit --no-fund
+          else
+            npm ci --prefer-offline --no-audit --no-fund
+          fi
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
       - run: npm run release:preflight:toolchain
       - run: ${{ matrix.package }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
