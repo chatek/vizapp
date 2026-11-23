@@ -50,6 +50,10 @@ product/profile.active.json
 !/product/payload/skills/**
 !/product/payload/code/
 !/product/payload/code/**
+!/product/payload/src/
+/product/payload/src/*
+!/product/payload/src/tools/
+!/product/payload/src/tools/**
 
 # packaging mirrors (operator visibility) — never commit these binaries
 build/mac-arm64/
