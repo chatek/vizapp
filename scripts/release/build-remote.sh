@@ -6,7 +6,7 @@
 #   bash scripts/release/build-remote.sh --x64
 #   bash scripts/release/build-remote.sh --arm64 --x64
 #   bash scripts/release/build-remote.sh --arm64 --member vizmaster \
-#     --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+#     --member-repo ~/Documents/Chatek/apps/VizMaster \
 #     --member-sha 813c2c7f4e05b02438aded6bb91c1972ca62422b
 #
 # A member build is the only publishable member artefact: it ships the member repo at a

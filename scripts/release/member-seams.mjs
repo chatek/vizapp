@@ -47,7 +47,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 export const MEMBER_SEAMS_V1 = {
   version: 1,
   date: '2026-10-22',
-  consumers: ['VizMaster scripts/integrate-vcclaw.mjs (VillageCity/VCC2/VizMaster)'],
+  consumers: ['VizMaster scripts/integrate-vcclaw.mjs (apps/VizMaster)'],
   seams: [
     {
       id: 'index-store-import',

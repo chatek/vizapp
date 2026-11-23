@@ -5,7 +5,7 @@
 #   bash scripts/release/release-forgejo.sh --arm64 --x64
 #   bash scripts/release/release-forgejo.sh --arm64 --tag v1.1.17 --publish
 #   bash scripts/release/release-forgejo.sh --arm64 --member vizmaster \
-#     --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+#     --member-repo ~/Documents/Chatek/apps/VizMaster \
 #     --member-sha 2a896d80fbbec4fb6b816a0de69a0a0f08356bf2 --member-integrate v2
 #
 # A member release needs --member/--member-repo/--member-sha, forwarded verbatim to

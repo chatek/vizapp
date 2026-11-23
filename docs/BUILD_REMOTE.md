@@ -706,7 +706,7 @@ Gate 1 refuses. `--member` runs the member path on the host — the same three s
 ```bash
 bash scripts/release/build-remote.sh --arm64 \
   --member vizmaster \
-  --member-repo ~/Documents/Chatek/VillageCity/VCC2/VizMaster \
+  --member-repo ~/Documents/Chatek/apps/VizMaster \
   --member-sha 2a896d80fbbec4fb6b816a0de69a0a0f08356bf2
 ```
 
