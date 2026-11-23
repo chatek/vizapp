@@ -111,7 +111,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm run toolchain:bootstrap
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
@@ -147,7 +154,14 @@ jobs:
             ~/Library/Caches/electron-builder
             ~/.cache/electron-builder
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
@@ -196,7 +210,14 @@ jobs:
             ~/Library/Caches/electron-builder
             ~/.cache/electron-builder
           key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
@@ -321,7 +342,14 @@ jobs:
             ~/.cache/electron-builder
           key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
       - run: npm run toolchain:bootstrap
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
@@ -496,7 +524,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libarchive-tools
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
@@ -554,7 +589,14 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
         shell: bash
         run: |
           if command -v timeout >/dev/null 2>&1 && timeout --version 2>/dev/null | grep -q coreutils; then
