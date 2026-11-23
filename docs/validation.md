@@ -18,6 +18,8 @@ The required checks are exactly the seven normal pull-request gates:
 
 Do not require `local-qa-package`: it is manual local QA, runs only through `workflow_dispatch`, and is intentionally excluded from pull-request validation.
 
+Jobs that need hosted runners (`hermetic-e2e`, `windows-state-migration`, the `packaging-smoke` matrix, and `local-qa-package`) carry `if: !contains(github.server_url, 'forgejo')`. On the capacity-1 Forgejo runner (Linux labels only) they are skipped instead of queuing until abandoned; on GitHub-hosted runners they run unchanged. The `ubuntu-22.04` leg of `packaging-smoke` is skipped with the job on Forgejo and is covered by the fast lane there.
+
 `Production dependency audit` is a seventh pull-request gate: it runs the exception-aware `npm run audit:production` evaluator against the exact PR head. After the check context first appears on a pull request, a repository administrator must add `Production dependency audit` to the required status checks on `main`. The scheduled [dependency-audit workflow](../.github/workflows/audit.yml) remains for advisories disclosed after merge.
 
 GitHub merge queues are not available to this public repository while it is owned by a personal account. Consequently, `merge_group` or a required merge queue cannot enforce this policy here; strict up-to-date branch protection is the supported latest-main control. If the repository moves to an organization, merge-queue support should be designed and tested separately before enabling it.
@@ -81,17 +83,17 @@ The [CI workflow](../.github/workflows/ci.yml) runs on pull requests, pushes to 
 |---|---|---|
 | `production-audit` | Pull request, `main`, manual dispatch | The exception-aware production dependency audit passes for the exact checked-out commit. |
 | `quality` | Pull request, `main`, manual dispatch | TypeScript checks; configured lint and format checks; the coverage suite and thresholds; production bundle creation; bundle-size budgets; coverage artifact upload. |
-| `hermetic-e2e` | Pull request, `main`, manual dispatch | The built application passes the Playwright Electron suite on the pinned macOS runner without relying on developer state. Failure artifacts are uploaded when available. |
-| `windows-state-migration` | Pull request, `main`, manual dispatch | The state migration suite passes on a real `windows-2022` runner, including the production-platform fresh-install, migration, restart, and update path. Simulating `platform: 'win32'` on another OS is useful unit coverage but is not a substitute for this job. |
-| `packaging-smoke` | Pull requests only | Native macOS arm64, Linux x64, and Windows x64 runners can build unpacked application directories. Linux and Windows additionally verify the ASAR layout and exact native-unpack allowlist. These are unsigned smoke builds, not public installers. |
-| `local-qa-package` | Manual dispatch only | Native runners create and verify installable local-QA artifacts for macOS, Linux, and Windows, then upload the configured artifact set. These artifacts are not represented as signed or notarized public releases. |
+| `hermetic-e2e` | Pull request, `main`, manual dispatch (GitHub-hosted runners only) | The built application passes the Playwright Electron suite on the pinned macOS runner without relying on developer state. Failure artifacts are uploaded when available. |
+| `windows-state-migration` | Pull request, `main`, manual dispatch (GitHub-hosted runners only) | The state migration suite passes on a real `windows-2022` runner, including the production-platform fresh-install, migration, restart, and update path. Simulating `platform: 'win32'` on another OS is useful unit coverage but is not a substitute for this job. |
+| `packaging-smoke` | Pull requests only (GitHub-hosted runners only) | Native macOS arm64, Linux x64, and Windows x64 runners can build unpacked application directories. Linux and Windows additionally verify the ASAR layout and exact native-unpack allowlist. These are unsigned smoke builds, not public installers. |
+| `local-qa-package` | Manual dispatch only (GitHub-hosted runners only) | Native runners create and verify installable local-QA artifacts for macOS, Linux, and Windows, then upload the configured artifact set. These artifacts are not represented as signed or notarized public releases. |
 
 Expected skips are part of this design:
 
-- `local-qa-package` is expected to be skipped on pull requests and pushes to `main`.
-- `packaging-smoke` is expected to be skipped on pushes to `main` and manual dispatches because its condition is pull-request-only.
+- `local-qa-package` is expected to be skipped on pull requests and pushes to `main`, and on any non-GitHub (Forgejo) runner.
+- `packaging-smoke` is expected to be skipped on pushes to `main` and manual dispatches because its condition is pull-request-only, and on non-GitHub runners.
 
-`windows-state-migration` is required for every CI trigger listed above; a skip is not expected.
+`windows-state-migration` is required for every CI trigger listed above on GitHub-hosted runners; on the Forgejo runner it is explicitly skipped by the host gate, not abandoned.
 
 A green PR packaging matrix does not prove Developer ID signing, Apple notarization/stapling, Gatekeeper acceptance, Authenticode identity, or installer integrity. Nothing in this repo establishes those today (see *Release validation*).
 

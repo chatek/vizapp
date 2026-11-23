@@ -1054,20 +1054,23 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     expect(ciSteps.filter((step) => step.secretLines.length > 0)).toEqual([])
   })
 
-  test('cancels superseded PR runs without cancelling validation for pushed SHAs', () => {
+  test('cancels superseded runs on the same ref', () => {
+    // Changed 2026-11-23 (ct16 capacity:1): superseded push runs on the same branch are cancelled
+    // too; the previous per-SHA group let stale runs queue behind each other.
     const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
-      concurrency: { group: string; 'cancel-in-progress': string }
+      concurrency: { group: string; 'cancel-in-progress': boolean }
     }
-    expect(workflow.concurrency.group).toBe(
-      "ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.sha) || format('dispatch-{0}', github.run_id) }}",
-    )
-    expect(workflow.concurrency['cancel-in-progress']).toBe("${{ github.event_name == 'pull_request' }}")
+    expect(workflow.concurrency.group).toBe('ci-${{ github.ref }}')
+    expect(workflow.concurrency['cancel-in-progress']).toBe(true)
   })
 
-  test('gates packaging regressions on every pull request', () => {
+  test('gates packaging regressions on every pull request, but not on the Forgejo runner', () => {
     const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8')
     expect(ciWorkflow).toMatch(/on:\n {2}push:\n {4}branches:\n {6}- main/)
-    expect(ciWorkflow).toMatch(/packaging-smoke:\n {4}if: github\.event_name == 'pull_request'/)
+    expect(ciWorkflow).toMatch(/packaging-smoke:\n {4}if: github\.event_name == 'pull_request' && !contains\(github\.server_url, 'forgejo'\)/)
+    // Hosted-only legs must not be scheduled on the Linux-only Forgejo runner (ct16).
+    expect(ciWorkflow).toMatch(/hermetic-e2e:\n {4}if: \${{ !contains\(github\.server_url, 'forgejo'\) }}/)
+    expect(ciWorkflow).toMatch(/windows-state-migration:\n {4}if: \${{ !contains\(github\.server_url, 'forgejo'\) }}/)
     for (const runner of ['macos-14', 'ubuntu-22.04', 'windows-2022']) expect(ciWorkflow).toContain(`runner: ${runner}`)
     expect(ciWorkflow).toContain('node node_modules/electron-builder/cli.js --dir')
     expect(ciWorkflow).toContain('--publish=never')

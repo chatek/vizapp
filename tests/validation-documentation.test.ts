@@ -47,7 +47,12 @@ function workflowJobs(path: string): RecordValue {
 
 function dispatchOnly(job: RecordValue): boolean {
   const condition = typeof job.if === 'string' ? job.if.trim() : ''
-  return /^github\.event_name\s*==\s*['"]workflow_dispatch['"]$/.test(condition)
+  // A dispatch-only job may carry an extra host/feature gate joined with `&&`
+  // (e.g. the Forgejo skip on local-qa-package); the dispatch clause still decides.
+  return condition
+    .split('&&')
+    .map((part) => part.trim())
+    .some((part) => /^github\.event_name\s*==\s*['"]workflow_dispatch['"]$/.test(part))
 }
 
 function matrixContexts(jobId: string, job: RecordValue): string[] {
