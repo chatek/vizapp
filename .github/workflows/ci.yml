@@ -94,7 +94,7 @@ jobs:
           if-no-files-found: error
 
   hermetic-e2e:
-    if: ${{ !contains(github.server_url, 'forgejo') }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' }}
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -148,7 +148,7 @@ jobs:
           if-no-files-found: error
 
   windows-state-migration:
-    if: ${{ !contains(github.server_url, 'forgejo') }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -191,7 +191,7 @@ jobs:
       - run: npm exec -- vitest run tests/backend/store-windows-migration.test.ts
 
   packaging-smoke:
-    if: github.event_name == 'pull_request' && !contains(github.server_url, 'forgejo')
+    if: github.event_name == 'pull_request' && vars.HOSTED_RUNNERS != 'false'
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -274,7 +274,7 @@ jobs:
           if-no-files-found: error
 
   local-qa-package:
-    if: github.event_name == 'workflow_dispatch' && !contains(github.server_url, 'forgejo')
+    if: github.event_name == 'workflow_dispatch' && vars.HOSTED_RUNNERS != 'false'
     timeout-minutes: 90
     strategy:
       fail-fast: false

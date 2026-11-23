@@ -18,7 +18,7 @@ The required checks are exactly the seven normal pull-request gates:
 
 Do not require `local-qa-package`: it is manual local QA, runs only through `workflow_dispatch`, and is intentionally excluded from pull-request validation.
 
-Jobs that need hosted runners (`hermetic-e2e`, `windows-state-migration`, the `packaging-smoke` matrix, and `local-qa-package`) carry `if: !contains(github.server_url, 'forgejo')`. On the capacity-1 Forgejo runner (Linux labels only) they are skipped instead of queuing until abandoned; on GitHub-hosted runners they run unchanged. The `ubuntu-22.04` leg of `packaging-smoke` is skipped with the job on Forgejo and is covered by the fast lane there.
+Jobs that need hosted runners (`hermetic-e2e`, `windows-state-migration`, the `packaging-smoke` matrix, and `local-qa-package`) carry `if: vars.HOSTED_RUNNERS != 'false'`. The default (unset) keeps GitHub behaviour unchanged; the operator sets `HOSTED_RUNNERS=false` as a Forgejo repository variable so the capacity-1 Linux runner skips them instead of queuing until abandoned. The `ubuntu-22.04` leg of `packaging-smoke` is skipped with the job on Forgejo and is covered by the fast lane there.
 
 `Production dependency audit` is a seventh pull-request gate: it runs the exception-aware `npm run audit:production` evaluator against the exact PR head. After the check context first appears on a pull request, a repository administrator must add `Production dependency audit` to the required status checks on `main`. The scheduled [dependency-audit workflow](../.github/workflows/audit.yml) remains for advisories disclosed after merge.
 

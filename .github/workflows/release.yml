@@ -138,7 +138,7 @@ jobs:
       - run: npm run release:verify:package
 
   hermetic-e2e:
-    if: ${{ !contains(github.server_url, 'forgejo') }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' }}
     needs: validate
     runs-on: macos-15
     timeout-minutes: 60
@@ -187,7 +187,7 @@ jobs:
       - run: npm run test:e2e:hermetic
 
   package:
-    if: ${{ !contains(github.server_url, 'forgejo') }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' }}
     timeout-minutes: 120
     needs: [validate, production-audit, quality, hermetic-e2e]
     strategy:
@@ -298,7 +298,7 @@ jobs:
     # The generic `package` job never runs member steps, so the product artifact
     # stays brand-clean (operator directive: VClaw's branding belongs to vclawhub.com).
     needs: [validate, production-audit, quality, hermetic-e2e]
-    if: ${{ !contains(github.server_url, 'forgejo') && github.event_name == 'workflow_dispatch' && inputs.member != '' }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' && github.event_name == 'workflow_dispatch' && inputs.member != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -593,7 +593,7 @@ jobs:
 
   package-windows:
     timeout-minutes: 120
-    if: ${{ !contains(github.server_url, 'forgejo') && ((github.event_name == 'workflow_dispatch' && (inputs.include_windows || inputs.include_windows_unsigned)) || (github.event_name == 'push' && (vars.RELEASE_WINDOWS_ENABLED == 'true' || vars.RELEASE_WINDOWS_UNSIGNED_ENABLED == 'true'))) }}
+    if: ${{ vars.HOSTED_RUNNERS != 'false' && ((github.event_name == 'workflow_dispatch' && (inputs.include_windows || inputs.include_windows_unsigned)) || (github.event_name == 'push' && (vars.RELEASE_WINDOWS_ENABLED == 'true' || vars.RELEASE_WINDOWS_UNSIGNED_ENABLED == 'true'))) }}
     needs: [validate, production-audit, quality, hermetic-e2e]
     runs-on: windows-2022
     steps:
