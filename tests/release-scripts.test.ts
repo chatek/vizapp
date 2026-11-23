@@ -1067,10 +1067,10 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
   test('gates packaging regressions on every pull request, but not on the Forgejo runner', () => {
     const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8')
     expect(ciWorkflow).toMatch(/on:\n {2}push:\n {4}branches:\n {6}- main/)
-    expect(ciWorkflow).toMatch(/packaging-smoke:\n {4}if: github\.event_name == 'pull_request' && vars\.HOSTED_RUNNERS != 'false'/)
+    expect(ciWorkflow).toMatch(/packaging-smoke:\n {4}if: github\.event_name == 'pull_request' && github\.server_url == 'https:\/\/github\.com'/)
     // Hosted-only legs must not be scheduled on the Linux-only Forgejo runner (ct16).
-    expect(ciWorkflow).toMatch(/hermetic-e2e:\n {4}if: \${{\s*vars\.HOSTED_RUNNERS != 'false'\s*}}/)
-    expect(ciWorkflow).toMatch(/windows-state-migration:\n {4}if: \${{\s*vars\.HOSTED_RUNNERS != 'false'\s*}}/)
+    expect(ciWorkflow).toMatch(/hermetic-e2e:\n {4}if: github\.server_url == 'https:\/\/github\.com'/)
+    expect(ciWorkflow).toMatch(/windows-state-migration:\n {4}if: github\.server_url == 'https:\/\/github\.com'/)
     for (const runner of ['macos-14', 'ubuntu-22.04', 'windows-2022']) expect(ciWorkflow).toContain(`runner: ${runner}`)
     expect(ciWorkflow).toContain('node node_modules/electron-builder/cli.js --dir')
     expect(ciWorkflow).toContain('--publish=never')
