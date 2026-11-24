@@ -52,6 +52,12 @@ env:
 
 jobs:
   validate:
+    # GitHub-only pipeline (it publishes GitHub releases and needs GitHub
+    # attestations). Tags can mirror to the Forgejo remote, where the hosted
+    # runners do not exist — ungated jobs would queue forever on unmatched
+    # labels and never be routed. Every job is gated on the host identity, not
+    # on a substring of its URL (lead correction, 2026-11-24).
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     # Every downstream job checks out this commit SHA instead of the tag, so a
@@ -83,6 +89,7 @@ jobs:
   production-audit:
     name: Production dependency audit
     needs: validate
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -100,6 +107,7 @@ jobs:
 
   quality:
     needs: validate
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -507,6 +515,7 @@ jobs:
 
   package-linux:
     needs: [validate, production-audit, quality, hermetic-e2e]
+    if: github.server_url == 'https://github.com'
     strategy:
       # Ship both Linux architectures from native runners so npm install and
       # electron-builder package node-pty and ZeroMQ for the matching ABI.
@@ -669,10 +678,13 @@ jobs:
 
   release-packages:
     needs: [validate, production-audit, package, package-linux, package-windows]
-    # Always run the aggregate gate. A skipped job can satisfy a required check,
-    # so failures are asserted by an explicit first step rather than encoded in
-    # the job-level condition. Windows may legitimately be skipped.
-    if: always()
+    # Always run the aggregate gate ON GITHUB. A skipped job can satisfy a
+    # required check, so failures are asserted by an explicit first step rather
+    # than encoded in the job-level condition. Windows may legitimately be
+    # skipped. `always()` alone would override the skipped prerequisites and
+    # make this job fail on the Forgejo mirror; the host gate keeps GitHub's
+    # behaviour byte-identical.
+    if: always() && github.server_url == 'https://github.com'
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     permissions:

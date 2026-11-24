@@ -1227,7 +1227,9 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     expect(workflow).toContain('--generate-notes')
     // always() keeps the aggregate job from being skipped; the first step
     // fails explicitly when a prerequisite failed or was cancelled.
-    expect(workflow).toMatch(/release-packages:\n {4}needs: \[validate, production-audit, package, package-linux, package-windows\]\n(?: {4}#.*\n)* {4}if: always\(\)\n {4}runs-on: ubuntu-22\.04/)
+    expect(workflow).toMatch(
+      /release-packages:\n {4}needs: \[validate, production-audit, package, package-linux, package-windows\]\n(?: {4}#.*\n)* {4}if: always\(\) && github\.server_url == 'https:\/\/github\.com'\n {4}runs-on: ubuntu-22\.04/,
+    )
     expect(workflow).toContain('Fail if a release prerequisite did not succeed')
     expect(workflow).toContain("needs.validate.result != 'success'")
     expect(workflow).toContain('exit 1')
@@ -1290,7 +1292,7 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
 
   test('ships both Linux architectures as separately labeled native builds', () => {
     const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8')
-    expect(releaseWorkflow).toMatch(/package-linux:\n {4}needs: \[validate, production-audit, quality, hermetic-e2e\]\n {4}strategy:/)
+    expect(releaseWorkflow).toMatch(/package-linux:\n {4}needs: \[validate, production-audit, quality, hermetic-e2e\]\n(?: {4}if: .*\n)? {4}strategy:/)
     expect(releaseWorkflow).toMatch(/- arch: arm64\n {12}runner: ubuntu-24\.04-arm/)
     expect(releaseWorkflow).toMatch(/- arch: x64\n {12}runner: ubuntu-22\.04/)
     expect(releaseWorkflow).toContain('runs-on: ${{ matrix.runner }}')
@@ -1299,6 +1301,22 @@ else if (JSON.stringify(args) === ${JSON.stringify(JSON.stringify(expectedInstal
     expect(releaseWorkflow).toContain('release/linux/${{ matrix.arch }}/*.AppImage')
     expect(releaseWorkflow).toContain('release/linux/${{ matrix.arch }}/latest*.yml')
     expect(releaseWorkflow).toContain('electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles(')
+  })
+
+  test('host-gates every release job so a tag mirrored to the Forgejo remote cannot queue forever', () => {
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8')
+    const parsed = load(releaseWorkflow) as { jobs: Record<string, { if?: string }> }
+    // The release pipeline publishes GitHub Releases and needs GitHub
+    // attestations; on the mirror its hosted runners do not exist, and an
+    // unmatched label queues instead of failing. Each job must therefore be
+    // gated on the host identity — not on a substring of the URL.
+    for (const [name, job] of Object.entries(parsed.jobs)) {
+      expect(job.if, `${name} must be host-gated`).toContain("github.server_url == 'https://github.com'")
+      expect(job.if, `${name} must not gate on a URL substring`).not.toContain('contains(')
+    }
+    // Nothing in the release workflow may run with bare `always()`.
+    expect(releaseWorkflow).not.toMatch(/if: always\(\)\s*\n/)
+    expect(releaseWorkflow).toContain("if: always() && github.server_url == 'https://github.com'")
   })
 })
 
