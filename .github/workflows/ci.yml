@@ -52,9 +52,10 @@ jobs:
     timeout-minutes: 120
     env:
       # One source for the install wrapper AND the bootstrap-save gates.
-      # TEMPORARY fallback '60' for the ct18 cold seed; reverted to '20' in the
-      # immediately following commit. A dispatch input still overrides.
-      INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '60' }}
+      # Steady-state 20m; a workflow_dispatch bootstrap run raises it for one
+      # cold seed ('inputs.bootstrap_install_minutes'), and only then do the
+      # bootstrap save steps run.
+      INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '20' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
