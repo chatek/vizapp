@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, vi, } from 'vitest'
 
 // vizmaster (2026-11-07, operator): 'system' follows the user's LOCAL TIME (light 06:00-17:59,
 // dark otherwise), re-evaluated every minute; explicit light/dark always wins.

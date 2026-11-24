@@ -61,7 +61,7 @@ const MIME_TYPES: Record<string, string> = {
 
 /** Small self-contained status page for a build that is not servable (or absent). */
 export function renderStatusPage(entry: VizshowScanEntry | null, requestedId: string | null): string {
-  const escape = (value: string): string => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char)
+  const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char)
   const status = entry?.status ?? 'missing'
   const label: Record<string, string> = {
     done: 'Ready',
@@ -80,11 +80,11 @@ export function renderStatusPage(entry: VizshowScanEntry | null, requestedId: st
   ]
   const table = rows
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `<tr><th>${escape(key)}</th><td>${escape(String(value))}</td></tr>`)
+    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(value))}</td></tr>`)
     .join('')
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VizShow — ${escape(label[status] ?? status)}</title>
+<title>VizShow — ${escapeHtml(label[status] ?? status)}</title>
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; padding: 32px; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -97,7 +97,7 @@ export function renderStatusPage(entry: VizshowScanEntry | null, requestedId: st
 </style></head>
 <body>
   <h1>VizShow</h1>
-  <div class="badge">${escape(label[status] ?? status)}</div>
+  <div class="badge">${escapeHtml(label[status] ?? status)}</div>
   <table>${table}</table>
   <p>${status === 'done'
     ? 'This build is ready — reopen it from the VizShow pill.'
@@ -161,7 +161,6 @@ export class VizshowService {
   #port: number | null = null
   #preferredPort: number
   #watcher: FSWatcher | null = null
-  #watchedParent: string | null = null
   #latest: VizshowBuild | null = null
   #builds: VizshowBuild[] = []
   #readdir: (path: string) => string[]
@@ -212,7 +211,6 @@ export class VizshowService {
     const parent = resolve(this.root, '..')
     try {
       this.#watcher = watch(parent, { persistent: false }, () => { this.#scheduleScan() })
-      this.#watchedParent = parent
     } catch {
       // The parent may not exist yet; the affordance's own `latest()` call rescans.
       this.#watcher = null

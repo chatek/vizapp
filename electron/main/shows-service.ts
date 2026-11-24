@@ -24,7 +24,7 @@ export function showsRoot(env: NodeJS.ProcessEnv = process.env): string {
   return env.VIZMASTER_SHOWS_DIR?.trim() || join(vizmasterHome(env), 'shows')
 }
 
-function nonEmptyString(value: unknown, max: number): string | null {
+function _nonEmptyString(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed || trimmed.length > max || trimmed.includes('\0')) return null

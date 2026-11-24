@@ -32,10 +32,7 @@ function verifyBundledOmp(context) {
   // verifyDashboardPayload's defensive layout probing.
   const candidates = isMac
     ? [join(context.appOutDir, `${productFilename}.app`, 'Contents', 'Resources', 'harness', 'bin', 'omp')]
-    : [
-        join(context.appOutDir, 'resources', 'harness', 'bin', 'omp.exe'),
-        join(context.appOutDir, productFilename, 'resources', 'harness', 'bin', 'omp.exe'),
-      ]
+    : [join(context.appOutDir, 'resources', 'harness', 'bin', 'omp.exe'), join(context.appOutDir, productFilename, 'resources', 'harness', 'bin', 'omp.exe')]
   const bundled = candidates.find((p) => fs.existsSync(p))
   if (!bundled) {
     throw new Error(`bundled omp: resources/harness/bin/${isMac ? 'omp' : 'omp.exe'} is missing — was ${isMac ? 'mac' : 'win'}.extraResources applied?`)
@@ -91,9 +88,7 @@ function verifyDashboardPayload(context) {
   // hand-kept mirror of the member's declaration (the gap-2 whitelist-mirror class).
   const handoffPath = join(payload, '..', 'handoff.json')
   if (!fs.existsSync(handoffPath)) {
-    throw new Error(
-      `vizshow payload: ${handoffPath} is missing — the integration is incomplete (the integrator fails closed without it; a pack must never default to lenient expectations) (P0)`,
-    )
+    throw new Error(`vizshow payload: ${handoffPath} is missing — the integration is incomplete (the integrator fails closed without it; a pack must never default to lenient expectations) (P0)`)
   }
   let handoff
   try {
@@ -118,7 +113,7 @@ function verifyDashboardPayload(context) {
   // update in the same release — loosening expectations cannot happen silently.
   const pinsPath = join(__dirname, 'dependency-pins.json')
   const pins = JSON.parse(fs.readFileSync(pinsPath, 'utf8'))
-  const pinned = pins.handoff && pins.handoff['product/handoff.json']
+  const pinned = pins.handoff?.['product/handoff.json']
   if (!pinned || typeof pinned.integrity !== 'string' || !/^sha512-/.test(pinned.integrity)) {
     throw new Error('vizshow payload: dependency-pins.json has no handoff pin for product/handoff.json — pin the delivered bytes (round-2 condition ii)')
   }

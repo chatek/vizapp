@@ -282,7 +282,7 @@ describe('W4-9 — the pane’s failure paths', () => {
   })
 
   it('(b) a spool with the wrong mode is still read, and the pane SAYS so', () => {
-    const path = `/home/test/.vclaw/inbox/vclaw__${SELF8}.jsonl`
+    const _path = `/home/test/.vclaw/inbox/vclaw__${SELF8}.jsonl`
     const service = new VclawInboxService({
       home: '/home/test',
       isSessionOpen: () => false,

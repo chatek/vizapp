@@ -1281,8 +1281,20 @@ describe('GitHub Release publication', () => {
   test('selects an exact enabled platform set', () => {
     expect(parseReleasePlatforms('mac,linux')).toEqual(['mac', 'linux'])
     expect(expectedGitHubReleaseAssets('0.2.0', ['mac', 'linux'])).not.toContain('VizMaster-0.2.0-win-x64.exe')
-    expect(expectedGitHubReleaseAssets('0.2.0', ['mac'])).toEqual(['VizMaster-0.2.0-arm64.zip', 'VizMaster-0.2.0-intel-chip.dmg', 'VizMaster-0.2.0-m-chip.dmg', 'VizMaster-0.2.0-x64.zip', 'latest-mac.yml'])
-    expect(expectedDownloadedReleaseAssets('0.2.0', ['mac'])).toEqual(['VizMaster-0.2.0-arm64.zip', 'VizMaster-0.2.0-x64.dmg', 'VizMaster-0.2.0-arm64.dmg', 'VizMaster-0.2.0-x64.zip', 'latest-mac.yml'])
+    expect(expectedGitHubReleaseAssets('0.2.0', ['mac'])).toEqual([
+      'VizMaster-0.2.0-arm64.zip',
+      'VizMaster-0.2.0-intel-chip.dmg',
+      'VizMaster-0.2.0-m-chip.dmg',
+      'VizMaster-0.2.0-x64.zip',
+      'latest-mac.yml',
+    ])
+    expect(expectedDownloadedReleaseAssets('0.2.0', ['mac'])).toEqual([
+      'VizMaster-0.2.0-arm64.zip',
+      'VizMaster-0.2.0-x64.dmg',
+      'VizMaster-0.2.0-arm64.dmg',
+      'VizMaster-0.2.0-x64.zip',
+      'latest-mac.yml',
+    ])
     expect(expectedGitHubReleaseAssets('0.2.0', ['linux'])).toEqual([
       'VizMaster-0.2.0-linux-aarch64.pacman',
       'VizMaster-0.2.0-linux-aarch64.rpm',

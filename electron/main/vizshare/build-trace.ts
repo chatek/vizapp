@@ -24,6 +24,7 @@
  * resolves to `null` and never fails a submission.
  */
 import { readFile, readdir } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -88,7 +89,7 @@ function asTrace(dirName: string, record: BuildRecord): VizBuildTrace | null {
 export async function latestBuildTrace(tutorialId: string): Promise<VizBuildTrace | null> {
   if (tutorialId.length === 0) return null
   const root = vizshowRoot()
-  let entries
+  let entries: Dirent[]
   try {
     entries = await readdir(root, { withFileTypes: true })
   } catch {

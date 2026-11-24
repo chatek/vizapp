@@ -9,7 +9,7 @@
 // exactly as collab-e2e.mjs sets them up. Env: STUDENT/TEACHER nkeys+seeds, HOME pointing
 // at the fixture credentials file.
 import { connect, headers as natsHeaders } from './node_modules/nats/index.js'
-import nkeys, { default as teacherNkeys } from 'nkeys.js'
+import { default as teacherNkeys } from 'nkeys.js'
 
 const results = []
 let exitCode = 0
@@ -24,7 +24,7 @@ const STUDENT_NKEY = process.env.STUDENT_NKEY
 const TEACHER_NKEY = process.env.TEACHER_NKEY
 
 // ── import the SHIPPED service (compiled output, fresh — the stale-bundle lesson) ──
-const { SuggestionsService, connectSuggestionsNats, resolvePromptConfig, promptBearerTokenSource } = await import(
+const { SuggestionsService, resolvePromptConfig, promptBearerTokenSource } = await import(
   '../../dist-electron/main/suggestions-service.js'
 ).catch(async () => {
   // Fall back to the TS source through tsx if the electron build output is absent.
@@ -51,7 +51,7 @@ const requestTokens = promptBearerTokenSource(config)
 const service = new SuggestionsService({
   connector: async () => {
     const nc2 = await connect({ servers: NATS_URL })
-    const bearer = await requestTokens.token()
+    const _bearer = await requestTokens.token()
     return {
       subscribe: async (subject, handler) => {
         const sub2 = nc2.subscribe(subject)
@@ -102,22 +102,22 @@ const studentBearer = await requestTokens.token()
 const teacherKp = teacherNkeys.fromSeed(new TextEncoder().encode(process.env.TEACHER_SEED))
 const teacherNow = Math.floor(Date.now() / 1000)
 const teacherB64 = (x) => Buffer.from(x).toString('base64url')
-const teacherSi = teacherB64(JSON.stringify({ alg: 'ed25519-nkey', typ: 'JWT' })) + '.' + teacherB64(JSON.stringify({ iss: TEACHER_NKEY, sub: TEACHER_NKEY, aud: 'vizmaster-registry-vcc', tool: 'harness', iat: teacherNow, exp: teacherNow + 300, jti: crypto.randomUUID() }))
+const teacherSi = `${teacherB64(JSON.stringify({ alg: 'ed25519-nkey', typ: 'JWT' }))}.${teacherB64(JSON.stringify({ iss: TEACHER_NKEY, sub: TEACHER_NKEY, aud: 'vizmaster-registry-vcc', tool: 'harness', iat: teacherNow, exp: teacherNow + 300, jti: crypto.randomUUID() }))}`
 const teacherSig = teacherKp.sign(new TextEncoder().encode(teacherSi))
-const teacherBearer = teacherSi + '.' + Buffer.from(teacherSig).toString('base64url')
+const teacherBearer = `${teacherSi}.${Buffer.from(teacherSig).toString('base64url')}`
 
 const rest = async (method, path, bearer) => {
-  const response = await fetch('http://127.0.0.1:8089' + path, {
+  const response = await fetch(`http://127.0.0.1:8089${path}`, {
     method,
-    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + bearer },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
     body: method === 'GET' ? undefined : JSON.stringify({}),
     signal: AbortSignal.timeout(10_000),
   })
   return response.status
 }
-await rest('PUT', '/api/me/follows/' + TEACHER_NKEY, studentBearer)
-await rest('PUT', '/api/me/follows/' + STUDENT_NKEY, teacherBearer)
-await rest('PUT', '/api/me/collab-consent/' + TEACHER_NKEY, studentBearer)
+await rest('PUT', `/api/me/follows/${TEACHER_NKEY}`, studentBearer)
+await rest('PUT', `/api/me/follows/${STUDENT_NKEY}`, teacherBearer)
+await rest('PUT', `/api/me/collab-consent/${TEACHER_NKEY}`, studentBearer)
 
 // ── LEG 1: start the service ──
 await service.start()

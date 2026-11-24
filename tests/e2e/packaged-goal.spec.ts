@@ -20,7 +20,7 @@ const APP = process.env.VCLAW_E2E_APP
   ?? join(homedir(), 'Documents/Chatek/apps/vchat.email/vclaw-desktop/release-remote/arm64/VClaw-1.1.18-unpacked/VizMaster.app/Contents/MacOS/VizMaster')
 const AUTH_SOURCE = join(homedir(), '.pi', 'agent', 'auth.json')
 
-test('clean home → packaged app → one prompt → vizshow build appears and is served', async ({ }, testInfo) => {
+test('clean home → packaged app → one prompt → vizshow build appears and is served', async (_fixtures, testInfo) => {
   testInfo.setTimeout(10 * 60 * 1000)
   test.skip(!existsSync(APP), `packaged app not found at ${APP} (build it first)`)
   const home = `/tmp/vclaw-e2e-goal-${Date.now()}`

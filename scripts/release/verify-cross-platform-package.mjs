@@ -3,8 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { listPackage } from '@electron/asar'
-import { assertAsarLayout, assertPackagedExtensionContent, assertPackagedExtensions, assertPackagedProductProfile, escapeArtifactPrefix, productArtifactPrefix, readShippedAgentPin } from './lib.mjs'
+import { assertPackagedExtensionContent, assertPackagedExtensions, assertPackagedProductProfile, escapeArtifactPrefix, productArtifactPrefix, readShippedAgentPin } from './lib.mjs'
 
 function requireOption(value, label, allowed) {
   if (!value || !allowed.includes(value)) throw new Error(`${label} must be one of: ${allowed.join(', ')}`)
@@ -158,8 +157,8 @@ export function verifyPackage(target, architecture, { unpackedOnly = false, mode
   const artifacts = unpackedOnly ? [] : assertExpectedArtifacts(outputDirectory, target)
   const app = findUnpackedDirectory(outputDirectory, target)
   const resources = join(app, 'resources')
-  const asar = join(resources, 'app.asar')
-  const unpacked = join(resources, 'app.asar.unpacked')
+  const _asar = join(resources, 'app.asar')
+  const _unpacked = join(resources, 'app.asar.unpacked')
   assertPackagedExtensions(resources)
   assertPackagedExtensionContent(resources, readShippedAgentPin())
 

@@ -28,9 +28,7 @@ export const ASSERTION_FRESH_MARGIN_MS = 30_000
 
 export type RegistryAuthLeg = 'agent-assertion' | 'oidc'
 
-export interface RegistryTokenSource {
-  (log: (message: string) => void): Promise<{ token: string; leg: RegistryAuthLeg }>
-}
+export type RegistryTokenSource = (log: (message: string) => void) => Promise<{ token: string; leg: RegistryAuthLeg }>
 
 /**
  * Reads the JWT payload's `exp` WITHOUT verifying: the broker never holds the

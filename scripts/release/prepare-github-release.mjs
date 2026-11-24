@@ -46,7 +46,12 @@ export function releaseAssetNames(version, platforms = RELEASE_PLATFORMS) {
   // a hardcoded copy of these names once already).
   const prefix = productArtifactPrefix()
   const assets = {
-    mac: [[`${prefix}-${version}-m-chip.dmg`, `${prefix}-${version}-arm64.dmg`], [`${prefix}-${version}-intel-chip.dmg`, `${prefix}-${version}-x64.dmg`], [`${prefix}-${version}-arm64.zip`], [`${prefix}-${version}-x64.zip`]],
+    mac: [
+      [`${prefix}-${version}-m-chip.dmg`, `${prefix}-${version}-arm64.dmg`],
+      [`${prefix}-${version}-intel-chip.dmg`, `${prefix}-${version}-x64.dmg`],
+      [`${prefix}-${version}-arm64.zip`],
+      [`${prefix}-${version}-x64.zip`],
+    ],
     linux: [
       [`${prefix}-${version}-linux-arm64.AppImage`],
       [`${prefix}-${version}-linux-arm64.deb`],

@@ -284,7 +284,7 @@ let connectInFlight: Promise<ConnectAgentOutcome> | null = null
  * never mints.
  */
 export function connectFlowContextFromArgv(argv: readonly string[] = process.argv): { verificationContext: boolean; allowUnapproved: boolean } {
-  let verificationContext = argv.some((argument) => argument.startsWith(PACKAGED_SMOKE_FLAG))
+  const verificationContext = argv.some((argument) => argument.startsWith(PACKAGED_SMOKE_FLAG))
     || process.env.VIZMASTER_VERIFICATION === '1'
     || process.env.VCLAW_VERIFICATION === '1'
   const requested = argv.includes('--allow-unapproved') || process.env.VCLAW_ALLOW_UNAPPROVED === '1'

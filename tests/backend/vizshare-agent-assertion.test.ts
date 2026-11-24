@@ -78,8 +78,8 @@ function exchange(request: Partial<IncomingMessage>): { request: IncomingMessage
       const flush = (): void => {
         if (flushed) return
         flushed = true
-        data.forEach((callback) => callback(Buffer.from(JSON.stringify(value), 'utf8')))
-        end.forEach((callback) => callback())
+        for (const callback of data) callback(Buffer.from(JSON.stringify(value), 'utf8'))
+        for (const callback of end) callback()
       }
       request.on = ((_event: string, callback: (chunk: Buffer) => void) => {
         if (_event === 'data') data.push(callback)

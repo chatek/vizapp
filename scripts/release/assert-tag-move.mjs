@@ -48,16 +48,14 @@ export function tagMoveVerdict(state) {
 }
 
 function ghJson(args) {
-  return JSON.parse(
-    execFileSync('gh', args, { encoding: 'utf8', timeout: GH_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }),
-  )
+  return JSON.parse(execFileSync('gh', args, { encoding: 'utf8', timeout: GH_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }))
 }
 
 /** Collects the verdict inputs from the live repo (network). */
 export function collectTagState(tag) {
-  const runs = ghJson([
-    'run', 'list', '--workflow', RELEASE_WORKFLOW, '--limit', '100', '--json', 'status,conclusion,headBranch,event,headSha',
-  ]).filter((run) => run.headBranch === tag || run.event === 'push' && run.headSha === tag)
+  const runs = ghJson(['run', 'list', '--workflow', RELEASE_WORKFLOW, '--limit', '100', '--json', 'status,conclusion,headBranch,event,headSha']).filter(
+    (run) => run.headBranch === tag || (run.event === 'push' && run.headSha === tag),
+  )
   let release
   try {
     release = ghJson(['release', 'view', tag, '--json', 'assets,tagName'])

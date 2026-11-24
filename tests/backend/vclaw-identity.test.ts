@@ -131,10 +131,10 @@ describe('connect flow — login first, signup only when login prescribes it', (
 
 // ── connect-flow guards (operator ruling after the 2026-11-19 mint incident) ──
 
-const VALID_ENCODED_SEED = 'SU' + 'A'.repeat(56)
+const VALID_ENCODED_SEED = `SU${'A'.repeat(56)}`
 
 describe('inspectCredentialsState — fail-closed shape validation', () => {
-  const read = (body: string | null): (path: string) => string => (path) => {
+  const read = (body: string | null): (path: string) => string => (_path) => {
     if (body === null) throw new Error('ENOENT')
     return body
   }
@@ -150,7 +150,7 @@ describe('inspectCredentialsState — fail-closed shape validation', () => {
 
   it('INVALID when the file exists but the seed is malformed — even with a good public key', () => {
     // The exact incident shape: a seed that does not decode to the 36-byte encoded layout.
-    expect(inspectCredentialsState(read(JSON.stringify({ public_key: NKEY, seed: 'SU' + 'A'.repeat(54) })), '/home/x')).toBe('invalid')
+    expect(inspectCredentialsState(read(JSON.stringify({ public_key: NKEY, seed: `SU${'A'.repeat(54)}` })), '/home/x')).toBe('invalid')
     expect(inspectCredentialsState(read(JSON.stringify({ public_key: NKEY, seed: 'not base32 !!!' })), '/home/x')).toBe('invalid')
   })
 

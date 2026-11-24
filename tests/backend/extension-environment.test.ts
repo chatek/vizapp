@@ -153,7 +153,7 @@ describe('B5 class — the vclaw capability row is proven by its environment, pe
     expect(extensionInjection(harness, 'vclaw').environmentVariable).toBe('VCLAW_AGENT_EXTENSION_PATH')
     expect(environment.VCLAW_AGENT_EXTENSION_PATH).toBe('/app/extensions/vclaw-agent.js')
     const args = adapter.buildStartArgs({ cwd: '/work', environment })
-    const injected = args.filter((value, index) => index > 0 && args[index - 1] === '--extension')
+    const injected = args.filter((_value, index) => index > 0 && args[index - 1] === '--extension')
     expect(injected).toContain('/app/extensions/vclaw-agent.js')
   })
 
