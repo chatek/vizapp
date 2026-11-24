@@ -95,7 +95,9 @@ jobs:
           fi
         env:
           NODE_OPTIONS: --max-old-space-size=1024
-          INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '20' }}
+          # TEMPORARY cold-cache bootstrap (2026-11-24): reverted to '20' immediately
+          # after the ct18 cache seed. Dispatch input still overrides this value.
+          INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '60' }}
       - run: npm run release:preflight:toolchain
       - run: npm run typecheck
       - run: npm run check
