@@ -203,6 +203,7 @@ async function runLegs() {
   // C2. catalogue — the desktop caches this once per process (~2 s auth pair), so the harness
   // proves the endpoint answers the same authenticated caller and carries manifest schemas.
   let catalogueTutorialId = null
+  {
     try {
       const reply = await microRequest(nc, 'vizregistry.prompts.catalogue', {}, studentBearer())
       const decoded = JSON.parse(new TextDecoder().decode(reply.data))
@@ -217,6 +218,13 @@ async function runLegs() {
     } catch (error) {
       log('C2 catalogue', false, `no reply on vizregistry.prompts.catalogue: ${error instanceof Error ? error.message : error}`)
     }
+  }
+
+  // D. draft — a Micro REQUEST to the service, exactly like the desktop's flush. The service
+  // owns fan-out to each consenting teacher's nkey subject; a raw publish here would be a message
+  // into the void (nobody subscribes) and a DENIED publish (vgate grants PUB only on
+  // `vizregistry.prompts.>`), so this leg must go through the endpoint.
+  {
     try {
       const reply = await microRequest(nc, 'vizregistry.prompts.draft', {
         roomId,
@@ -228,6 +236,7 @@ async function runLegs() {
     } catch (error) {
       log('D draft-request', false, `no reply on vizregistry.prompts.draft: ${error instanceof Error ? error.message : error}`)
     }
+  }
 
   // E. the teacher's AGENT suggests
   let suggestionId = null
@@ -315,9 +324,13 @@ async function runLegs() {
     const refusalPushes = suggestions.filter((s) => s.prompt?.startsWith('should be refused'))
     log('G3 no-push-for-refusals', refusalPushes.length === 0, `${refusalPushes.length} refusal push(es)`)
   }
+
+  // N. NEGATIVE: the OLD subHmac-keyed subject received NOTHING (the re-key deleted it)
+  {
     await new Promise((resolve) => setTimeout(resolve, 500))
     log('N legacy-subject-silent', legacySuggestions.length === 0,
       `${legacySuggestions.length} message(s) on the old subHmac-keyed subject`)
+  }
 
   // H. feedback accept
   if (suggestionId) {
