@@ -118,7 +118,7 @@ describe('vizshow chip', () => {
     render()
 
     const preview = container.querySelector('.vizshow-chip--preview') as HTMLButtonElement
-    expect(preview.getAttribute('aria-label')).toBe('Open the public gallery preview')
+    expect(preview.getAttribute('aria-label')).toBe('Open the public Viz preview')
 
     await act(async () => {
       preview.click()
