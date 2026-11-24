@@ -21,15 +21,37 @@ export interface ExtensionUiQuestionnaireRequest {
   timeout?: number
 }
 
+/**
+ * A passive host widget pushed by an extension (`ctx.ui.setWidget`). It is NOT a question:
+ * there is no timeout, no dialog id to answer, and no `title` in the frame
+ * (`prime-agent/dist/modes/rpc/rpc-extension-ui-context.js:60-68`). The host renders the
+ * string lines in the Composer's suggestion area.
+ */
+export interface ExtensionUiWidgetRequest {
+  method: 'setWidget'
+  id: string
+  widgetKey: string
+  widgetLines: string[]
+  widgetPlacement?: string
+}
+
 export type ExtensionUiRequest =
   | { method: 'select'; id: string; title: string; options: string[]; timeout?: number; questionnaire?: ExtensionUiQuestionnaireMeta }
   | { method: 'confirm'; id: string; title: string; message: string; timeout?: number }
   | { method: 'input'; id: string; title: string; placeholder?: string; timeout?: number }
   | { method: 'editor'; id: string; title: string; prefill?: string }
   | ExtensionUiQuestionnaireRequest
+  | ExtensionUiWidgetRequest
+
+/** The modal path can never receive a widget: `useExtensionUi` routes them before parking. */
+export type ExtensionUiModalRequest = Exclude<ExtensionUiRequest, { method: 'setWidget' }>
 
 const MAX_TITLE_LENGTH = 4_000
 const MAX_OPTION_LENGTH = 500
+const MAX_WIDGET_KEY_LENGTH = 200
+const MAX_WIDGET_LINE_LENGTH = 4_000
+const MAX_WIDGET_LINES = 32
+const MAX_WIDGET_PLACEMENT_LENGTH = 40
 const MAX_OPTIONS = 32
 const ASK_USER_RPC_MARKER = '__prime_ask_user__'
 export const ASK_USER_TIMEOUT_MS = 120_000
@@ -54,12 +76,28 @@ function questionnaireMeta(value: string): ExtensionUiQuestionnaireMeta | undefi
   return { groupId, index, total }
 }
 
+function widgetRequest(id: string, raw: Record<string, unknown>): ExtensionUiWidgetRequest | undefined {
+  const widgetKey = stringValue(raw.widgetKey, MAX_WIDGET_KEY_LENGTH)
+  if (!widgetKey || !Array.isArray(raw.widgetLines)) return undefined
+  const widgetLines = raw.widgetLines
+    .filter((line): line is string => typeof line === 'string' && line.length <= MAX_WIDGET_LINE_LENGTH)
+    .slice(0, MAX_WIDGET_LINES)
+  // Non-string lines are dropped; a payload with no usable line at all is malformed. An empty
+  // array is a valid "clear this widget" push.
+  if (raw.widgetLines.length > 0 && widgetLines.length === 0) return undefined
+  const widgetPlacement = stringValue(raw.widgetPlacement, MAX_WIDGET_PLACEMENT_LENGTH)
+  return { method: 'setWidget', id, widgetKey, widgetLines, ...(widgetPlacement ? { widgetPlacement } : {}) }
+}
+
 export function parseExtensionUiRequest(raw: Record<string, unknown>): ExtensionUiRequest | undefined {
   if (raw.type !== 'extension_ui_request') return undefined
   const id = stringValue(raw.id, 200)
-  const title = stringValue(raw.title, MAX_TITLE_LENGTH)
   const method = raw.method
-  if (!id || !title || typeof method !== 'string') return undefined
+  if (!id || typeof method !== 'string') return undefined
+  // A widget is passive: the host never shows a dialog for it, so it must not need `title`.
+  if (method === 'setWidget') return widgetRequest(id, raw)
+  const title = stringValue(raw.title, MAX_TITLE_LENGTH)
+  if (!title) return undefined
 
   if (method === 'select') {
     if (!Array.isArray(raw.options) || raw.options.length < 1 || raw.options.length > MAX_OPTIONS) return undefined

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ExtensionUiResponse } from '@/components/ExtensionUiModal'
-import { ASK_USER_TIMEOUT_MS, parseExtensionUiRequest, type ExtensionUiRequest } from '@/lib/extension-ui'
+import { ASK_USER_TIMEOUT_MS, parseExtensionUiRequest, type ExtensionUiRequest, type ExtensionUiWidgetRequest } from '@/lib/extension-ui'
 import type { PrimeWorkApi, RuntimeInfo, SessionRecord } from '@/types/api'
 
 interface UseExtensionUiOptions {
@@ -16,7 +16,8 @@ type QuestionnaireSelectRequest = Extract<ExtensionUiRequest, { method: 'select'
 
 export interface PendingExtensionUi {
   runtimeId: string
-  request: ExtensionUiRequest
+  /** Widgets never park here (no timeout, no dialog), so the modal request has no widget arm. */
+  request: Exclude<ExtensionUiRequest, { method: 'setWidget' }>
   requests?: QuestionnaireSelectRequest[]
 }
 
@@ -46,13 +47,20 @@ export function useExtensionUi({
   const pendingByRuntimeRef = useRef<Map<string, PendingExtensionUi>>(new Map())
   const timerByRuntimeRef = useRef<Map<string, number>>(new Map())
   const timedOutQuestionnairesRef = useRef<Set<string>>(new Set())
+  // Extension widgets are passive: latest per widgetKey wins, no timeout, no dialog. Kept per
+  // runtime so switching sessions never shows another session's widget.
+  const widgetsByRuntimeRef = useRef<Map<string, Map<string, ExtensionUiWidgetRequest>>>(new Map())
+  const [extensionWidgets, setExtensionWidgets] = useState<ExtensionUiWidgetRequest[]>([])
   const activeRuntimeIdRef = useRef(activeRuntimeId)
   useLayoutEffect(() => { activeRuntimeIdRef.current = activeRuntimeId })
 
   const showPendingForActiveRuntime = useCallback(() => {
-    const visible = pendingExtensionUiForRuntime(pendingByRuntimeRef.current, activeRuntimeIdRef.current)
+    const runtimeId = activeRuntimeIdRef.current
+    const visible = pendingExtensionUiForRuntime(pendingByRuntimeRef.current, runtimeId)
     extensionUiRef.current = visible
     setExtensionUi(visible)
+    const widgets = runtimeId ? widgetsByRuntimeRef.current.get(runtimeId) : undefined
+    setExtensionWidgets(widgets ? [...widgets.values()] : [])
   }, [])
 
   const clearExtensionUi = useCallback((runtimeId?: string) => {
@@ -150,8 +158,23 @@ export function useExtensionUi({
   }, [cancelPending, clearExtensionUi])
 
   const showExtensionUi = useCallback((runtimeId: string, rawEvent: Record<string, unknown>) => {
+    // Widgets are runtime-scoped chrome: a dead runtime's rows must not linger.
+    if (rawEvent.type === 'runtime_exit') {
+      if (widgetsByRuntimeRef.current.delete(runtimeId) && activeRuntimeIdRef.current === runtimeId) setExtensionWidgets([])
+      return
+    }
     const request = parseExtensionUiRequest(rawEvent)
     if (!request || !bridge) return
+
+    // Passive widgets never take the modal path: latest per key wins, no timer, no response.
+    if (request.method === 'setWidget') {
+      const widgets = widgetsByRuntimeRef.current.get(runtimeId) ?? new Map<string, ExtensionUiWidgetRequest>()
+      if (request.widgetLines.length) widgets.set(request.widgetKey, request)
+      else widgets.delete(request.widgetKey)
+      widgetsByRuntimeRef.current.set(runtimeId, widgets)
+      if (activeRuntimeIdRef.current === runtimeId) setExtensionWidgets([...widgets.values()])
+      return
+    }
 
     if (request.method === 'select' && request.questionnaire) {
       const questionnaireKey = `${runtimeId}:${request.questionnaire.groupId}`
@@ -236,7 +259,8 @@ export function useExtensionUi({
     timerByRuntimeRef.current.clear()
     pendingByRuntimeRef.current.clear()
     timedOutQuestionnairesRef.current.clear()
+    widgetsByRuntimeRef.current.clear()
   }, [cancelPending])
 
-  return { extensionUi, clearExtensionUi, respondToExtensionUi, showExtensionUi, hasOpenRequestForSession }
+  return { extensionUi, extensionWidgets, clearExtensionUi, respondToExtensionUi, showExtensionUi, hasOpenRequestForSession }
 }

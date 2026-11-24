@@ -4,7 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../../src/components/Composer'
-import type { PrimeWorkApi, PromptDraftOutcome, PromptSuggestion } from '../../src/types/api'
+import type { ExtensionUiWidgetRequest } from '../../src/lib/extension-ui'
+import type { PrimeWorkApi, PromptDeliveryIntent, PromptDraftOutcome, PromptImage, PromptSuggestion } from '../../src/types/api'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -56,7 +57,7 @@ function stubPreload(): void {
   stubWindow.prime = { suggestions } as unknown as PrimeWorkApi
 }
 
-function renderComposer(): void {
+function renderComposer(options: { widgets?: ExtensionUiWidgetRequest[]; onSend?: (prompt: string, images: PromptImage[], intent: PromptDeliveryIntent) => Promise<void> | void } = {}): void {
   act(() => root.render(<Composer
     busy={false}
     model="auto"
@@ -69,10 +70,11 @@ function renderComposer(): void {
     fastAvailable={false}
     imageInputSupported
     skills={[]}
+    extensionWidgets={options.widgets}
     onModelChange={vi.fn()}
     onEffortChange={vi.fn()}
     onFastChange={vi.fn()}
-    onSend={vi.fn()}
+    onSend={options.onSend ?? vi.fn()}
     onStop={vi.fn()}
   />))
 }
@@ -252,6 +254,59 @@ describe('composer suggestion list', () => {
     renderComposer()
     await type('一元二次方程')
     expect(draft).toHaveBeenCalledWith(expect.objectContaining({ text: '一元二次方程', locale: 'en' }))
+  })
+})
+
+describe('composer extension widgets', () => {
+  const widget = (overrides: Partial<ExtensionUiWidgetRequest> = {}): ExtensionUiWidgetRequest => ({
+    method: 'setWidget',
+    id: 'widget-1',
+    widgetKey: 'cloud-tip',
+    widgetLines: ['Teacher tip: factor first', 'Tab to fill the editor'],
+    ...overrides,
+  })
+
+  it('renders string widget lines in the suggestion listbox', async () => {
+    renderComposer({ widgets: [widget()] })
+    await idle()
+
+    const menu = container.querySelector('.composer-menu')
+    expect(menu?.getAttribute('role')).toBe('listbox')
+    expect(menu?.textContent).toContain('Teacher tip: factor first')
+    expect(menu?.textContent).toContain('Tab to fill the editor')
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(1)
+  })
+
+  it('fills the editor on Tab without submitting the message', async () => {
+    const onSend = vi.fn()
+    renderComposer({ widgets: [widget()], onSend })
+    await idle()
+
+    await press('Tab')
+
+    expect(textareaOf().value).toBe('Teacher tip: factor first\nTab to fill the editor')
+    expect(container.querySelector('.composer-menu')).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('fills the editor on Enter instead of sending', async () => {
+    const onSend = vi.fn()
+    renderComposer({ widgets: [widget()], onSend })
+    await idle()
+
+    await press('Enter')
+
+    expect(textareaOf().value).toBe('Teacher tip: factor first\nTab to fill the editor')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('never reports a cloud suggestion outcome for a widget fill', async () => {
+    renderComposer({ widgets: [widget()] })
+    await idle()
+
+    await press('Tab')
+
+    expect(feedback).not.toHaveBeenCalled()
   })
 })
 

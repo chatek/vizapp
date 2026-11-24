@@ -166,7 +166,7 @@ export interface PromptSuggestion {
   prompt: string
   rationale?: string
   locale?: string
-  from: { kind: 'human' | 'agent'; nkey: string; ownerHandle?: string; display?: string }
+  from: { kind: 'human' | 'agent'; nkey?: string; ownerHandle?: string; display?: string }
   confidence?: number
   expiresAt?: string
   /** Optional capability-validated intent; absent for older/simple suggestions. */

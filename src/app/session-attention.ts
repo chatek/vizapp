@@ -5,9 +5,23 @@ interface SessionLifecycleChange {
   markUnread?: boolean
 }
 
+/** Extension UI methods that block on a human answer. Everything else is passive chrome. */
+const EXTENSION_UI_ASK_METHODS: Record<string, true> = {
+  select: true,
+  confirm: true,
+  input: true,
+  editor: true,
+  questionnaire: true,
+}
+
 export function sessionLifecycleChange(event: Record<string, unknown>): SessionLifecycleChange | undefined {
   const type = typeof event.type === 'string' ? event.type : ''
-  if (type === 'extension_ui_request') return { status: 'waiting', markUnread: true }
+  // `setWidget`/`setStatus`/`notify`/`setTitle` share the frame type but ask nothing; treating
+  // them as `waiting` lit the unread badge for passive chrome.
+  if (type === 'extension_ui_request') {
+    const method = typeof event.method === 'string' ? event.method : ''
+    return EXTENSION_UI_ASK_METHODS[method] ? { status: 'waiting', markUnread: true } : undefined
+  }
   if (type === 'agent_start' || type === 'turn_start') return { status: 'running', markUnread: false }
   if (type === 'compaction_start') return { status: 'running', markUnread: false }
   if (type === 'compaction_end' && event.willRetry !== true && (event.reason === 'manual' || event.reason === 'requested')) return { status: 'complete', markUnread: false }

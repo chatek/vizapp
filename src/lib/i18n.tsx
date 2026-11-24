@@ -61,6 +61,7 @@ const englishCatalog = {
   'composer.suggest.renders': '{tutorial} · {params}',
   'composer.suggest.accept': 'Accept suggestion',
   'composer.suggest.inserted': 'new text',
+  'composer.suggest.widget': 'extension widget',
   'vizshow.latest': 'VizShow · {id}',
   'vizshow.new': 'new',
   'vizshow.open': 'Open the latest VizShow',

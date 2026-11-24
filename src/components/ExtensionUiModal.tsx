@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import type { ExtensionUiQuestion, ExtensionUiRequest } from '@/lib/extension-ui'
+import type { ExtensionUiQuestion, ExtensionUiModalRequest } from '@/lib/extension-ui'
 import { shortcutLabel } from '@/lib/platform-shortcuts'
 import { Modal } from './ui'
 
@@ -12,7 +12,7 @@ export type ExtensionUiResponse =
   | { values: Record<string, string> }
 
 interface ExtensionUiModalProps {
-  request: ExtensionUiRequest
+  request: ExtensionUiModalRequest
   onRespond(response: ExtensionUiResponse): void
   platform?: NodeJS.Platform
 }

@@ -85,6 +85,40 @@ describe('extension UI request parsing', () => {
     expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'editor-1', method: 'editor', title: 'Edit the plan' })).toEqual({ method: 'editor', id: 'editor-1', title: 'Edit the plan', prefill: undefined })
     expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'editor-1', method: 'editor', title: 'Edit the plan', prefill: 'x'.repeat(32_001) })).toBeUndefined()
   })
+
+  it('parses a setWidget frame without a title and never treats it as a dialog', () => {
+    expect(parseExtensionUiRequest({
+      type: 'extension_ui_request',
+      id: 'widget-1',
+      method: 'setWidget',
+      widgetKey: 'cloud-tip',
+      widgetLines: ['Teacher tip: try factoring first', 'Tab to fill the editor'],
+      widgetPlacement: 'aboveEditor',
+    })).toEqual({
+      method: 'setWidget',
+      id: 'widget-1',
+      widgetKey: 'cloud-tip',
+      widgetLines: ['Teacher tip: try factoring first', 'Tab to fill the editor'],
+      widgetPlacement: 'aboveEditor',
+    })
+    // Placement is optional; extra fields are ignored.
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'widget-1', method: 'setWidget', widgetKey: 'k', widgetLines: ['one'], extra: true }))
+      .toEqual({ method: 'setWidget', id: 'widget-1', widgetKey: 'k', widgetLines: ['one'] })
+    // Non-string lines are dropped; an empty list clears the widget.
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: 'k', widgetLines: ['keep', 42, null] }))
+      .toMatchObject({ widgetLines: ['keep'] })
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: 'k', widgetLines: [] }))
+      .toMatchObject({ widgetLines: [] })
+  })
+
+  it('rejects a malformed setWidget frame', () => {
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetLines: ['line'] })).toBeUndefined()
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: '  ', widgetLines: ['line'] })).toBeUndefined()
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: 'k' })).toBeUndefined()
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: 'k', widgetLines: 'line' })).toBeUndefined()
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', id: 'w', method: 'setWidget', widgetKey: 'k', widgetLines: [42] })).toBeUndefined()
+    expect(parseExtensionUiRequest({ type: 'extension_ui_request', method: 'setWidget', widgetKey: 'k', widgetLines: ['line'] })).toBeUndefined()
+  })
 })
 
 

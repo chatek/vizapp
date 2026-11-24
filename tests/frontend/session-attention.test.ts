@@ -31,8 +31,8 @@ describe('session lifecycle attention', () => {
   })
 
   it('gives repeated background waits and completions distinct attention revisions', () => {
-    const waiting = applySessionLifecycleEvent(session(), { type: 'extension_ui_request' }, false, 1)
-    const waitingAgain = applySessionLifecycleEvent(waiting, { type: 'extension_ui_request' }, false, 1)
+    const waiting = applySessionLifecycleEvent(session(), { type: 'extension_ui_request', method: 'select' }, false, 1)
+    const waitingAgain = applySessionLifecycleEvent(waiting, { type: 'extension_ui_request', method: 'select' }, false, 1)
     const completed = applySessionLifecycleEvent(waitingAgain, { type: 'agent_end' }, false, 1)
     const completedAgain = applySessionLifecycleEvent(completed, { type: 'agent_end' }, false, 1)
 
@@ -41,6 +41,17 @@ describe('session lifecycle attention', () => {
     expect(sessionAttentionSignature(completed)).toBe('complete:3')
     expect(sessionAttentionSignature(completedAgain)).toBe('complete:4')
     expect(Date.parse(waitingAgain.updatedAt)).toBeGreaterThan(Date.parse(waiting.updatedAt))
+  })
+
+  it('never marks passive extension UI frames as waiting or unread', () => {
+    for (const method of ['setWidget', 'setStatus', 'notify', 'setTitle']) {
+      const before = session()
+      const passive = applySessionLifecycleEvent(before, { type: 'extension_ui_request', method, widgetKey: 'k', widgetLines: ['line'] }, false, 1)
+      expect(passive).toBe(before)
+      expect(passive.status).toBe('idle')
+      expect(passive.unread).toBeUndefined()
+      expect(sessionAttentionSignature(passive)).toBeUndefined()
+    }
   })
 
   it('advances lifecycle revision without changing attention for failures', () => {
@@ -100,7 +111,7 @@ describe('session lifecycle attention', () => {
 describe('catalog merges over live session state', () => {
   it.each([
     ['running', { type: 'agent_start' }],
-    ['waiting', { type: 'extension_ui_request' }],
+    ['waiting', { type: 'extension_ui_request', method: 'select' }],
     ['complete', { type: 'agent_end' }],
     ['failed', { type: 'transport_error' }],
   ] as const)('does not downgrade renderer-owned %s state with a stale idle catalog record', (expectedStatus, event) => {
@@ -241,7 +252,7 @@ describe('catalog merges over live session state', () => {
   })
 
   it('keeps a waiting badge while its extension-UI request is still open', () => {
-    const waiting = applySessionLifecycleEvent(session(), { type: 'extension_ui_request' }, false, 1)
+    const waiting = applySessionLifecycleEvent(session(), { type: 'extension_ui_request', method: 'select' }, false, 1)
     expect(sessionAttentionSignature(waiting)).toBe('waiting:1')
 
     const diskRecord: SessionRecord = { ...session(), status: 'running', updatedAt: '2025-01-01T00:00:05.000Z' }

@@ -208,9 +208,12 @@ async function runLegs() {
       const reply = await microRequest(nc, 'vizregistry.prompts.catalogue', {}, studentBearer())
       const decoded = JSON.parse(new TextDecoder().decode(reply.data))
       const manifests = Array.isArray(decoded.manifests) ? decoded.manifests : []
-      const entry = manifests.find((manifest) => manifest?.kind === 'elucim' && typeof manifest?.tutorialId === 'string')
-      catalogueTutorialId = entry?.tutorialId ?? null
-      const schemaOk = Array.isArray(entry?.params) && entry.params.every((param) => typeof param?.key === 'string' && ['number', 'boolean', 'string'].includes(param?.type))
+      const entry = manifests.find((manifest) => manifest?.kind === 'elucim' && typeof manifest?.id === 'string')
+      catalogueTutorialId = entry?.id ?? null
+      // Real wire shape: `params` is a RECORD keyed by param name, not an array.
+      const params = entry?.params
+      const schemaOk = typeof params === 'object' && params !== null && !Array.isArray(params)
+        && Object.values(params).every((param) => ['number', 'boolean', 'string'].includes(param?.type))
       log('C2 catalogue', decoded.ok === true && manifests.length > 0 && schemaOk, `manifests=${manifests.length} elucim=${catalogueTutorialId ?? 'none'} schema=${schemaOk}`)
     } catch (error) {
       log('C2 catalogue', false, `no reply on vizregistry.prompts.catalogue: ${error instanceof Error ? error.message : error}`)

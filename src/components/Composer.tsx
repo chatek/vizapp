@@ -33,6 +33,7 @@ import { clearComposerDraft, readComposerDraft, saveComposerDraft, takeComposerD
 import { contextDialLabel } from '@/lib/format-cost'
 import { messageActionForKey } from '@/lib/message-shortcuts'
 import { diffPrompts } from '@/lib/prompt-diff'
+import type { ExtensionUiWidgetRequest } from '@/lib/extension-ui'
 import { formatVizParams } from '@/lib/prompt-viz'
 import { useComposerImages } from '@/hooks/useComposerImages'
 import { useDictation } from '@/hooks/useDictation'
@@ -100,6 +101,8 @@ interface ComposerProps {
   /** Called after a send that included the annotations, and by the attachment's remove control. */
   onClearAnnotations?(): void
   onClearTerminalSelection?(): void
+  /** Passive extension widgets from the active runtime, rendered in the suggestion listbox. */
+  extensionWidgets?: ExtensionUiWidgetRequest[]
   /** Stable per-workspace key; without it the composer keeps no draft of its own. */
   draftKey?: string
 }
@@ -145,6 +148,7 @@ interface ComposerMenuRow {
 }
 
 const EMPTY_ANNOTATIONS: BrowserAnnotation[] = []
+const EMPTY_WIDGETS: ExtensionUiWidgetRequest[] = []
 const noop = () => undefined
 
 export const Composer = memo(function Composer({
@@ -192,6 +196,7 @@ export const Composer = memo(function Composer({
   onRemoveAnnotation = noop,
   onClearAnnotations = noop,
   onClearTerminalSelection = noop,
+  extensionWidgets = EMPTY_WIDGETS,
   draftKey,
 }: ComposerProps) {
   const [value, setValue] = useState(() => (draftKey ? readComposerDraft(draftKey)?.text : undefined) ?? takeComposerDraft())
@@ -288,7 +293,7 @@ export const Composer = memo(function Composer({
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (menu === 'suggest') {
-        const active = promptSuggestions.suggestions[activeSuggestion] ?? promptSuggestions.suggestions[0]
+        const active = promptSuggestions.suggestions[Math.min(activeSuggestion, promptSuggestions.suggestions.length - 1)]
         if (active) promptSuggestions.dismiss(active)
       }
       setMenu(null)
@@ -306,9 +311,10 @@ export const Composer = memo(function Composer({
   // once the draft has been idle for 150 ms (or stays open once it is), and otherwise a quiet
   // badge is the only signal. An IME composition defers the reveal entirely.
   const suggestionsKey = promptSuggestions.suggestions.map((item) => item.suggestionId).join('\n')
+  const widgetsKey = extensionWidgets.map((item) => item.widgetKey).join('\n')
   const revealSuggestions = () => {
     if (revealTimerRef.current) { clearTimeout(revealTimerRef.current); revealTimerRef.current = null }
-    if (composingRef.current || !promptSuggestions.suggestions.length) return
+    if (composingRef.current || (!promptSuggestions.suggestions.length && !extensionWidgets.length)) return
     const open = () => setMenu((current) => (current === 'suggest' ? current : 'suggest'))
     const remaining = SUGGESTION_IDLE_MS - (Date.now() - lastTypedAtRef.current)
     if (remaining <= 0) { open(); return }
@@ -320,14 +326,18 @@ export const Composer = memo(function Composer({
   useEffect(() => {
     revealSuggestions()
   }, [suggestionsKey])
+  // A widget is host-pushed too: same idle rule, so it never eats a keystroke.
+  useEffect(() => {
+    revealSuggestions()
+  }, [widgetsKey])
   useEffect(() => () => {
     clearTimeout(revealTimerRef.current ?? undefined)
   }, [])
   // An empty queue can never keep an empty list open.
   useEffect(() => {
-    if (promptSuggestions.suggestions.length) return
+    if (promptSuggestions.suggestions.length || extensionWidgets.length) return
     setMenu((current) => (current === 'suggest' ? null : current))
-  }, [promptSuggestions.suggestions.length])
+  }, [promptSuggestions.suggestions.length, extensionWidgets.length])
 
   // Ctrl/Cmd+Enter in the annotation popover bumps sendSignal to submit the
   // draft (with the just-saved annotation) without switching focus here.
@@ -485,7 +495,7 @@ export const Composer = memo(function Composer({
       ? t('composer.suggest.source.agentOf', { handle: suggestion.from.ownerHandle })
       : t('composer.suggest.source.agent'))
     : t('composer.suggest.source.human', {
-      handle: suggestion.from.display ?? suggestion.from.ownerHandle ?? suggestion.from.nkey.slice(-8),
+      handle: suggestion.from.display ?? suggestion.from.ownerHandle ?? suggestion.from.nkey?.slice(-8) ?? '',
     })
   /**
    * What accepting would actually render. `vizshow` is display-only untrusted data: this string
@@ -536,36 +546,62 @@ export const Composer = memo(function Composer({
               { key: 'mention', label: 'Mention a session or skill', detail: 'Reference sidebar work or an enabled capability', icon: <AtSign size={14} />, choose: () => insert('@') },
             ]
           : menu === 'suggest'
-            ? promptSuggestions.suggestions.map((suggestion) => ({
-                key: suggestion.suggestionId,
-                label: suggestion.prompt,
-                detail: suggestionSource(suggestion),
-                icon: <Sparkles size={14} />,
-                choose: () => acceptSuggestion(suggestion),
-                // The row shows the TEACHING, not just the replacement: text the draft already
-                // has stays plain, and only what accepting would add is marked.
-                content: (
-                  <span className="composer-suggest__body">
-                    <span className="composer-suggest__text">
-                      {diffPrompts(value, suggestion.prompt).map((part, index) => part.kind === 'insert'
-                        ? <mark key={index} title={t('composer.suggest.inserted')}>{part.text}</mark>
-                        : <span key={index}>{part.text}</span>)}
+            ? [
+                ...promptSuggestions.suggestions.map((suggestion) => ({
+                  key: suggestion.suggestionId,
+                  label: suggestion.prompt,
+                  detail: suggestionSource(suggestion),
+                  icon: <Sparkles size={14} />,
+                  choose: () => acceptSuggestion(suggestion),
+                  // The row shows the TEACHING, not just the replacement: text the draft already
+                  // has stays plain, and only what accepting would add is marked.
+                  content: (
+                    <span className="composer-suggest__body">
+                      <span className="composer-suggest__text">
+                        {diffPrompts(value, suggestion.prompt).map((part, index) => part.kind === 'insert'
+                          ? <mark key={index} title={t('composer.suggest.inserted')}>{part.text}</mark>
+                          : <span key={index}>{part.text}</span>)}
+                      </span>
+                      <small className="composer-suggest__meta">
+                        <span className={`composer-suggest__chip composer-suggest__chip--${suggestion.from.kind}`}>{suggestionSource(suggestion)}</span>
+                        {suggestion.vizshow ? (
+                          <span
+                            className={`composer-suggest__chip composer-suggest__chip--viz composer-suggest__chip--viz-${suggestion.vizshow.kind}`}
+                            title={capabilityLabel(suggestion.vizshow)}
+                          >
+                            {capabilityLabel(suggestion.vizshow)}
+                          </span>
+                        ) : null}
+                        {suggestion.rationale ? <span className="composer-suggest__rationale">{suggestion.rationale}</span> : null}
+                      </small>
                     </span>
-                    <small className="composer-suggest__meta">
-                      <span className={`composer-suggest__chip composer-suggest__chip--${suggestion.from.kind}`}>{suggestionSource(suggestion)}</span>
-                      {suggestion.vizshow ? (
-                        <span
-                          className={`composer-suggest__chip composer-suggest__chip--viz composer-suggest__chip--viz-${suggestion.vizshow.kind}`}
-                          title={capabilityLabel(suggestion.vizshow)}
-                        >
-                          {capabilityLabel(suggestion.vizshow)}
-                        </span>
+                  ),
+                })),
+                // Passive extension widgets (extension-ui `setWidget`). Tab/Enter is the HOST
+                // side of the extension's `set_editor_text` frame: it fills this editor and never
+                // submits the draft.
+                ...extensionWidgets.map((widget) => ({
+                  key: `widget:${widget.widgetKey}`,
+                  label: widget.widgetLines[0] ?? widget.widgetKey,
+                  detail: widget.widgetPlacement ?? t('composer.suggest.widget'),
+                  icon: <Sparkles size={14} />,
+                  choose: () => insert(widget.widgetLines.join('\n')),
+                  content: (
+                    <span className="composer-suggest__body">
+                      <span className="composer-suggest__text">
+                        {widget.widgetLines.map((line, index) => (
+                          <span key={index}>{index ? <br /> : null}{line}</span>
+                        ))}
+                      </span>
+                      {widget.widgetPlacement ? (
+                        <small className="composer-suggest__meta">
+                          <span className="composer-suggest__chip composer-suggest__chip--agent">{widget.widgetPlacement}</span>
+                        </small>
                       ) : null}
-                      {suggestion.rationale ? <span className="composer-suggest__rationale">{suggestion.rationale}</span> : null}
-                    </small>
-                  </span>
-                ),
-              }))
+                    </span>
+                  ),
+                })),
+              ]
             : []
 
   useEffect(() => {
@@ -701,7 +737,7 @@ export const Composer = memo(function Composer({
               if (event.key === 'Escape') {
                 event.preventDefault()
                 if (menu === 'suggest') {
-                  const active = promptSuggestions.suggestions[activeSuggestion] ?? promptSuggestions.suggestions[0]
+                  const active = promptSuggestions.suggestions[Math.min(activeSuggestion, promptSuggestions.suggestions.length - 1)]
                   if (active) promptSuggestions.dismiss(active)
                 }
                 setMenu(null)
@@ -709,7 +745,7 @@ export const Composer = memo(function Composer({
             }}
           />
         </div>
-        {menu === null && promptSuggestions.suggestions.length > 0 ? (
+        {menu === null && (promptSuggestions.suggestions.length > 0 || extensionWidgets.length > 0) ? (
           <button
             type="button"
             className="composer-suggest-badge"
@@ -720,10 +756,12 @@ export const Composer = memo(function Composer({
             }}
           >
             <Sparkles size={12} aria-hidden="true" />
-            {t('composer.suggest.badge', {
-              count: promptSuggestions.suggestions.length,
-              source: suggestionSource(promptSuggestions.suggestions[promptSuggestions.suggestions.length - 1]),
-            })}
+            {promptSuggestions.suggestions.length
+              ? t('composer.suggest.badge', {
+                count: promptSuggestions.suggestions.length,
+                source: suggestionSource(promptSuggestions.suggestions[promptSuggestions.suggestions.length - 1]),
+              })
+              : t('composer.suggest.widget')}
           </button>
         ) : null}
         {promptSuggestions.draftOutcome?.state === 'refused' ? (

@@ -15,6 +15,7 @@ import {
   promptBearerTokenSource,
   promptSubjects,
   resolvePromptConfig,
+  shouldStartPrompts,
   type PromptConfig,
   type SuggestionsNatsLike,
 } from '../../electron/main/suggestions-service'
@@ -197,6 +198,60 @@ describe('prompt suggestion pushes', () => {
       expect(parsed?.vizshow, JSON.stringify(vizshow)).toBeUndefined()
     }
   })
+
+  it('accepts a human teacher push that carries no nkey', async () => {
+    const human = { ...suggestion, suggestionId: 'sug-human', from: { kind: 'human', display: 'teacher-lin' } }
+    const parsed = parseSuggestion(encoder.encode(JSON.stringify(human)))
+    expect(parsed?.suggestionId).toBe('sug-human')
+    expect(parsed?.from).toEqual({ kind: 'human', display: 'teacher-lin' })
+
+    const fake = fakeConnection()
+    const service = serviceWith(fake)
+    const seen: unknown[] = []
+    service.onSuggestion((received) => seen.push(received.from))
+    await service.start()
+    fake.push(human)
+    expect(seen).toEqual([{ kind: 'human', display: 'teacher-lin' }])
+    await service.stop()
+  })
+
+  it('still accepts an nkey-sender push and still rejects malformed senders', () => {
+    const agent = parseSuggestion(encoder.encode(JSON.stringify(suggestion)))
+    expect(agent?.from).toEqual({ kind: 'agent', nkey: 'UAGENTEXAMPLE', ownerHandle: 'teacher' })
+
+    const malformed = [
+      { kind: 'human' },
+      { kind: 'human', display: '   ' },
+      { kind: 'agent' },
+      { kind: 'agent', display: 'no-key' },
+      { kind: 'agent', nkey: 42 },
+      { kind: 'robot', nkey: 'X' },
+      {},
+      'human',
+      null,
+    ]
+    for (const from of malformed) {
+      expect(parseSuggestion(encoder.encode(JSON.stringify({ ...suggestion, from }))), JSON.stringify(from)).toBeNull()
+    }
+  })
+})
+
+describe('prompt plane wiring', () => {
+  it('starts the desktop service only when VCLAW_PROMPTS is exactly 1', () => {
+    expect(shouldStartPrompts({})).toBe(false)
+    expect(shouldStartPrompts({ [PROMPTS_FLAG]: '' })).toBe(false)
+    expect(shouldStartPrompts({ [PROMPTS_FLAG]: '0' })).toBe(false)
+    expect(shouldStartPrompts({ [PROMPTS_FLAG]: 'true' })).toBe(false)
+    expect(shouldStartPrompts({ [PROMPTS_FLAG]: '1' })).toBe(true)
+  })
+
+  it('reads no credentials while the flag is off', () => {
+    const readFile = vi.fn((): string => {
+      throw new Error('credential file must not be read while the flag is off')
+    })
+    expect(resolvePromptConfig({}, { readFile, home: '/home/student' })).toEqual({ ok: false, error: 'disabled' })
+    expect(readFile).not.toHaveBeenCalled()
+  })
 })
 
 describe('consent-gated draft requests', () => {
@@ -336,8 +391,8 @@ describe('consent-gated draft requests', () => {
 
 describe('capability catalogue', () => {
   const manifests = [
-    { tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }, { key: 'crisp', type: 'boolean' }] },
-    { tutorialId: 'vectors-3d', kind: 'three', params: [{ key: 'scale', type: 'number', min: 0.1, max: 4 }, { key: 'mode', type: 'string', values: ['iso', 'top'] }] },
+    { id: 'quadratic-functions', kind: 'elucim', params: { a: { type: 'number', min: -10, max: 10 }, crisp: { type: 'boolean' } } },
+    { id: 'vectors-3d', kind: 'three', params: { scale: { type: 'number', min: 0.1, max: 4 }, mode: { type: 'string', values: ['iso', 'top'] } } },
   ]
 
   it('fetches once and serves every later call from the cache', async () => {
@@ -377,12 +432,22 @@ describe('capability catalogue', () => {
       ok: true,
       manifests: [
         manifests[0],
-        { tutorialId: 'no-kind', params: [] },
-        { tutorialId: 'bad-kind', kind: 'hologram', params: [] },
-        { kind: 'elucim', params: [] },
-        { tutorialId: 'params-not-array', kind: 'elucim', params: 'nope' },
+        { id: 'no-kind', params: {} },
+        { id: 'bad-kind', kind: 'hologram', params: {} },
+        { kind: 'elucim', params: {} },
+        { id: 'params-not-record', kind: 'elucim', params: 'nope' },
         'not a manifest',
-        { tutorialId: 'partial-params', kind: 'vectorplay', params: [null, 42, { key: '', type: 'number' }, { key: 'ok', type: 'number', min: Number.NaN }, { key: 'flag', type: 'boolean', values: ['x', 3] }] },
+        {
+          id: 'partial-params',
+          kind: 'vectorplay',
+          params: {
+            '': { type: 'number' },
+            blank: null,
+            unknown: { type: 'hologram' },
+            ok: { type: 'number', min: Number.NaN },
+            flag: { type: 'boolean', values: ['x', 3] },
+          },
+        },
       ],
     }))
     const service = serviceWith(fake)
@@ -390,7 +455,32 @@ describe('capability catalogue', () => {
     await expect(service.catalogue()).resolves.toEqual({
       entries: [
         { tutorialId: 'quadratic-functions', kind: 'elucim', params: [{ key: 'a', type: 'number', min: -10, max: 10 }, { key: 'crisp', type: 'boolean' }] },
+        // The manifest is usable; only its unusable param record is reduced to `[]`.
+        { tutorialId: 'params-not-record', kind: 'elucim', params: [] },
         { tutorialId: 'partial-params', kind: 'vectorplay', params: [{ key: 'ok', type: 'number' }, { key: 'flag', type: 'boolean', values: ['x'] }] },
+      ],
+    })
+    await service.stop()
+  })
+
+  it('parses the real wire shape, including the shipped catalogue kinds', async () => {
+    const fake = fakeConnection()
+    fake.reply('vizregistry.prompts.catalogue', () => ({
+      ok: true,
+      manifests: [
+        { id: 'unit-circle', kind: 'elucim', params: { angle: { type: 'number', min: 0, max: 6.283 } } },
+        { id: 'solid-geometry', kind: 'three', params: { showSphere: { type: 'boolean' }, depth: { type: 'number', min: 0, max: 1 } } },
+        { id: 'vectors-3d', kind: 'vectorplay', params: {} },
+        { id: 'future-kind', kind: 'canvas', params: {} },
+      ],
+    }))
+    const service = serviceWith(fake)
+
+    await expect(service.catalogue()).resolves.toEqual({
+      entries: [
+        { tutorialId: 'unit-circle', kind: 'elucim', params: [{ key: 'angle', type: 'number', min: 0, max: 6.283 }] },
+        { tutorialId: 'solid-geometry', kind: 'three', params: [{ key: 'showSphere', type: 'boolean' }, { key: 'depth', type: 'number', min: 0, max: 1 }] },
+        { tutorialId: 'vectors-3d', kind: 'vectorplay', params: [] },
       ],
     })
     await service.stop()

@@ -67,7 +67,13 @@ const JWT_REFRESH_MS = 50 * 60 * 1_000
 
 export type SuggestionsEnabled = { enabled: true } | { enabled: false; error: 'disabled' }
 
-export function suggestionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+/**
+ * The main process's ONE wiring decision for the prompt plane (converged-design §D step 1).
+ * Pure and exported so the wiring (`index.ts`) and its test share one truth without booting
+ * Electron: `false` means no `SuggestionsService` is constructed, which is exactly the
+ * behaviour of the app before the plane was wired at all.
+ */
+export function shouldStartPrompts(env: NodeJS.ProcessEnv = process.env): boolean {
   return env[PROMPTS_FLAG] === '1'
 }
 
@@ -180,7 +186,7 @@ export function resolvePromptConfig(
   env: NodeJS.ProcessEnv = process.env,
   deps: { readFile?: (path: string) => string; home?: string } = {},
 ): PromptConfigResolution {
-  if (!suggestionsEnabled(env)) return { ok: false, error: 'disabled' }
+  if (!shouldStartPrompts(env)) return { ok: false, error: 'disabled' }
   const home = deps.home ?? configFileHome()
   const read = deps.readFile ?? ((path: string) => readFileSync(path, 'utf8'))
   const identity = readPromptIdentity(read, home)
@@ -437,10 +443,15 @@ export const CATALOGUE_RETRY_MS = 60_000
 
 const CATALOGUE_PARAM_TYPES: readonly PromptCatalogueParam['type'][] = ['number', 'boolean', 'string']
 
-function parseCatalogueParam(value: unknown): PromptCatalogueParam | null {
-  if (!isRecord(value)) return null
-  const key = typeof value.key === 'string' ? value.key.trim() : ''
+/**
+ * One param spec from the catalogue's `params` RECORD: the wire reply keys each spec by the
+ * param name (`E/engine.ts:578-585` → `curator/types.ts:11-15`). The name is the record key;
+ * the spec carries the type and its bounds.
+ */
+function parseCatalogueParam(name: string, value: unknown): PromptCatalogueParam | null {
+  const key = name.trim()
   if (!key || key.length > 64) return null
+  if (!isRecord(value)) return null
   if (!CATALOGUE_PARAM_TYPES.includes(value.type as PromptCatalogueParam['type'])) return null
   const param: PromptCatalogueParam = { key, type: value.type as PromptCatalogueParam['type'] }
   if (typeof value.min === 'number' && Number.isFinite(value.min)) param.min = value.min
@@ -456,6 +467,10 @@ function parseCatalogueParam(value: unknown): PromptCatalogueParam | null {
  * The catalogue reply is untrusted input like every push: a manifest that cannot be trusted is
  * DROPPED (never repaired, never fatal), and a malformed param is dropped from a manifest that
  * is otherwise usable — a typo in one schema must not cost five tutorials.
+ *
+ * Wire shape (the registry's own reply, `E/engine.ts:578-585`):
+ * `{ ok: true, manifests: [{ id, kind, params: { <name>: { type, min?, max?, values? } } }] }`.
+ * Unknown kinds/params are ignored, never thrown on.
  */
 export function parseCatalogue(payload: unknown): PromptCatalogueEntry[] {
   if (!isRecord(payload)) return []
@@ -463,13 +478,14 @@ export function parseCatalogue(payload: unknown): PromptCatalogueEntry[] {
   const entries: PromptCatalogueEntry[] = []
   for (const manifest of manifests) {
     if (!isRecord(manifest)) continue
-    const tutorialId = typeof manifest.tutorialId === 'string' ? manifest.tutorialId.trim() : ''
+    const tutorialId = typeof manifest.id === 'string' ? manifest.id.trim() : ''
     if (!tutorialId || tutorialId.length > 64) continue
     if (!VIZ_KINDS.includes(manifest.kind as PromptSuggestionVizKind)) continue
-    if (!Array.isArray(manifest.params)) continue
-    const params = manifest.params
-      .map(parseCatalogueParam)
-      .filter((param): param is PromptCatalogueParam => param !== null)
+    const params = isRecord(manifest.params)
+      ? Object.entries(manifest.params)
+        .map(([name, spec]) => parseCatalogueParam(name, spec))
+        .filter((param): param is PromptCatalogueParam => param !== null)
+      : []
     entries.push({ tutorialId, kind: manifest.kind as PromptSuggestionVizKind, params })
   }
   return entries
@@ -501,6 +517,11 @@ function parseVizshow(value: unknown): PromptSuggestionViz | undefined {
 /**
  * A push is untrusted input until it proves it is a suggestion. `from.kind` is a CLAIM the
  * renderer labels as such; the service is what verified it.
+ *
+ * Two sender shapes are real (`E/engine.ts:420-426`): an AGENT carries the NKey the registry
+ * verified (`nkey`, optional `ownerHandle`), while a HUMAN teacher is addressed by handle only
+ * and has NO nkey. Requiring an nkey dropped every human teacher's push; requiring a display or
+ * owner handle for humans is what still rejects a payload that proves neither shape.
  */
 export function parseSuggestion(data: Uint8Array): PromptSuggestion | null {
   let parsed: unknown
@@ -515,17 +536,22 @@ export function parseSuggestion(data: Uint8Array): PromptSuggestion | null {
   if (typeof prompt !== 'string' || !prompt.trim()) return null
   if (!isRecord(from)) return null
   if (from.kind !== 'human' && from.kind !== 'agent') return null
-  if (typeof from.nkey !== 'string' || !from.nkey) return null
+  const nkey = typeof from.nkey === 'string' ? from.nkey.trim() : ''
+  const ownerHandle = typeof from.ownerHandle === 'string' && from.ownerHandle ? from.ownerHandle : undefined
+  const display = typeof from.display === 'string' && from.display.trim() ? from.display : undefined
+  if (from.kind === 'agent' ? !nkey : (!display && !ownerHandle)) return null
   const suggestion: PromptSuggestion = {
     suggestionId,
     roomId,
     requestId,
     prompt,
+    // The registry's human shape has no nkey (the type makes it optional for exactly that
+    // reason); the absence is carried as-is instead of inventing a key that was never verified.
     from: {
       kind: from.kind,
-      nkey: from.nkey,
-      ...(typeof from.ownerHandle === 'string' && from.ownerHandle ? { ownerHandle: from.ownerHandle } : {}),
-      ...(typeof from.display === 'string' && from.display ? { display: from.display } : {}),
+      ...(nkey ? { nkey } : {}),
+      ...(ownerHandle ? { ownerHandle } : {}),
+      ...(display ? { display } : {}),
     },
   }
   if (typeof parsed.rationale === 'string' && parsed.rationale) suggestion.rationale = parsed.rationale

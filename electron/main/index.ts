@@ -45,6 +45,7 @@ import { SessionService } from './sessions'
 import { VclawInboxService } from './inbox-service'
 import { VizshowService } from './vizshow-service'
 import { ShowsService } from './shows-service'
+import { SuggestionsService, connectSuggestionsNats, resolvePromptConfig, shouldStartPrompts } from './suggestions-service'
 import { ompSessionServiceOptions } from './sessions/omp'
 import { piSessionServiceOptions } from './sessions/pi'
 import { type JsonStateStore, openDesktopStateStore, StateCompatibilityError, StateMigrationError } from './store'
@@ -81,6 +82,7 @@ let agentBrowserBridge: AgentBrowserBridge | null = null
 let agentCollaborationBridge: AgentCollaborationBridge | null = null
 let vizshowService: VizshowService | null = null
 let showsService: ShowsService | null = null
+let suggestionsService: SuggestionsService | null = null
 let backgroundMode: MacBackgroundController | null = null
 let shutdownStarted = false
 let shutdownApproved = false
@@ -1212,6 +1214,22 @@ async function bootstrap(): Promise<void> {
   vizshowService = vizshow
   const shows = new ShowsService()
   showsService = shows
+  // Migration step 1 (converged design §D): the prompt plane is constructed ONLY behind
+  // `VCLAW_PROMPTS=1`. With the flag off nothing is built and no credential file is read, so
+  // every `vclaw-suggestions:*` handler keeps answering `disabled` exactly as it did before.
+  // Constructing is inert (no connection); `start()` below is what subscribes.
+  if (shouldStartPrompts(process.env)) {
+    const promptConfig = resolvePromptConfig(process.env)
+    if (promptConfig.ok) {
+      const config = promptConfig.config
+      suggestionsService = new SuggestionsService({
+        config,
+        connector: () => connectSuggestionsNats(config),
+      })
+    } else {
+      console.warn(`[vclaw-prompts] prompt plane not started: ${promptConfig.error}`)
+    }
+  }
   const inboxService = new VclawInboxService({
     isSessionOpen: () => (agents?.list().length ?? 0) > 0 || ompManager.list().length > 0 || piManager.list().length > 0,
   })
@@ -1222,6 +1240,7 @@ async function bootstrap(): Promise<void> {
     inbox: inboxService,
     vizshow,
     shows,
+    suggestions: suggestionsService ?? undefined,
     omp: { projects: ompProjects, sessions: ompSessions, agents: ompManager, catalog: ompCatalog, plugins: ompPlugins },
     pi: { projects: piProjects, sessions: piSessions, agents: piManager, catalog: piCatalog, plugins: piPlugins },
     applyInterfaceZoom,
@@ -1229,6 +1248,9 @@ async function bootstrap(): Promise<void> {
   inboxService.start()
   vizshow.start()
   shows.start()
+  // Fire-and-forget by design: a dead broker must not delay startup (the service's own
+  // connection attempt catches and logs; consent/catalogue retry later).
+  void suggestionsService?.start()
   // Both managers share the one renderer forwarding path: envelopes carry the
   // runtimeId and RuntimeInfo carries the harness, so the renderer can route.
   const forwardAgentEvent = (envelope: PrimeEventEnvelope): void => {
@@ -1407,6 +1429,7 @@ app.on('before-quit', (event) => {
   void settleShutdown([
     vizshowService?.stop() ?? Promise.resolve(),
     Promise.resolve(showsService?.stop()),
+    suggestionsService?.stop() ?? Promise.resolve(),
     ...agentScheduleBridges.map((bridge) => bridge.stop()),
     agentBrowserBridge?.stop() ?? Promise.resolve(),
     agentCollaborationBridge?.stop() ?? Promise.resolve(),
