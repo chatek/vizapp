@@ -50,6 +50,11 @@ jobs:
     # Forgejo: the install-heavy runner (ct18); GitHub: the hosted default.
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'ct18-heavy' }}
     timeout-minutes: 120
+    env:
+      # One source for the install wrapper AND the bootstrap-save gates.
+      # TEMPORARY fallback '60' for the ct18 cold seed; reverted to '20' in the
+      # immediately following commit. A dispatch input still overrides.
+      INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '60' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -95,9 +100,6 @@ jobs:
           fi
         env:
           NODE_OPTIONS: --max-old-space-size=1024
-          # TEMPORARY cold-cache bootstrap (2026-11-24): reverted to '20' immediately
-          # after the ct18 cache seed. Dispatch input still overrides this value.
-          INSTALL_TIMEOUT_MINUTES: ${{ inputs.bootstrap_install_minutes || '60' }}
       # Bootstrap-only saves: actions/cache's post-step save is success-gated,
       # and this pipeline is red at lint (pre-existing). A cold-cache seed must
       # still persist, so when the install window is raised (temp 60m commit or
