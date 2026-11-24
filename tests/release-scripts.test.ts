@@ -312,12 +312,42 @@ describe('release preflight', () => {
     expect(TOOLCHAIN_SKIP_REASON).toContain(currentNpmVersion)
   })
 
+  /**
+   * Seeds the surfaces `verifyVizshareSurface` asserts, plus the one module `package.mjs`
+   * imports from its cwd, so an isolated checkout reaches the profile/payload gate it is
+   * actually testing. The surface check runs FIRST and fails closed, which is why a fixture
+   * that only stages a profile otherwise exits 1 instead of the asserted gate code.
+   */
+  function seedIsolatedCheckout(directory: string): void {
+    mkdirSync(join(directory, 'electron', 'main', 'vizshare'), { recursive: true })
+    writeFileSync(
+      join(directory, 'electron', 'main', 'product-profile.ts'),
+      `export { validateProductProfile } from ${JSON.stringify(fileURLToPath(new URL('../electron/main/product-profile.ts', import.meta.url)))}\n`,
+    )
+    writeFileSync(join(directory, 'electron', 'main', 'vizshare', 'agent-assertion-store.ts'), 'export const agentAssertionStore = true\n')
+    writeFileSync(join(directory, 'electron', 'main', 'vizshare', 'agent-token-source.ts'), 'export const PREFER_AGENT_ASSERTION = true\n')
+    writeFileSync(join(directory, 'electron', 'main', 'vizshare', 'broker.ts'), "export const agentAssertionRoute = '/v1/agent-assertion'\n")
+  }
+
   toolchainTest('package.mjs --dry-run says nothing executed instead of claiming success', () => {
+    // cwd ISOLATED with a NON-member profile: since the rebrand the checkout's default
+    // profile carries defaultProject, so a shared-cwd dry run also runs the member preflight
+    // and needs product/payload/dist — an artifact a generic checkout does not ship. The
+    // assertion under test is the dry-run contract, not the shared checkout's payload state.
     const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
-    const result = spawnSync(process.execPath, ['scripts/release/package.mjs', '--qa', '--platform', platform, '--dry-run'], { encoding: 'utf8' })
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain('DRY RUN — nothing executed.')
-    expect(result.stdout).not.toContain('pipeline passed')
+    const directory = mkdtempSync(join(tmpdir(), 'vclaw-dry-run-'))
+    try {
+      seedIsolatedCheckout(directory)
+      const profile = join(directory, 'dry-run-profile.json')
+      writeFileSync(profile, JSON.stringify({ profileVersion: 1, id: 'dry-run-test', harnesses: ['omp'] }))
+      const packageMjs = fileURLToPath(new URL('../scripts/release/package.mjs', import.meta.url))
+      const result = spawnSync(process.execPath, [packageMjs, '--qa', '--platform', platform, '--profile', profile, '--dry-run'], { encoding: 'utf8', cwd: directory })
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout).toContain('DRY RUN — nothing executed.')
+      expect(result.stdout).not.toContain('pipeline passed')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   toolchainTest('package.mjs --member refuses an un-integrated payload before electron-builder', () => {
@@ -336,14 +366,9 @@ describe('release preflight', () => {
       // fixture does not control.
       // The script path stays ABSOLUTE (the module's real location); only the cwd moves.
       const packageMjs = fileURLToPath(new URL('../scripts/release/package.mjs', import.meta.url))
-      // package.mjs lazily imports electron/main/product-profile.ts relative to its CWD:
-      // give the isolated checkout that one module as a re-export of the REAL validator,
-      // so the gate runs the production logic without a second electron/ tree.
-      mkdirSync(join(directory, 'electron', 'main'), { recursive: true })
-      writeFileSync(
-        join(directory, 'electron', 'main', 'product-profile.ts'),
-        `export { validateProductProfile } from ${JSON.stringify(fileURLToPath(new URL('../electron/main/product-profile.ts', import.meta.url)))}\n`,
-      )
+      // package.mjs asserts the vizshare surface FIRST and imports product-profile.ts from its
+      // cwd: seed both, or the surface check fails closed and this gate is never reached.
+      seedIsolatedCheckout(directory)
       const spawn = (args: string[]): SpawnSyncReturns<string> => spawnSync(process.execPath, [packageMjs, ...args.slice(1)], { encoding: 'utf8', cwd: directory })
       const result = spawn(['scripts/release/package.mjs', '--qa', '--platform', platform, '--member', 'preflight-test', '--profile', profile, '--dry-run'])
       expect(result.status, result.stderr).toBe(2)
