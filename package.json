@@ -47,7 +47,7 @@
     "@nats-io/nats-core": "^3.4.0",
     "@vclawhub/agent": "file:vendor/vclawhub-agent-1.5.0.tgz",
     "electron-updater": "^6.8.9",
-    "js-yaml": "^5.3.0",
+    "js-yaml": "^5.5.0",
     "node-pty": "^1.1.0",
     "prime-agent": "file:vendor/prime-agent-0.7.0-gooeypi.1.tgz",
     "prime-agent-ai": "file:vendor/prime-agent-ai-0.7.0-gooeypi.1.tgz",
@@ -59,7 +59,9 @@
     "@earendil-works/pi-agent-core": "file:vendor/prime-agent-core-0.7.0.tgz",
     "@earendil-works/pi-ai": "$prime-agent-ai",
     "@earendil-works/pi-tui": "file:vendor/prime-agent-tui-0.7.0.tgz",
-    "extract-zip": "npm:@electron-internal/extract-zip@1.0.5"
+    "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
+    "fast-uri@^3.0.0": "3.1.9",
+    "ip-address@^10.0.0": "10.7.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
