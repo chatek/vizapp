@@ -1,9 +1,21 @@
 # pstack vendor source
 
 Vendored from https://github.com/cursor/plugins/tree/main/pstack
+(mirrored in this repo as the `vendors/plugins` submodule of the parent
+VizMaster checkout; upstream pstack lives at `pstack/` in that repo).
 
-- Plugin version: 0.14.4
-- Upstream commit: 799151d (feat(pstack): add make-bot-ui skill (#271))
+- Plugin version: 0.15.48
+- Upstream commit: b1fbf4b6 (vendors/plugins HEAD at vendoring time)
 - License: MIT (see LICENSE)
 
-These skill folders are project-level so Cloud Agents can load pstack. Desktop Cursor can still install the marketplace plugin with `/add-plugin pstack`; that install takes precedence over a same-named local copy.
+Adaptation, same as the 0.14.4 vendoring: upstream `pstack/skills/<name>/`
+is flattened to `pstack/<name>/` so Cloud Agents can load the skill folders
+at project level. Plugin-level `agents/`, `automations/`, `docs/`, `assets/`
+and `.cursor-plugin` are not vendored. `plugin.json` is kept verbatim from
+upstream for version traceability. Desktop Cursor can still install the
+marketplace plugin with `/add-plugin pstack`; that install takes precedence
+over a same-named local copy.
+
+To update: sync `vendors/plugins/pstack/skills/` over this directory
+(excluding plugin.json/LICENSE/SOURCE.md), refresh those three files, and
+bump this note.
