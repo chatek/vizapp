@@ -592,6 +592,8 @@ print(json.dumps({"commit": commit, "branch": branch, "dirty": False,
                   "member": member,
                   "builtAt": built_at, "arches": arches}, indent=2))
 ' "$COMMIT" "$BRANCH" "$BUILT_AT" "$STAGE/SHA256SUMS.txt" "${TUPLE_ARGS[@]}" >"$STAGE/tuple.json"
+# tuple.json now exists, so it goes into the manifest too (SHA256SUMS.txt cannot hash itself)
+printf '%s  %s\n' "$(shasum -a 256 "$STAGE/tuple.json" | cut -d' ' -f1)" "tuple.json" >>"$STAGE/SHA256SUMS.txt"
 ASSETS+=("SHA256SUMS.txt" "tuple.json")
 
 RELEASE_NAME="$PRODUCT_NAME v$VERSION (${ARCHES[*]}, $SIGN_LABEL, $BUILD_KIND${MEMBER:+ $MEMBER})"
