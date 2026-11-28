@@ -65,6 +65,7 @@ describe('vendored agent artifact pins', () => {
       'package/dist/pi-extension/index.bundled.js',
       'package/dist/ext-synadia/index.bundled.js',
       'package/dist/cli.js',
+      'package/dist/arc/index.js',
     ])
     expect(rows.every((row) => Number.isInteger(row.bytes) && row.bytes > 0)).toBe(true)
     expect(rows.every((row) => /^[0-9a-f]{16,64}$/.test(row.sha256))).toBe(true)

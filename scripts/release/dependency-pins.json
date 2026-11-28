@@ -61,18 +61,18 @@
       "license": "Artistic-2.0"
     },
     "vclawhub-agent": {
-      "version": "1.5.0",
-      "path": "vendor/vclawhub-agent-1.5.0.tgz",
-      "source": "agent-sdk npm pack of the pinned build (see vendor/vclawhub-agent-1.5.0.md)",
-      "sha256": "9c5fab7b1c4a09f936b1fa5789467d0935d382f2e3c0e894e3a95521e8a62fda",
-      "size": 927341,
+      "version": "2.5.0",
+      "path": "vendor/vclawhub-agent-2.5.0.tgz",
+      "source": "agent-sdk npm pack of the pinned build (see vendor/vclawhub-agent-2.5.0.md)",
+      "sha256": "33cdda2fa9dfd8dc77eb9304ea57d6e6cbd60e5a0bea0976b3f3a0b36e97a216",
+      "size": 1082268,
       "license": "MIT",
       "shipped": {
         "path": "assets/extensions/vclaw-agent.js",
         "from": "package/dist/pi-extension/index.bundled.js",
-        "sha256": "cc3869b9e41a50826ad9bfb784410f7cb1e695eda40f8d541572cc27eede23f3",
-        "size": 1004559,
-        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Rebuilt from pin 5d93703 after the published tarball was found stale (it lacked the 'up' verb)."
+        "sha256": "bcf24c5d1b0d6ee1d9d5d39ba3771c70041a77b914dd50d35c3e332bb031074b",
+        "size": 1333560,
+        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Built from agent-sdk 4ed04f1 (v2.5.0) via the clean-dist chain (bun install --frozen-lockfile; rm -rf dist; npm run build; npm run build:extensions; npm pack) — reproducible 2x. Supersedes the 1.5.0 row (cc3869b9, kept on disk)."
       }
     }
   }
