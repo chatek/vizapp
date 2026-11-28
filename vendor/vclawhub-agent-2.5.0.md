@@ -43,6 +43,16 @@ channel is JSR where **latest = 2.1.0** — 2.5.0 is operator-gated and unpublis
 | `dist/cli.js` | 13,665 | `adf1b1da256d1d2e18200f6f1aaa343c78251b486e8d648d2c639bbe1b50b5a7` — the P1-subtraction CLI wrapper (commander entry) |
 | `dist/arc/index.js` | 204,829 | `2056607a32e76d9065e6362e94eb35b867666a01d2a71520238a5b0d09a086b4` — the ARC client (destination PEP) |
 
+## Ruling: main build over the 2.5.0 release tag (operator, 2026-11-28)
+
+The repo carries a release tag `agent-sdk-v2.5.0` @ `76ab9abb` whose extension bundle
+is `27fd696a…` / 1,168,610 B — 10 commits behind main, without the destination-PEP
+work. A third consult message under `vchat-email-lead` named the tag as the release
+artifact (its facts verified exactly); the operator ruled to ship the MAIN build
+(`bcf24c5d…`, destination-PEP included) per the "latest build" directive. A future
+re-vendor may revisit only with an operator ruling — the tag bytes are recorded here
+so that decision has its evidence.
+
 - Unpatched: base == patched, no `.patch` — but this archive is **not** skipped by the
   vendor gate: `npm run vendor:verify-patches` pins its digest and size and proves by
   extraction that `dist/pi-extension/index.bundled.js` is byte-identical to the shipped
