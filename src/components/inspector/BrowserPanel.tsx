@@ -3,6 +3,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react'
 import { annotationMarkersScript, annotationPickerScript, annotationTakeScript } from '@/lib/annotation-picker'
 import { MAX_BROWSER_ANNOTATIONS, sanitizeCapturedElement } from '@/lib/browser-annotations'
 import { detectRendererPlatform, shortcutLabel } from '@/lib/platform-shortcuts'
+import { withEmbedHint } from '@/lib/pane-urls'
 import type { BrowserAnnotationsApi } from '@/hooks/useBrowserAnnotations'
 import type { StampedPointerEvent } from '@/hooks/useAgentBrowserTabs'
 import { AgentCursorOverlay, type AgentSlotRect } from '../AgentBrowserLayer'
@@ -289,7 +290,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
   }, [markerSignature, loading, domReady])
 
   const navigate = useCallback((value: string) => {
-    const url = normalizeUrl(value)
+    const url = withEmbedHint(normalizeUrl(value))
     setAddress(url)
     setCurrentUrl(url)
     void webviewRef.current?.loadURL(url).catch((error: unknown) => {
@@ -343,7 +344,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
     ref: (node: WebviewElement | null) => {
       webviewRef.current = node
     },
-    src: home,
+    src: withEmbedHint(home),
     className: 'browser-webview',
     partition: BROWSER_PARTITION,
     webpreferences: 'contextIsolation=yes,sandbox=yes,nodeIntegration=no',

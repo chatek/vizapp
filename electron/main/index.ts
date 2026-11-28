@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, protocol, safeStorage, session, shell, webContents } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, safeStorage, session, shell, webContents } from 'electron'
 import type { BrowserWindowConstructorOptions, Input, WebContents } from 'electron'
+import { isPaneSignInUrl, withEmbedHint } from '../../src/lib/pane-urls'
 import { extname, isAbsolute, join, relative, resolve, win32 as win32Path } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -10,7 +11,7 @@ import { AgentRpcManager, OMP_RPC_ADAPTER, PI_RPC_ADAPTER } from './agent-rpc'
 import { installApplicationMenu } from './application-menu'
 import { MacBackgroundController, shouldStartInBackground } from './background'
 import { memberProviderSetupPaths, ProviderSetupService } from './provider-setup'
-import { BrowserDownloadGuard } from './browser-downloads'
+import { BrowserDownloadGuard, type DownloadCompleted } from './browser-downloads'
 import { installCrashGuards } from './crash-guard'
 import { CuaDriverService } from './cua-driver'
 import { GitService } from './git'
@@ -165,6 +166,68 @@ function isAllowedBrowserUrl(raw: string): boolean {
   try { const url = new URL(raw); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password } catch { return false }
 }
 
+/**
+ * D3 child-tab sign-in: the guest's sign-in/renewal navigation is redirected
+ * into a small child window sharing the pane's partition (cookies + session
+ * origin), while the pane itself stays on /play. A bounded poll watches the
+ * pane's `vm-auth-profile` mirror — once the profile appears (the landing
+ * wrote it after sign-in), the child closes and /play resumes intact.
+ */
+let signInChild: BrowserWindow | null = null
+let signInWatch: NodeJS.Timeout | null = null
+
+function closeSignInChild(): void {
+  if (signInWatch !== null) { clearInterval(signInWatch); signInWatch = null }
+  if (signInChild !== null && !signInChild.isDestroyed()) signInChild.close()
+  signInChild = null
+}
+
+function stopSignInWatch(): void {
+  if (signInWatch !== null) { clearInterval(signInWatch); signInWatch = null }
+}
+
+function openSignInChild(url: string, owner?: WebContents): void {
+  if (signInChild !== null && !signInChild.isDestroyed()) {
+    signInChild.loadURL(url)
+    signInChild.focus()
+    return
+  }
+  signInChild = new BrowserWindow({
+    width: 1024,
+    height: 760,
+    autoHideMenuBar: true,
+    title: 'VizMaster — sign in',
+    webPreferences: {
+      partition: BROWSER_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  signInChild.on('closed', () => {
+    if (signInWatch !== null) { clearInterval(signInWatch); signInWatch = null }
+    signInChild = null
+  })
+  void signInChild.loadURL(url)
+  // Bounded poll of the pane's auth mirror: the landing writes
+  // `vm-auth-profile` to localStorage after sign-in, which is visible to the
+  // pane (same partition/session, cross-window storage event + poll).
+  let ticks = 0
+  signInWatch = setInterval(() => {
+    ticks += 1
+    if (ticks > 90 || owner === undefined || owner.isDestroyed() || signInChild === null || signInChild.isDestroyed()) {
+      stopSignInWatch()
+      return
+    }
+    void owner
+      .executeJavaScript("(() => { try { return localStorage.getItem('vm-auth-profile') } catch { return null } })()", true)
+      .then((profile) => {
+        if (typeof profile === 'string' && profile.length > 0) closeSignInChild()
+      })
+      .catch(() => {})
+  }, 2000)
+}
+
 export function hardenRenderer(window: BrowserWindow, trustedUrl: () => string = () => trustedRendererUrl): void {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('context-menu', (_event, params) => {
@@ -190,10 +253,22 @@ export function hardenRenderer(window: BrowserWindow, trustedUrl: () => string =
   })
   window.webContents.on('did-attach-webview', (_event, contents) => {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    contents.on('will-navigate', (event, target) => { if (!isAllowedBrowserUrl(target)) event.preventDefault() })
+    contents.on('will-navigate', (event, target) => {
+      // D3: sign-in / renewal goes to a child tab in the same partition so
+      // /play state survives; sign-out stays a top-level action.
+      if (isPaneSignInUrl(target) && !new URL(target).searchParams.has('signout')) {
+        event.preventDefault()
+        openSignInChild(target)
+        return
+      }
+      if (!isAllowedBrowserUrl(target)) event.preventDefault()
+    })
     contents.on('will-redirect', (event) => { if (!isAllowedBrowserUrl(event.url)) event.preventDefault() })
     contents.on('will-frame-navigate', (event) => { if (!isAllowedBrowserUrl(event.url)) event.preventDefault() })
-    contents.once('destroyed', () => downloads?.cancelOwner(contents.id))
+    contents.once('destroyed', () => {
+      downloads?.cancelOwner(contents.id)
+      stopSignInWatch()
+    })
     // Guests reaching this point passed the will-attach-webview partition and
     // URL gates above, which makes them eligible for agent control.
     agentBrowser?.approveGuest(contents)
@@ -886,7 +961,14 @@ async function bootstrap(): Promise<void> {
       await Promise.all([piManager.stopForProjectRoots(roots), terminals!.killForProjectRoots(roots)])
     },
   })
-  downloads = new BrowserDownloadGuard(isAllowedBrowserUrl, app.getPath('downloads'))
+  downloads = new BrowserDownloadGuard(isAllowedBrowserUrl, app.getPath('downloads'), {
+    onCompleted: (completed: DownloadCompleted) => {
+      // D3: surface silent auto-saves — an in-pane download must not be invisible.
+      if (Notification.isSupported()) {
+        new Notification({ title: 'Download complete', body: `${completed.filename}\n${completed.savePath}` }).show()
+      }
+    },
+  })
   const settings = new SettingsService(
     stateStore,
     (shell) => terminals!.validateShell(shell),

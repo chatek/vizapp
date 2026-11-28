@@ -17,6 +17,11 @@ export function automaticDownloadPath(downloadDirectory: string, filename: strin
   return join(downloadDirectory, `${stem}-${suffix}${extension}`)
 }
 
+export interface DownloadCompleted {
+  filename: string
+  savePath: string
+}
+
 export class BrowserDownloadGuard {
   private readonly active = new Map<DownloadItem, ActiveDownload>()
   private windowStartedAt = Date.now()
@@ -25,6 +30,7 @@ export class BrowserDownloadGuard {
   constructor(
     private readonly isAllowedUrl: (value: string) => boolean,
     private readonly downloadDirectory: string,
+    private readonly hooks: { onCompleted?: (completed: DownloadCompleted) => void } = {},
   ) {}
 
   handle(event: Event, item: DownloadItem, owner: WebContents | undefined, askForDownloads: boolean): void {
@@ -58,9 +64,15 @@ export class BrowserDownloadGuard {
       if (received > MAX_DOWNLOAD_BYTES || this.windowBytes > MAX_WINDOW_BYTES) item.cancel()
     })
     item.once('done', () => {
+      const completed = item.getState() === 'completed'
+      const filename = item.getFilename()
+      const savePath = item.getSavePath()
       this.windowBytes = Math.max(0, this.windowBytes - active.outstandingDeclaredBytes)
       active.outstandingDeclaredBytes = 0
       this.active.delete(item)
+      if (this.hooks.onCompleted && completed) {
+        this.hooks.onCompleted({ filename, savePath })
+      }
     })
   }
 
