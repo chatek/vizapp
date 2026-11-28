@@ -8,6 +8,7 @@ import { BrowserPanel } from './inspector/BrowserPanel'
 import { ChangesPanel } from './inspector/ChangesPanel'
 import { FilesPanel } from './inspector/FilesPanel'
 import { InboxPanel } from './inspector/InboxPanel'
+import { PresenceChip } from './inspector/PresenceChip'
 import { SummaryPanel } from './inspector/SummaryPanel'
 import { IconButton, useFocusTrap } from './ui'
 
@@ -77,6 +78,7 @@ export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClo
     <div className="inspector__tabs" role="tablist" aria-label="Inspector views">
       {tabs.map((tab, index) => <button id={`inspector-tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`inspector-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} className={activeTab === tab.id ? 'is-active' : ''} key={tab.id} onKeyDown={(event) => { if (['ArrowRight','ArrowLeft','Home','End'].includes(event.key)) { event.preventDefault(); moveTab(index, event.key) } }} onClick={() => onTabChange(tab.id)}>{tab.label}{tab.id === 'changes' && git.files.length ? <span>{git.files.length}</span> : null}</button>)}
       <span className="inspector__tab-spacer"/>
+      <PresenceChip className="inspector__presence"/>
       <IconButton label="Close inspector" onClick={onClose}><PanelRightClose size={15}/></IconButton>
     </div>
     <div id={`inspector-panel-${activeTab}`} className="inspector__body" role="tabpanel" aria-labelledby={`inspector-tab-${activeTab}`} tabIndex={0}>
