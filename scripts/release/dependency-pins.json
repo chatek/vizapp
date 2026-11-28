@@ -72,7 +72,7 @@
         "from": "package/dist/pi-extension/index.bundled.js",
         "sha256": "bcf24c5d1b0d6ee1d9d5d39ba3771c70041a77b914dd50d35c3e332bb031074b",
         "size": 1333560,
-        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Built from agent-sdk 4ed04f1 (v2.5.0) via the clean-dist chain (bun install --frozen-lockfile; rm -rf dist; npm run build; npm run build:extensions; npm pack) — reproducible 2x. Supersedes the 1.5.0 row (cc3869b9, kept on disk)."
+        "note": "Renamed, never rebuilt: the shipped asset must stay byte-identical to the archive member, so the surface agent-sdk accepted is the surface we inject. Built from agent-sdk 0378869 (v2.5.0, src-identical to 4ed04f1; bytes == the repo-tracked dist mirror at that revision) via the clean-dist chain (bun install --frozen-lockfile; rm -rf dist; npm run build; npm run build:extensions; npm pack) — reproducible 2x. JSR latest published is 2.1.0; 2.5.0 is operator-gated/unpublished, so the source tree at the pinned revision is the latest build. Supersedes the 1.5.0 row (cc3869b9, kept on disk)."
       }
     }
   }
