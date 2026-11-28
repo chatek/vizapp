@@ -95,6 +95,7 @@
 .pane-auth-name { font-weight: 600; }
 .pane-auth-action { border: none; background: none; color: var(--text-tertiary); font-size: 11px; cursor: pointer; padding: 2px 3px; }
 .pane-auth-action:hover { color: var(--text-secondary); text-decoration: underline; }
+.pane-presence-chip { flex: 0 0 auto; margin: 0 2px; font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
 .address-field input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 11px; text-align: center; }
 .address-field button { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; color: var(--text-tertiary); background: transparent; }
 .annotation-active { color: var(--annotation) !important; background: color-mix(in srgb, var(--annotation) 13%, transparent) !important; }

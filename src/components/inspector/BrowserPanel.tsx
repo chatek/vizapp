@@ -4,6 +4,8 @@ import { annotationMarkersScript, annotationPickerScript, annotationTakeScript }
 import { MAX_BROWSER_ANNOTATIONS, sanitizeCapturedElement } from '@/lib/browser-annotations'
 import { detectRendererPlatform, shortcutLabel } from '@/lib/platform-shortcuts'
 import { withEmbedHint, isTrustedPaneHost, isVizmasterAppUrl } from '@/lib/pane-urls'
+import { panePresenceScript, panePresenceCopy, selectOwnPresence } from '@/lib/pane-presence'
+import type { PanePresence } from '@/lib/pane-presence'
 import type { BrowserAnnotationsApi } from '@/hooks/useBrowserAnnotations'
 import type { StampedPointerEvent } from '@/hooks/useAgentBrowserTabs'
 import { AgentCursorOverlay, type AgentSlotRect } from '../AgentBrowserLayer'
@@ -78,6 +80,9 @@ interface BrowserPanelProps {
   appThemeMode?: 'light' | 'dark'
 }
 
+/** Presence chip refresh cadence: poll on open, focus, and each minute — never per render (§2.1). */
+const PRESENCE_POLL_MS = 60_000
+
 function agentTabLabel(tab: AgentBrowserTabRecord): string {
   if (tab.title) return tab.title
   try {
@@ -98,6 +103,9 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
   const [domReady, setDomReady] = useState(false)
   /** Human portal session, mirrored by the site — pane chrome displays it. */
   const [paneAuthName, setPaneAuthName] = useState<string | null>(null)
+  const paneAuthNameRef = useRef<string | null>(null)
+  /** Advisory roster presence for the signed-in account; null hides the chip (pre-R6 or stale). */
+  const [ownPresence, setOwnPresence] = useState<PanePresence | null>(null)
   const [pendingElement, setPendingElement] = useState<BrowserAnnotationElement | null>(null)
   const [annotationText, setAnnotationText] = useState('')
   const [notice, setNotice] = useState('')
@@ -262,6 +270,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
           name = null
         }
         setPaneAuthName(name)
+        paneAuthNameRef.current = name
       })
     }
     // dom-ready is the earliest point at which executeJavaScript is legal;
@@ -337,6 +346,34 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
     void runInPage(view, annotationMarkersScript(markers))
   }, [markerSignature, loading, domReady])
 
+  // D2 pane presence (ARC R6, feature-detected): poll the embedded site's
+  // roster snapshot while a vizmaster.app pane is open. Every failure — the
+  // registry route not existing yet, transport error, stale-hidden row —
+  // clears the state and the chip stays hidden. Advisory only.
+  const paneOnSite = isVizmasterAppUrl(currentUrl)
+  useEffect(() => {
+    const view = webviewRef.current
+    if (!view || !domReady || !paneOnSite) {
+      setOwnPresence(null)
+      return
+    }
+    let disposed = false
+    const refresh = () => {
+      void runInPage(view, panePresenceScript()).then((raw) => {
+        if (disposed) return
+        setOwnPresence(selectOwnPresence(typeof raw === 'string' ? raw : null, paneAuthNameRef.current))
+      })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, PRESENCE_POLL_MS)
+    window.addEventListener('focus', refresh)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [domReady, paneOnSite, paneAuthName])
+
   const navigate = useCallback((value: string) => {
     const url = withEmbedHint(normalizeUrl(value))
     setAddress(url)
@@ -400,6 +437,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
 
   const count = annotations.annotations.length
   const staleCount = annotations.annotations.filter((annotation) => annotation.stale).length
+  const presenceCopy = panePresenceCopy(ownPresence)
 
   return (
     <div className="browser-panel">
@@ -463,7 +501,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
             <History size={13} />
           </button>
         </form>
-        {paneAuthName !== null && isVizmasterAppUrl(currentUrl) ? (
+        {paneAuthName !== null && paneOnSite ? (
           <div className="pane-auth-chip" role="status" title="Human portal session (the agent identity is separate)">
             <span className="pane-auth-dot" aria-hidden />
             <span className="pane-auth-name">{paneAuthName}</span>
@@ -484,7 +522,7 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
               Sign out
             </button>
           </div>
-        ) : paneAuthName === null && isVizmasterAppUrl(currentUrl) ? (
+        ) : paneAuthName === null && paneOnSite ? (
           <button
             type="button"
             className="pane-auth-action pane-auth-chip"
@@ -493,6 +531,11 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
           >
             Sign in
           </button>
+        ) : null}
+        {presenceCopy !== null && paneOnSite ? (
+          <span className="pane-presence-chip" role="status" title="Advisory presence — heartbeat liveness, never an identity claim">
+            {presenceCopy}
+          </span>
         ) : null}
         <IconButton className={picking || pendingElement ? 'is-active annotation-active' : ''} label={picking ? 'Stop annotating' : 'Annotate page'} aria-pressed={picking} onClick={toggleAnnotation}>
           <MessageCirclePlus size={15} />
