@@ -16,6 +16,7 @@ class FakeDownload extends EventEmitter {
   getFilename() { return 'download.bin' }
   setSaveDialogOptions(options: unknown) { this.saveOptions = options }
   setSavePath(path: string) { this.savePath = path }
+  getSavePath() { return this.savePath }
   getReceivedBytes() { return this.received }
   cancel() { this.cancelled = true }
 }

@@ -92,6 +92,12 @@ const expectedOrder = [
   'Toggle terminal',
   'Toggle sidebar',
   'Open Settings',
+  'VClaw: follow',
+  'VClaw: approve',
+  'VClaw: revoke',
+  'VClaw: steer',
+  'VClaw: pause',
+  'VClaw: share',
 ]
 
 describe.each<HarnessId>(['prime', 'omp', 'pi'])('command palette for %s', (harness) => {
