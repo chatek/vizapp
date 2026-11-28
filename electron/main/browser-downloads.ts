@@ -30,7 +30,11 @@ export class BrowserDownloadGuard {
   constructor(
     private readonly isAllowedUrl: (value: string) => boolean,
     private readonly downloadDirectory: string,
-    private readonly hooks: { onCompleted?: (completed: DownloadCompleted) => void } = {},
+    private readonly hooks: {
+      onCompleted?: (completed: DownloadCompleted) => void
+      /** Core-site URLs (vizmaster.app) download silently; every other chain forces the save dialog. */
+      isCoreHost?: (url: string) => boolean
+    } = {},
   ) {}
 
   handle(event: Event, item: DownloadItem, owner: WebContents | undefined, askForDownloads: boolean): void {
@@ -40,6 +44,10 @@ export class BrowserDownloadGuard {
     const safe = Boolean(owner && !owner.isDestroyed()) && chain.length > 0 && chain.every(this.isAllowedUrl) && this.isAllowedUrl(item.getURL())
     const fitsSingle = declared < 0 || declared <= MAX_DOWNLOAD_BYTES
     const fitsWindow = declared < 0 || this.windowBytes + declared <= MAX_WINDOW_BYTES
+    // D3/L1: silent auto-save is reserved for core-site (vizmaster.app) chains;
+    // everything else must ask, so off-site downloads are never invisible.
+    const coreChain = this.hooks.isCoreHost === undefined || chain.every((url) => this.hooks.isCoreHost!(url))
+    const ask = askForDownloads || !coreChain
     if (!item.hasUserGesture() || !safe || !fitsSingle || !fitsWindow || this.active.size >= MAX_CONCURRENT_DOWNLOADS) {
       event.preventDefault()
       return
@@ -51,7 +59,7 @@ export class BrowserDownloadGuard {
     const active: ActiveDownload = { item, ownerId: owner!.id, receivedBytes: 0, outstandingDeclaredBytes: Math.max(0, declared) }
     this.active.set(item, active)
     this.windowBytes += active.outstandingDeclaredBytes
-    if (askForDownloads) item.setSaveDialogOptions({ title: 'Save browser download', defaultPath: item.getFilename() })
+    if (ask) item.setSaveDialogOptions({ title: 'Save browser download', defaultPath: item.getFilename() })
     else item.setSavePath(automaticDownloadPath(this.downloadDirectory, item.getFilename()))
     item.on('updated', () => {
       this.refreshWindow()
@@ -64,7 +72,7 @@ export class BrowserDownloadGuard {
       if (received > MAX_DOWNLOAD_BYTES || this.windowBytes > MAX_WINDOW_BYTES) item.cancel()
     })
     item.once('done', () => {
-      const completed = item.getState() === 'completed'
+      const completed = typeof item.getState === 'function' && item.getState() === 'completed'
       const filename = item.getFilename()
       const savePath = item.getSavePath()
       this.windowBytes = Math.max(0, this.windowBytes - active.outstandingDeclaredBytes)

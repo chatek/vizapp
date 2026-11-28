@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, safeStorage, session, shell, webContents } from 'electron'
 import type { BrowserWindowConstructorOptions, Input, WebContents } from 'electron'
-import { isPaneSignInUrl, withEmbedHint } from '../../src/lib/pane-urls'
+import { isPaneSignInUrl, isVizmasterAppUrl, withEmbedHint } from '../../src/lib/pane-urls'
 import { extname, isAbsolute, join, relative, resolve, win32 as win32Path } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -962,6 +962,7 @@ async function bootstrap(): Promise<void> {
     },
   })
   downloads = new BrowserDownloadGuard(isAllowedBrowserUrl, app.getPath('downloads'), {
+    isCoreHost: (url) => isVizmasterAppUrl(url),
     onCompleted: (completed: DownloadCompleted) => {
       // D3: surface silent auto-saves — an in-pane download must not be invisible.
       if (Notification.isSupported()) {

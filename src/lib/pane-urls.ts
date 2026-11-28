@@ -8,8 +8,19 @@
  */
 
 const EMBED_HOST_PATTERN = /(^|\.)vizmaster\.app$/i;
+const IDP_HOST_PATTERN = /(^|\.)vclawhub\.com$/i; // Authentico IdP + estate IdP hosts
 const EMBED_PARAM = 'embed';
 const EMBED_VALUE = 'vizapp';
+
+/** True for hosts the embedded pane renders in place: the core site and the IdP. */
+export function isTrustedPaneHost(raw: string): boolean {
+  try {
+    const hostname = new URL(raw).hostname;
+    return EMBED_HOST_PATTERN.test(hostname) || IDP_HOST_PATTERN.test(hostname);
+  } catch {
+    return false;
+  }
+}
 
 /** True when the URL points at vizmaster.app or a subdomain. */
 export function isVizmasterAppUrl(raw: string): boolean {

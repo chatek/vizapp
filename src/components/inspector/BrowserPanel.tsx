@@ -3,7 +3,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react'
 import { annotationMarkersScript, annotationPickerScript, annotationTakeScript } from '@/lib/annotation-picker'
 import { MAX_BROWSER_ANNOTATIONS, sanitizeCapturedElement } from '@/lib/browser-annotations'
 import { detectRendererPlatform, shortcutLabel } from '@/lib/platform-shortcuts'
-import { withEmbedHint } from '@/lib/pane-urls'
+import { withEmbedHint, isTrustedPaneHost, isVizmasterAppUrl } from '@/lib/pane-urls'
 import type { BrowserAnnotationsApi } from '@/hooks/useBrowserAnnotations'
 import type { StampedPointerEvent } from '@/hooks/useAgentBrowserTabs'
 import { AgentCursorOverlay, type AgentSlotRect } from '../AgentBrowserLayer'
@@ -74,6 +74,8 @@ interface BrowserPanelProps {
   onNavigateAgentTab?(tabId: string, action: 'back' | 'forward' | 'reload' | 'url', url?: string): void
   /** Test hook: how often to poll the page for a clicked element while picking. */
   pollIntervalMs?: number
+  /** The desktop's resolved theme family drives the embedded site's theme. */
+  appThemeMode?: 'light' | 'dark'
 }
 
 function agentTabLabel(tab: AgentBrowserTabRecord): string {
@@ -85,7 +87,7 @@ function agentTabLabel(tab: AgentBrowserTabRecord): string {
   return 'New tab'
 }
 
-export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandled, onOpenExternal, annotations, agentTabs = [], activeAgentTabId = null, previewSelected = true, onSelectAgentTab, onCloseAgentTab, onShowPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent = null, onNavigateAgentTab, pollIntervalMs = 350, platform = detectRendererPlatform() }: BrowserPanelProps) {
+export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandled, onOpenExternal, annotations, agentTabs = [], activeAgentTabId = null, previewSelected = true, onSelectAgentTab, onCloseAgentTab, onShowPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent = null, onNavigateAgentTab, pollIntervalMs = 350, platform = detectRendererPlatform(), appThemeMode = 'light' }: BrowserPanelProps) {
   const webviewRef = useRef<WebviewElement | null>(null)
   const [address, setAddress] = useState(home)
   const [currentUrl, setCurrentUrl] = useState(home)
@@ -94,6 +96,8 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
   const [canForward, setCanForward] = useState(false)
   const [picking, setPicking] = useState(false)
   const [domReady, setDomReady] = useState(false)
+  /** Human portal session, mirrored by the site — pane chrome displays it. */
+  const [paneAuthName, setPaneAuthName] = useState<string | null>(null)
   const [pendingElement, setPendingElement] = useState<BrowserAnnotationElement | null>(null)
   const [annotationText, setAnnotationText] = useState('')
   const [notice, setNotice] = useState('')
@@ -214,17 +218,59 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
       setPicking(false)
       setPendingElement(null)
       setAnnotationText('')
+      refreshPaneAuth()
       try {
         annotationsRef.current.handleNavigation(view.getURL())
       } catch {
         /* webview not ready */
       }
     }
+    // L1 host-scoped trust: the Preview pane renders only the core site (and
+    // IdP); every other https host hands off to the system browser.
+    const onWillNavigate = (event: Event) => {
+      const target = (event as Event & { url?: string }).url ?? ''
+      if (target && !isTrustedPaneHost(target)) {
+        event.preventDefault()
+        onOpenExternal(target)
+      }
+    }
+    // D3/L2 single theme owner: the pane follows the desktop theme and the
+    // site's own theme toggle stays hidden while embedded.
+    const applyPaneChrome = () => {
+      const themeScript = `(() => { try { localStorage.setItem('vm-theme-mode', ${JSON.stringify(appThemeMode)}); const style = document.createElement('style'); style.id = 'vizapp-pane-theme'; style.textContent = '.topbar-theme{display:none !important}'; document.getElementById('vizapp-pane-theme')?.remove(); document.head.appendChild(style) } catch { /* storage unavailable */ } })()`
+      void runInPage(view, themeScript)
+    }
+    // L2 pane auth chip: read the portal's non-secret profile mirror.
+    const refreshPaneAuth = () => {
+      void runInPage(
+        view,
+        "(() => { try { return localStorage.getItem('vm-auth-profile') } catch { return null } })()",
+      ).then((raw) => {
+        let name: string | null = null
+        try {
+          const parsed = JSON.parse(typeof raw === 'string' ? raw : 'null') as { name?: unknown; expiresAt?: unknown } | null
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            typeof parsed.name === 'string' &&
+            typeof parsed.expiresAt === 'number' &&
+            parsed.expiresAt > Date.now() / 1000
+          ) {
+            name = parsed.name
+          }
+        } catch {
+          name = null
+        }
+        setPaneAuthName(name)
+      })
+    }
     // dom-ready is the earliest point at which executeJavaScript is legal;
     // it fires again for every subsequent document, so markers re-apply.
     const onDomReady = () => {
       setDomReady(true)
       lastMarkersRef.current = ''
+      applyPaneChrome()
+      refreshPaneAuth()
       try { setPreviewWebContentsId(view.getWebContentsId()) } catch { /* guest not attached yet */ }
     }
     view.addEventListener('dom-ready', onDomReady)
@@ -232,14 +278,16 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
     view.addEventListener('did-stop-loading', didStop)
     view.addEventListener('did-navigate', didNavigate)
     view.addEventListener('did-navigate-in-page', sync)
+    view.addEventListener('will-navigate', onWillNavigate)
     return () => {
       view.removeEventListener('dom-ready', onDomReady)
       view.removeEventListener('did-start-loading', didStart)
       view.removeEventListener('did-stop-loading', didStop)
       view.removeEventListener('did-navigate', didNavigate)
       view.removeEventListener('did-navigate-in-page', sync)
+      view.removeEventListener('will-navigate', onWillNavigate)
     }
-  }, [home])
+  }, [home, appThemeMode, onOpenExternal])
 
   // While annotation mode is on, the picker runs inside the page; poll it for
   // the element the user clicked. Stopping cleans up the page-side listeners.
@@ -415,6 +463,37 @@ export function BrowserPanel({ home, navigationRequest, onNavigationRequestHandl
             <History size={13} />
           </button>
         </form>
+        {paneAuthName !== null && isVizmasterAppUrl(currentUrl) ? (
+          <div className="pane-auth-chip" role="status" title="Human portal session (the agent identity is separate)">
+            <span className="pane-auth-dot" aria-hidden />
+            <span className="pane-auth-name">{paneAuthName}</span>
+            <button
+              type="button"
+              className="pane-auth-action"
+              title="Renew session in a child tab — /play state is kept"
+              onClick={() => navigate(withEmbedHint('https://vizmaster.app/?returnTo=%2Fplay'))}
+            >
+              Renew
+            </button>
+            <button
+              type="button"
+              className="pane-auth-action"
+              title="Sign out (top-level)"
+              onClick={() => navigate('https://vizmaster.app/?signout=1')}
+            >
+              Sign out
+            </button>
+          </div>
+        ) : paneAuthName === null && isVizmasterAppUrl(currentUrl) ? (
+          <button
+            type="button"
+            className="pane-auth-action pane-auth-chip"
+            title="Sign in opens a child tab in this pane — /play state is kept"
+            onClick={() => navigate(withEmbedHint('https://vizmaster.app/?returnTo=%2Fplay'))}
+          >
+            Sign in
+          </button>
+        ) : null}
         <IconButton className={picking || pendingElement ? 'is-active annotation-active' : ''} label={picking ? 'Stop annotating' : 'Annotate page'} aria-pressed={picking} onClick={toggleAnnotation}>
           <MessageCirclePlus size={15} />
         </IconButton>

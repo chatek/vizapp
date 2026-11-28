@@ -1,4 +1,4 @@
-import { Bell, CalendarClock, Folder, LayoutPanelLeft, NotebookPen, PackageOpen, Search, Settings, Terminal, } from 'lucide-react'
+import { Bell, CalendarClock, Folder, LayoutPanelLeft, MessageCirclePlus, NotebookPen, PackageOpen, Search, Settings, Terminal, } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { WorkspaceView } from '@/types/api'
@@ -7,7 +7,15 @@ import { BrowserGlobe, useAppShellOverlay, useFocusTrap } from './ui'
 
 interface Command { id:string; label:string; detail:string; shortcut?:string; icon:ReactNode; run():void }
 
-export function CommandPalette({ open, onClose, onNavigate, onNewSession, onToggleSidebar, onToggleTerminal, onOpenBrowser, platform = 'darwin' }: { open:boolean; onClose():void; onNavigate(view:WorkspaceView):void; onNewSession():void; onToggleSidebar():void; onToggleTerminal():void; onOpenBrowser():void; platform?:NodeJS.Platform }) {
+export function CommandPalette({ open, onClose, onNavigate, onNewSession, onToggleSidebar, onToggleTerminal, onOpenBrowser, platform = 'darwin', onVclawCommand }: { open:boolean; onClose():void; onNavigate(view:WorkspaceView):void; onNewSession():void; onToggleSidebar():void; onToggleTerminal():void; onOpenBrowser():void; platform?:NodeJS.Platform; onVclawCommand?(command:string):void }) {
+  const vclawVerbs: Array<{ verb: string; detail: string }> = [
+    { verb: 'follow', detail: 'Follow an account — sends /vclaw follow in the active thread (ARC R4)' },
+    { verb: 'approve', detail: 'Approve a pending follow — sends /vclaw approve (ARC R4)' },
+    { verb: 'revoke', detail: 'Revoke a consent edge — sends /vclaw revoke (ARC R4)' },
+    { verb: 'steer', detail: 'Steer a coach — sends /vclaw steer (ARC R4)' },
+    { verb: 'pause', detail: 'Pause social updates — sends /vclaw pause (ARC R4)' },
+    { verb: 'share', detail: 'Share the current viz — sends /vclaw share (ARC R4)' },
+  ]
   const [query,setQuery]=useState('')
   const [active,setActive]=useState(0)
   const inputRef=useRef<HTMLInputElement>(null)
@@ -22,6 +30,13 @@ export function CommandPalette({ open, onClose, onNavigate, onNewSession, onTogg
     {id:'terminal',label:'Toggle terminal',detail:'Open a project shell',shortcut:shortcutLabel(platform, ['Primary', 'J']),icon:<Terminal size={14}/>,run:onToggleTerminal},
     {id:'sidebar',label:'Toggle sidebar',detail:'Show or hide project navigation',shortcut:shortcutLabel(platform, ['Primary', 'B']),icon:<LayoutPanelLeft size={14}/>,run:onToggleSidebar},
     {id:'settings',label:'Open Settings',detail:'Configure VizMaster',shortcut:shortcutLabel(platform, ['Primary', ',']),icon:<Settings size={14}/>,run:()=>onNavigate('settings')},
+    ...(onVclawCommand ? vclawVerbs.map((verb) => ({
+      id: `vclaw-${verb.verb}`,
+      label: `VClaw: ${verb.verb}`,
+      detail: verb.detail,
+      icon: <MessageCirclePlus size={14}/>,
+      run: () => onVclawCommand(`/vclaw ${verb.verb}`),
+    })) : []),
   ]
   const visible=commands.filter((command)=>`${command.label} ${command.detail}`.toLowerCase().includes(query.toLowerCase()))
   useEffect(()=>{if(open){setQuery('');setActive(0);requestAnimationFrame(()=>inputRef.current?.focus())}},[open])

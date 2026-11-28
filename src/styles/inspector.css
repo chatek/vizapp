@@ -90,6 +90,11 @@
 .browser-toolbar { height: 43px; flex: 0 0 43px; display: flex; align-items: center; gap: 2px; padding: 0 7px; border-bottom: 1px solid var(--border); background: var(--surface-subtle); }
 .address-field { min-width: 80px; height: 29px; flex: 1; display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 0 6px 0 9px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-tertiary); background: var(--canvas); }
 .address-field:focus-within { border-color: var(--focus); }
+.pane-auth-chip { display: flex; align-items: center; gap: 6px; margin: 0 4px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--canvas); color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+.pane-auth-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success, #00b894); }
+.pane-auth-name { font-weight: 600; }
+.pane-auth-action { border: none; background: none; color: var(--text-tertiary); font-size: 11px; cursor: pointer; padding: 2px 3px; }
+.pane-auth-action:hover { color: var(--text-secondary); text-decoration: underline; }
 .address-field input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 11px; text-align: center; }
 .address-field button { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; color: var(--text-tertiary); background: transparent; }
 .annotation-active { color: var(--annotation) !important; background: color-mix(in srgb, var(--annotation) 13%, transparent) !important; }

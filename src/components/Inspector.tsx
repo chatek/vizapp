@@ -13,6 +13,8 @@ import { IconButton, useFocusTrap } from './ui'
 
 export interface InspectorProps {
   platform?: NodeJS.Platform
+  /** The desktop's resolved theme family, passed down to the embedded pane. */
+  appThemeMode?: 'light' | 'dark'
   activeTab: InspectorTab
   onTabChange(tab: InspectorTab): void
   onClose(): void
@@ -58,7 +60,7 @@ export interface InspectorProps {
 const tabs: Array<{ id: InspectorTab; label: string }> = [{ id: 'browser', label: 'Browser' }, { id: 'summary', label: 'Summary' }, { id: 'files', label: 'Files' }, { id: 'inbox', label: 'Inbox' }]
 
 /** Memoized so streaming transcript updates (which this component no longer consumes outside the Summary tab) do not re-render the inspector shell. */
-export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClose, agentName, shortName, project, cwd, runtime, messages, git, automations, heartbeats, onOpenAutomation, browserHome, browserNavigationRequest, onBrowserNavigationRequestHandled, browserAnnotations, agentBrowserTabs, activeAgentTabId, agentPreviewSelected, onSelectAgentTab, onCloseAgentTab, onShowBrowserPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent, onNavigateAgentTab, onRefreshGit, onOpenExternal, onRevealPath, onGrantProject, overlay = false, platform = 'darwin' }: InspectorProps) {
+export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClose, agentName, shortName, project, cwd, runtime, messages, git, automations, heartbeats, onOpenAutomation, browserHome, browserNavigationRequest, onBrowserNavigationRequestHandled, browserAnnotations, agentBrowserTabs, activeAgentTabId, agentPreviewSelected, onSelectAgentTab, onCloseAgentTab, onShowBrowserPreview, onAgentSlotRect, agentSessionKey, onPreviewContext, previewPointerEvent, onNavigateAgentTab, onRefreshGit, onOpenExternal, onRevealPath, onGrantProject, overlay = false, platform = 'darwin', appThemeMode = 'light' }: InspectorProps) {
   const inspectorRef = useFocusTrap<HTMLElement>(overlay, onClose)
   const moveTab = (current: number, key: string) => {
     let next = current
@@ -80,7 +82,7 @@ export const Inspector = memo(function Inspector({ activeTab, onTabChange, onClo
     <div id={`inspector-panel-${activeTab}`} className="inspector__body" role="tabpanel" aria-labelledby={`inspector-tab-${activeTab}`} tabIndex={0}>
       {activeTab === 'summary' ? <SummaryPanel agentName={agentName} shortName={shortName} project={project} runtime={runtime} messages={messages} git={git} automations={automations} heartbeats={heartbeats} onOpenAutomation={onOpenAutomation}/> : null}
       {activeTab === 'changes' ? <ChangesPanel key={cwd ?? 'no-workspace'} cwd={cwd} git={git} readOnly={project?.readOnly === true} onGrantProject={onGrantProject} onRefreshGit={onRefreshGit}/> : null}
-      {activeTab === 'browser' ? <BrowserPanel platform={platform} home={browserHome} navigationRequest={browserNavigationRequest} onNavigationRequestHandled={onBrowserNavigationRequestHandled} onOpenExternal={onOpenExternal} annotations={browserAnnotations} agentTabs={agentBrowserTabs} activeAgentTabId={activeAgentTabId} previewSelected={agentPreviewSelected} onSelectAgentTab={onSelectAgentTab} onCloseAgentTab={onCloseAgentTab} onShowPreview={onShowBrowserPreview} onAgentSlotRect={onAgentSlotRect} agentSessionKey={agentSessionKey} onPreviewContext={onPreviewContext} previewPointerEvent={previewPointerEvent} onNavigateAgentTab={onNavigateAgentTab}/> : null}
+      {activeTab === 'browser' ? <BrowserPanel platform={platform} home={browserHome} appThemeMode={appThemeMode} navigationRequest={browserNavigationRequest} onNavigationRequestHandled={onBrowserNavigationRequestHandled} onOpenExternal={onOpenExternal} annotations={browserAnnotations} agentTabs={agentBrowserTabs} activeAgentTabId={activeAgentTabId} previewSelected={agentPreviewSelected} onSelectAgentTab={onSelectAgentTab} onCloseAgentTab={onCloseAgentTab} onShowPreview={onShowBrowserPreview} onAgentSlotRect={onAgentSlotRect} agentSessionKey={agentSessionKey} onPreviewContext={onPreviewContext} previewPointerEvent={previewPointerEvent} onNavigateAgentTab={onNavigateAgentTab}/> : null}
       {activeTab === 'files' ? <FilesPanel project={project} git={git} onReveal={onRevealPath}/> : null}
       {activeTab === 'inbox' ? <InboxPanel/> : null}
     </div>
